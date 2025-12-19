@@ -1,0 +1,80 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyrc
+*.pyc
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+.env
+.vscode/
+.idea/
+*.log
+
+# =========================
+# Virtual Environments
+# =========================
+.*venv*/
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# Experiment outputs
+# =========================
+experiment_outputs/
+runs/
+wandb/
+logs/
+
+# =========================
+# Data
+# =========================
+data_files/raw/
+data_files/processed/
+
+# =========================
+# Config secrets (if any)
+# =========================
+.env
+.env.*
+*.secret.yaml
+
+# =========================
+# Editor / IDE
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Test / coverage
+# =========================
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# Jupyter (if used later)
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Packaging
+# =========================
+pip-wheel-metadata/
+
