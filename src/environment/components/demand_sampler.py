@@ -155,7 +155,6 @@ class EmpiricalDemandSampler(BaseDemandSampler):
     
     def __init__(self, context: EnvironmentContext, component_config: DemandSamplerConfig):
         """
-
         Initializes the empirical demand sampler.
         
         Args:
@@ -166,27 +165,36 @@ class EmpiricalDemandSampler(BaseDemandSampler):
         # Initialize base class
         super().__init__(context, component_config) 
         
-        # Extract episode length and data path
-        self.episode_length = component_config.params["episode_length"]
-        self.data_path = context.data_path
+        # Extract episode length from context (shared with environment)
+        self.episode_length = context.episode_length
         
-        # Load empirical data from CSV file
-        from src.data.loader import load_empirical_data
-        self.data = load_empirical_data(self.data_path)
-
-        # Validate data length vs episode_length
-        if len(self.data) < self.episode_length:
+        # Load empirical data from preprocessed data
+        if context.preprocessed_data is not None:
+            self.data = context.preprocessed_data.demand_data
+        else:
             raise ValueError(
-                f"Data length ({len(self.data)}) must be >= episode_length ({self.episode_length})"
+                "EmpiricalDemandSampler requires preprocessed_data. "
+                "Ensure real_world data source is configured and preprocessing is enabled."
             )
         
+        # Get unique timesteps in data
+        self.available_timesteps = sorted(self.data['timestep'].unique())
+        self.max_timestep = max(self.available_timesteps) if len(self.available_timesteps) > 0 else 0
+        
+        # Validate that there is enough data for the episode length
+        if len(self.available_timesteps) < self.episode_length:
+            raise ValueError(
+                f"EmpiricalDemandSampler: episode_length ({self.episode_length}) > "
+                f"available timesteps ({len(self.available_timesteps)}). "
+                "Episode length must be <= number of available timesteps."
+            )
+
         # Initialize start timestep for the random time window
         self._start_timestep = None
     
     def sample(self, timestep: int) -> List[Order]:
         """
         Samples orders from historical data by performing the following steps:
-        
             1. Selects a random time window from the data of length episode_length
             2. Select the orders from the time window based on the given episode timestep
 
@@ -197,16 +205,18 @@ class EmpiricalDemandSampler(BaseDemandSampler):
             orders (List[Order]): List of Order objects for this timestep. Shape: (n_regions, n_orders).
         """
 
-        # Sample random window start timestep if not set
+        # Sample random window start timestep if not set yet
         if self._start_timestep is None:
-            max_start = len(self.data) - self.episode_length # Maximum start timestep
-            self._start_timestep = self._rng.integers(0, max_start)
-        
-        # Compute relative timestep within the window based on the given episode timestep
+            max_start_idx = len(self.available_timesteps) - self.episode_length
+            start_idx = self._rng.integers(0, max_start_idx + 1)
+            self._start_timestep = self.available_timesteps[start_idx]
+            
+        # Compute relative timestep within the window
         relative_timestep = timestep % self.episode_length
-
+        
         # Compute actual timestep in the data
-        actual_timestep = self._start_timestep + relative_timestep
+        start_idx = self.available_timesteps.index(self._start_timestep)
+        actual_timestep = self.available_timesteps[start_idx + relative_timestep]
         
         # Extract all data rows corresponding to the actual timestep
         timestep_data = self.data[self.data['timestep'] == actual_timestep]
@@ -215,7 +225,7 @@ class EmpiricalDemandSampler(BaseDemandSampler):
         orders = []
         
         # Group by region and order_id to create Order objects
-        for (region_id, order_id), group in timestep_data.groupby(['region', 'order_id']):
+        for (region_id, order_id), group in timestep_data.groupby(['region_id', 'order_id']):
             # Initialize SKU demands array
             sku_demands = np.zeros(self.n_skus, dtype=float) # Shape: (n_skus,)
             
