@@ -37,12 +37,14 @@ class InventoryEnvironment(ParallelEnv):
     
     metadata = {"render_modes": ["human"], "name": "inventory_env_v0"}
     
-    def __init__(self, env_config: EnvironmentConfig):
+    def __init__(self, env_config: EnvironmentConfig, seed: Optional[int] = None):
         """
         Initializes the environment from configuration.
         
         Args:
-            env_config (Dict[str, Any]): Environment configuration.
+            env_config (EnvironmentConfig): Environment configuration.
+            seed (Optional[int]): Root seed for reproducibility. If provided, used for preprocessing and stored
+                for reset(). Defaults to None.
         """
 
         # Store general environment parameters
@@ -51,20 +53,25 @@ class InventoryEnvironment(ParallelEnv):
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
         
+        # Spawn all environment seeds based on the root seed
+        self._env_seeds = self._spawn_environment_seeds(seed)
+        
+        # Create environment context
+        from src.environment.context import create_environment_context
+        context = create_environment_context(env_config, preprocessing_seed=self._env_seeds['preprocessing'])
+        
         # Initialize components via registry
-        self.demand_sampler = get_demand_sampler(env_config)
-        self.demand_allocator = get_demand_allocator(env_config)
-        self.lead_time_sampler = get_lead_time_sampler(env_config)
-        self.lost_sales_handler = get_lost_sales_handler(env_config)
-        self.reward_calculator = get_reward_calculator(env_config)
+        self.demand_sampler = get_demand_sampler(env_config, context=context)
+        self.demand_allocator = get_demand_allocator(env_config, context=context)
+        self.lead_time_sampler = get_lead_time_sampler(env_config, context=context)
+        self.lost_sales_handler = get_lost_sales_handler(env_config, context=context)
+        self.reward_calculator = get_reward_calculator(env_config, context=context)
         
         # Store cost structure and initial inventory config
         self.cost_structure = env_config.cost_structure
         self.initial_inventory_config = env_config.initial_inventory
-    
+
         # Pre-compute closest warehouses for each region
-        from src.environment.context import create_environment_context
-        context = create_environment_context(env_config)
         self.closest_warehouses = np.argmin(context.shipment_cost, axis=0)  # Shape: (n_regions,)
         
         # Set agent IDs
@@ -92,8 +99,18 @@ class InventoryEnvironment(ParallelEnv):
                 - infos (Dict[str, Dict]): Dictionary mapping agent_id to info dict (empty for now).
         """
 
-        # Reset stochastic components and get seed for inventory initialization
-        inventory_seed = self._reset_stochastic_components(seed)
+        # Spawn seeds if new seed provided, otherwise use stored seeds
+        env_seeds = self._spawn_environment_seeds(seed) if seed is not None else self._env_seeds
+        
+        # Extract seeds for inventory and stochastic components
+        inventory_seed = env_seeds['inventory']
+        stochastic_seeds = [
+            env_seeds['demand_sampler'],
+            env_seeds['lead_time_sampler']
+        ]
+
+        # Reset stochastic components
+        self._reset_stochastic_components(stochastic_seeds)
         
         # Reset state
         self.inventory = self._initialize_inventory(inventory_seed)
@@ -241,6 +258,7 @@ class InventoryEnvironment(ParallelEnv):
         inv_config = self.initial_inventory_config
         
         # Use a temporary RNG for initialization (used for uniform method)
+        seed = seed.entropy if seed is not None else None
         rng = np.random.default_rng(seed)
         
         # Initialize inventory based on the initial inventory method
@@ -264,17 +282,13 @@ class InventoryEnvironment(ParallelEnv):
         
         return inventory.astype(float)
     
-    def _reset_stochastic_components(self, seed: Optional[int] = None) -> Optional[int]:
+    def _reset_stochastic_components(self, stochastic_seeds: Optional[List[SeedSequence]] = None):
         """
-        Resets all stochastic components with independent random seeds for reproducibility by calling the reset() method 
-        of each component. Since inventory initialization is not a component with a reset method itself but also stochastic,
-        the function returns only the seed for inventory initialization.
+        Resets all stochastic components using pre-spawned seeds.
         
         Args:
-            seed (Optional[int]): Random seed for reproducibility. If None, components are reset without explicit seeds.
-            
-        Returns:
-            seed (Optional[int]): Random seed for inventory initialization (or None if seed was None).
+            stochastic_seeds (Optional[List[SeedSequence]]): List of seeds for stochastic components.
+                Expected order: [demand_sampler_seed, lead_time_sampler_seed]. If None, components are reset without explicit seeds.
         """
 
         # Collect stochastic components
@@ -285,24 +299,22 @@ class InventoryEnvironment(ParallelEnv):
             ] if isinstance(comp, StochasticComponent)
         ]
         
-        # Reset stochastic components with independent random seeds
-        if seed is not None:
-            # Create a seed sequence with the provided seed
-            seed_seq = SeedSequence(seed)
-            # Spawn seeds for all stochastic components. Add one additional seed for inventory initialization.
-            seeds = seed_seq.spawn(len(stochastic_components) + 1) 
-            # Reset each component with its corresponding seed
-            for comp, seed_obj in zip(stochastic_components, seeds[:-1]):
-                comp.reset(seed_obj.entropy)
-            # Set the seed for inventory initialization as the last seed in the sequence and return it
-            inventory_seed = seeds[-1].entropy
-            return inventory_seed
+        # If seeds are provided, ensure that they match the number of stochastic components and used them to reset the components
+        if stochastic_seeds is not None:
+            if len(stochastic_seeds) != len(stochastic_components):
+                raise ValueError(
+                    f"Number of seeds ({len(stochastic_seeds)}) must match "
+                    f"number of stochastic components ({len(stochastic_components)})"
+                )
+            
+            for comp, seed_obj in zip(stochastic_components, stochastic_seeds):
+                seed = seed_obj.entropy if seed_obj is not None else None
+                comp.reset(seed)
 
-        # If no seed is provided, reset all stochastic components without explicit seeds
+        # If no seeds provided, reset all stochastic components without explicit seeds
         else:
             for comp in stochastic_components:
                 comp.reset(None)
-            return None
 
     def _get_observations(self) -> Dict[str, np.ndarray]:
         """
@@ -385,3 +397,47 @@ class InventoryEnvironment(ParallelEnv):
         if self.timestep in self.pending_orders:
             self.inventory += self.pending_orders[self.timestep]
             del self.pending_orders[self.timestep]
+
+    @staticmethod
+    def _spawn_environment_seeds(root_seed: Optional[int]) -> Dict[str, Optional[SeedSequence]]:
+        """
+        Spawns all seeds needed for environment operations in the following allocation order:
+            1. preprocessing: Seed[0] for preprocessing (if real_world data source)
+            2. inventory: Seed[1] (or Seed[0] if no preprocessing) for inventory initialization
+            3. demand_sampler: Seed[2] (or Seed[1] if no preprocessing) for demand sampler
+            4. lead_time_sampler: Seed[3] (or Seed[2] if no preprocessing) for lead time sampler
+        
+        Args:
+            root_seed (Optional[int]): Root seed for reproducibility. If None, returns None.
+            
+        Returns:
+            env_seeds (Dict[str, Optional[SeedSequence]]): Dictionary with keys: 'preprocessing', 'inventory', 'demand_sampler', 'lead_time_sampler'. 
+                Each key contains the corresponding seed or None if root_seed is None.
+        """
+
+        # Return early if no root seed is provided
+        if root_seed is None:
+            return {
+            'preprocessing': None,
+            'inventory': None,
+            'demand_sampler': None,
+            'lead_time_sampler': None
+        }
+        
+        # Create a seed sequence with the root seed and spawn seeds
+        seed_seq = SeedSequence(root_seed)
+        seeds = seed_seq.spawn(4)
+        
+        # Assemble environment seeds
+        env_seeds = {
+            'preprocessing': seeds[0],
+            'inventory': seeds[1],
+            'demand_sampler': seeds[2],
+            'lead_time_sampler': seeds[3]
+        }
+
+        return env_seeds
+
+
+
+

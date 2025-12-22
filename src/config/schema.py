@@ -166,7 +166,7 @@ class DemandSamplerEmpirical(BaseModel):
     """Configuration for empirical demand sampler."""
 
     type: Literal["empirical"]
-    params: Dict[Literal["episode_length"], PositiveInt] 
+    params: Optional[None] = None  # No params needed - episode_length comes from environment config
     model_config = ConfigDict(extra="forbid")
 
 # Union of demand sampler configurations
@@ -356,12 +356,12 @@ class DataSourceRealWorld(BaseModel):
     path: Path
     model_config = ConfigDict(extra="forbid")
 
-    # Path must exist and be a file
+    # Path must exist (can be file or directory)
     @field_validator("path")
     @classmethod
     def _check_path_exists(cls, p: Path):
-        if not p.exists() or not p.is_file():
-            raise ValueError(f"real_world path does not exist or is not a file: {p}")
+        if not p.exists():
+            raise ValueError(f"real_world path does not exist: {p}")
         return p
 
 # Union of data source configurations
