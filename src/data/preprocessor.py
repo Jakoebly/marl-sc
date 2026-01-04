@@ -7,26 +7,11 @@ processing orders, and extracting shipment costs for use in the environment.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
 from numpy.random import SeedSequence
-
-
-@dataclass
-class PreprocessedData:
-    """
-    Container for preprocessed data ready for environment use.
-    
-    Attributes:
-        demand_data (pd.DataFrame): Processed demand data with columns:
-            timestep, region, order_id, sku_id, quantity.
-        shipment_costs (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
-    """
-    demand_data: pd.DataFrame
-    shipment_costs: np.ndarray  # Shape: (n_warehouses, n_regions)
-
 
 class RawDataLoader:
     """
@@ -195,6 +180,7 @@ class DataSelector:
             available_region_ids, size=self.n_regions, replace=False
         ).tolist()
     
+
 class DataProcessor:
     """
     Processes and filters data based on selected subsets by mapping excluded regions to included regions, 
@@ -252,7 +238,7 @@ class DataProcessor:
         # Copy order region IDs
         mapped_regions = order_region_ids.copy()
         
-        # Convert to string and setfor comparison
+        # Convert to string and set for comparison
         selected_region_ids_str = [str(rid) for rid in self.selected_region_ids]
         selected_region_ids_set = set(str(rid) for rid in self.selected_region_ids)
         
@@ -260,7 +246,7 @@ class DataProcessor:
         excluded_mask = ~order_region_ids.astype(str).isin(selected_region_ids_set)
         excluded_regions = order_region_ids[excluded_mask].unique()
         
-        # For each excluded region, find nearest included region
+        # For each excluded region, find most similar included region
         for excluded_region in excluded_regions:
             # Convert to string for comparison
             excluded_region_str = str(excluded_region)
@@ -297,7 +283,7 @@ class DataProcessor:
         
         return mapped_regions
     
-    def extract_shipment_costs(self) -> np.ndarray:
+    def get_updated_shipment_costs(self) -> np.ndarray:
         """
         Extracts the shipment costs for all (warehouse, region) pairs in the selected sets.
         If a pair does not exist in the data, it uses the average cost for the warehouse as fallback.
@@ -410,7 +396,6 @@ class DataProcessor:
         return processed_demand_data
     
 
-
 class DataPreprocessor:
     """
     Implements a data preprocessor that orchestrates the loading of raw data, selecting subsets, and processing data 
@@ -434,7 +419,7 @@ class DataPreprocessor:
         self.n_warehouses = n_warehouses
         self.n_regions = n_regions
     
-    def preprocess(self, seed: Optional[int] = None) -> PreprocessedData:
+    def preprocess(self, seed: Optional[int] = None) -> Tuple[pd.DataFrame, np.ndarray]:
         """
         Implements the raw data preprocessing pipeline by loading raw data, selecting subsets of SKUs, 
         warehouses, and regions according to the configuration, and processing the data to create 
@@ -445,10 +430,8 @@ class DataPreprocessor:
             seed (Optional[int]): Random seed for reproducibile data selection. Defaults to None.
         
         Returns:
-            PreprocessedData: Preprocessed data ready for environment use with the following attributes:
-                - demand_data (pd.DataFrame): Processed demand data with columns:
-                    timestep, region, order_id, sku_id, quantity.
-                - shipment_costs (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
+            preprocessed_data (pd.DataFrame): Processed demand data.
+            shipment_costs (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
         """
 
         # 1. Load and validate raw data
@@ -478,14 +461,8 @@ class DataPreprocessor:
             skus_df=loader.skus_df,
             regions_df=loader.regions_df,
         )
-        demand_data = processor.create_processed_demand_data()
-        shipment_costs = processor.extract_shipment_costs()
-        
-        # 5. Create PreprocessedData
-        preprocessed_data = PreprocessedData(
-            demand_data=demand_data,
-            shipment_costs=shipment_costs
-        )
+        preprocessed_data = processor.create_processed_demand_data()
+        shipment_costs = processor.get_updated_shipment_costs()
 
-        return preprocessed_data
+        return preprocessed_data, shipment_costs
 

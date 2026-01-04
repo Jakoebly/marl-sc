@@ -3,6 +3,10 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
+STOCHASTIC_COMPONENT_REGISTRY = (
+    'demand_sampler',
+    'lead_time_sampler'
+)
 
 class StochasticComponent(ABC):
     """
