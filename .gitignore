@@ -68,6 +68,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 tests/playground.py
+dump/
 
 # =========================
 # Jupyter (if used later)
