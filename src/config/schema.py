@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, field_validator, model_validator
 
@@ -379,6 +379,7 @@ class EnvironmentConfig(BaseModel):
     n_skus: PositiveInt
     n_regions: PositiveInt
     episode_length: PositiveInt
+    max_order_quantity: PositiveInt
 
     initial_inventory: InitialInventoryConfig = Field(..., discriminator="type")
     cost_structure: CostStructureConfig
@@ -456,4 +457,79 @@ class EnvironmentConfig(BaseModel):
                     f"got data_source.type='{self.data_source.type}'"
                 )
 
-        return self
+
+# ============================================================================
+# Algorithm Configuration Schemas
+# ============================================================================
+
+class SharedAlgorithmConfig(BaseModel):
+    """Common parameters shared across all algorithms."""
+    
+    learning_rate: float
+    batch_size: PositiveInt
+    num_iterations: PositiveInt
+    checkpoint_freq: PositiveInt
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    @field_validator("learning_rate")
+    @classmethod
+    def _check_learning_rate_positive(cls, v: float):
+        if v <= 0:
+            raise ValueError("learning_rate must be positive")
+        return v
+
+
+class IPPOConfig(BaseModel):
+    """Configuration for Independent PPO algorithm."""
+    
+    name: Literal["ippo"]
+    shared: SharedAlgorithmConfig
+    algorithm_specific: Dict[str, Any] = Field(default_factory=dict)
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    @field_validator("algorithm_specific")
+    @classmethod
+    def _validate_ippo_params(cls, v: Dict[str, Any]):
+        # Validate IPPO-specific parameters if needed
+        # Common IPPO params: vf_loss_coeff, entropy_coeff, clip_param, etc.
+        return v
+
+
+class MAPPOConfig(BaseModel):
+    """Configuration for Multi-Agent PPO algorithm."""
+    
+    name: Literal["mappo"]
+    shared: SharedAlgorithmConfig
+    algorithm_specific: Dict[str, Any] = Field(default_factory=dict)
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    @field_validator("algorithm_specific")
+    @classmethod
+    def _validate_mappo_params(cls, v: Dict[str, Any]):
+        # Validate MAPPO-specific parameters if needed
+        # Common MAPPO params: use_critic, use_gae, lambda, etc.
+        return v
+
+
+class HAPPOConfig(BaseModel):
+    """Configuration for HAPPO algorithm."""
+    
+    name: Literal["happo"]
+    shared: SharedAlgorithmConfig
+    algorithm_specific: Dict[str, Any] = Field(default_factory=dict)
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    @field_validator("algorithm_specific")
+    @classmethod
+    def _validate_happo_params(cls, v: Dict[str, Any]):
+        # Validate HAPPO-specific parameters if needed
+        # Common HAPPO params: advantage_normalization, etc.
+        return v
+
+
+# Union of algorithm configurations
+AlgorithmConfig = Annotated[Union[IPPOConfig, MAPPOConfig, HAPPOConfig], Field(discriminator="name")]

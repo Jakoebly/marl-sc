@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import Optional, Union, TYPE_CHECKING
+from typing import Optional, Union, Tuple, TYPE_CHECKING
 
 import numpy as np
 from numpy.random import SeedSequence
 
-from src.config.schema import EnvironmentConfig
+from src.config.schema import EnvironmentConfig, CostStructureConfig
 
 if TYPE_CHECKING:
     from src.data.preprocessor import PreprocessedData
@@ -80,13 +80,13 @@ def preprocess_real_world_data(
     return preprocessed_data, shipment_cost
 
 def convert_cost_structure(
-    cost_structure: CostStructure
+    cost_structure: CostStructureConfig
 ) -> Tuple[Union[float, np.ndarray], Union[float, np.ndarray]]:
     """
     Converts cost structure from config format to runtime format.
     
     Args:
-        cost_structure (CostStructure): Cost structure configuration.
+        cost_structure (CostStructureConfig): Cost structure configuration.
         
     Returns:
         holding_cost (Union[float, np.ndarray]): Holding cost rate(s). Shape: scalar or (n_warehouses,).

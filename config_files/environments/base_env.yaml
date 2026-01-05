@@ -3,6 +3,7 @@ environment:
   n_skus: 10
   n_regions: 3
   episode_length: 365
+  max_order_quantity: 100
   initial_inventory:
     type: "uniform"
     params:

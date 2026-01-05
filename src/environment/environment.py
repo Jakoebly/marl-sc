@@ -16,7 +16,7 @@ from src.environment.components.base import StochasticComponent
 from src.environment.components.demand_sampler import Order
 from src.environment.components.demand_allocator import AllocationResult
 from numpy.random import SeedSequence
-from src.utils.seed_manager import SeedManager
+from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEED_REGISTRY
 
 
 class InventoryEnvironment(ParallelEnv):
@@ -53,6 +53,7 @@ class InventoryEnvironment(ParallelEnv):
         self.n_skus = env_config.n_skus
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
+        self.max_order_quantity = env_config.max_order_quantity
         
         # Initialize seed manager
         self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEED_REGISTRY)
@@ -105,17 +106,12 @@ class InventoryEnvironment(ParallelEnv):
             self.seed_manager.update_root_seed(seed)
         
         # Get seeds for stochastic components and initial inventory
-         from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
+        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
         stochastic_seeds = self.seed_manager.get_seeds_int_for_components(STOCHASTIC_COMPONENT_REGISTRY)
         inventory_seed = self.seed_manager.get_seed_int('inventory')
-       
-       # Reset stochastic components
-        stochastic_components = [
-            getattr(self, attr_name) 
-            for attr_name in STOCHASTIC_COMPONENT_REGISTRY
-            if isinstance(getattr(self, attr_name), StochasticComponent)
-        ]
-        self._reset_stochastic_components(components=stochastic_components, seeds=stochastic_seeds)      
+        
+        # Reset stochastic components
+        self._reset_stochastic_components(seeds=stochastic_seeds)      
 
         # Reset state
         self.inventory = self._initialize_inventory(seed=inventory_seed)
@@ -158,8 +154,9 @@ class InventoryEnvironment(ParallelEnv):
                 - infos (Dict[str, Dict]): Dictionary mapping warehouse_id to info dictionary (empty for now).
         """
 
-        # 1. Place replenishment orders
-        self._apply_orders(actions)
+        # 1. Rescale normalized actions to order quantities and place replenishment orders
+        order_quantities = self._rescale_actions_to_quantities(actions)
+        self._apply_orders(actions=order_quantities)
 
         # 2. Receive replenishment orders arriving in this timestep
         self._apply_arrivals()
@@ -210,7 +207,7 @@ class InventoryEnvironment(ParallelEnv):
             observation_space (Box): Box space that contains the observation space for a warehouse. Shape: (2 * n_skus,).
         """
 
-        # Calculate the observation space size
+        # Set the observation dimension
         obs_size = 2 * self.n_skus
 
         # Create the observation space
@@ -218,12 +215,31 @@ class InventoryEnvironment(ParallelEnv):
 
         return observation_space
     
+    def state_space(self) -> Box:
+        """
+        Returns the observation space for the global state.
+        
+        Returns:
+            global_state_space (Box): Box space for global state.
+                Shape: (n_warehouses * 2 * n_skus,).
+        """
+
+        # Set the observation dimension and global state size
+        obs_dim = 2 * self.n_skus
+        global_state_size = self.n_warehouses * obs_dim
+
+        # Create the global state space
+        global_state_space = Box(low=0.0, high=np.inf, shape=(global_state_size,), dtype=np.float32)
+
+        return global_state_space
+
     def action_space(self, agent: str) -> Box:
         """
-        Returns the action space (replenishment order quantities) for a warehouse.
+        Returns the action space (normalized replenishment order quantities) for a warehouse. Actions are in the
+        range [-1, 1] and will be rescaled to [0, max_order_quantity] internally.
 
         Args:
-            agent (str): Warehouse ID (unused, all warehouses have same observation space).
+            agent (str): Warehouse ID (unused, all warehouses have the same action space).
             
         Returns:
             action_space (Box): Box space that contains the action space for a warehouse. Shape: (n_skus,).
@@ -232,8 +248,8 @@ class InventoryEnvironment(ParallelEnv):
         # Calculate the action space size
         act_size = self.n_skus
 
-        # Create the action space
-        action_space = Box(low=0.0, high=np.inf, shape=(act_size,), dtype=np.float32)
+        # Create the normalized action space [-1, 1]
+        action_space = Box(low=-1.0, high=1.0, shape=(act_size,), dtype=np.float32)
 
         return action_space
 
@@ -291,10 +307,18 @@ class InventoryEnvironment(ParallelEnv):
         Resets all stochastic components using pre-spawned seeds.
         
         Args:
-            seeds (Optional[List[int]]): List of seeds for stochastic components. If None, components are reset without explicit seeds.
+            seeds (Optional[List[SeedSequence]]): List of seeds for stochastic components. If None, components are reset without explicit seeds.
         """
+
+        # Get stochastic components from the environment
+        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
+        stochastic_components = [
+            getattr(self, attr_name) 
+            for attr_name in STOCHASTIC_COMPONENT_REGISTRY
+            if isinstance(getattr(self, attr_name), StochasticComponent)
+        ]
         
-        # If seeds are provided, ensure that they match the number of stochastic components and used them to reset the components
+        # If seeds are provided, ensure that they match the number of stochastic components and use them to reset the components
         if seeds is not None:
             if len(seeds) != len(stochastic_components):
                 raise ValueError(
@@ -303,7 +327,10 @@ class InventoryEnvironment(ParallelEnv):
                 )
             
             for comp, seed_obj in zip(stochastic_components, seeds):
-                seed_int = SeedManager.seed_to_int(seed_obj)
+                if isinstance(seed_obj, SeedSequence):
+                    seed_int = SeedManager.seed_to_int(seed_obj)
+                else:
+                    seed_int = seed_obj  # Already an int
                 comp.reset(seed_int)
 
         # If no seeds provided, reset all stochastic components without explicit seeds
@@ -337,7 +364,48 @@ class InventoryEnvironment(ParallelEnv):
             observation = np.concatenate([obs_inventory, pending_total])
             observations[warehouse_id] = observation
         
-        return observations 
+        return observations
+    
+    def get_global_state(self) -> np.ndarray:
+        """
+        Returns the global state by concatenating all agent observations.
+        
+        Returns:
+            global_state (np.ndarray): Concatenated observations from all agents. Shape: (n_warehouses * obs_dim)
+        """
+
+        # Get observations for all agents
+        observations = self._get_observations()
+        
+        # Concatenate observations in agent order
+        global_state = np.concatenate([observations[agent_id] for agent_id in self.agents])
+        
+        return global_state
+
+    def _rescale_actions_to_quantities(self, actions: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """
+        Rescales normalized actions from a [-1, 1] range to integer order quantities in the range [0, max_order_quantity].
+        
+        Args:
+            actions (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to normalized action array. 
+                Shape: {agent_id: (n_skus,)}
+                
+        Returns:
+            quantities (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to rescaled action array.
+                Shape: {agent_id: (n_skus,)}
+        """
+        
+        # Initialize dictionary to store quantities
+        quantities = {}
+        
+        # Rescale actions to quantities for each warehouse
+        for agent_id, action in actions.items():
+            scaled = (action + 1.0) / 2.0 * self.max_order_quantity 
+            integer_action = np.round(scaled).astype(int)
+            integer_action = np.clip(integer_action, 0, self.max_order_quantity) # Clip to ensure [0, max_order_quantity] range
+            quantities[agent_id] = integer_action.astype(float) # Convert to float for compatibility with _apply_orders
+        
+        return quantities
 
     def _apply_orders(self, actions: Dict[str, np.ndarray]):
         """
