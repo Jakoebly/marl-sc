@@ -114,6 +114,7 @@ class PoissonDemandSampler(BaseDemandSampler):
         Returns:
             orders (List[Order]): List of Order objects for this timestep. Shape: (n_regions, n_orders).
         """
+        
         orders = []
         
         # Generate orders for each region independently
@@ -168,9 +169,12 @@ class EmpiricalDemandSampler(BaseDemandSampler):
         # Extract episode length from context (shared with environment)
         self.episode_length = context.episode_length
         
-        # Load empirical data from preprocessed data
+        # Select appropriate dataset based on data_mode
         if context.preprocessed_data is not None:
-            self.data = context.preprocessed_data.demand_data
+            if context.data_mode == "val" and context.preprocessed_data.val_demand_data is not None:
+                self.data = context.preprocessed_data.val_demand_data
+            else: # Use training data (default)
+                self.data = context.preprocessed_data.demand_data
         else:
             raise ValueError(
                 "EmpiricalDemandSampler requires preprocessed_data. "

@@ -5,7 +5,7 @@ import pytest
 from gymnasium.spaces import Box
 
 from src.config.loader import load_environment_config, load_algorithm_config
-from src.config.schema import IPPOConfig, MAPPOConfig, HAPPOConfig
+from src.config.schema import IPPOConfig, MAPPOConfig
 from src.environment.environment import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 from src.algorithms.base import BaseAlgorithmWrapper
@@ -21,12 +21,14 @@ class TestEnvironmentActionRescaling:
         
         first_agent = env.agents[0]
         action_space = env.action_space(first_agent)
-        
+
         assert isinstance(action_space, Box)
         assert action_space.low == pytest.approx(-1.0)
         assert action_space.high == pytest.approx(1.0)
         assert action_space.shape == (config.n_skus,)
         assert action_space.dtype == np.float32
+
+        print(f"[OK] Action space shape: {action_space.shape}")
     
     def test_rescale_actions_to_quantities(self):
         """Test that actions are correctly rescaled from [-1, 1] to [0, max_order_quantity]."""
@@ -38,9 +40,11 @@ class TestEnvironmentActionRescaling:
             agent_id: np.array([-1.0, 0.0, 1.0], dtype=np.float32)
             for agent_id in env.agents
         }
+        print(f"[OK] Actions: {actions}")
         
         rescaled = env._rescale_actions_to_quantities(actions)
-        
+        print(f"[OK] Rescaled actions: {rescaled}")
+
         # Check that all agents have rescaled actions
         assert len(rescaled) == len(env.agents)
         
@@ -69,8 +73,10 @@ class TestEnvironmentActionRescaling:
             agent_id: np.array([-2.0, 2.0], dtype=np.float32)
             for agent_id in env.agents
         }
+        print(f"[OK] Actions: {actions}")
         
         rescaled = env._rescale_actions_to_quantities(actions)
+        print(f"[OK] Rescaled actions: {rescaled}")
         
         first_agent = env.agents[0]
         rescaled_action = rescaled[first_agent]
@@ -82,16 +88,20 @@ class TestEnvironmentActionRescaling:
 class TestEnvironmentGlobalState:
     """Tests for environment global state extraction."""
     
-    def test_get_global_state(self):
+    def test_get_global_cstate(self):
         """Test that global state concatenates all agent observations."""
         config = load_environment_config("config_files/environments/base_env.yaml")
         env = InventoryEnvironment(config, seed=42)
         
         # Reset environment to get initial observations
         observations, _ = env.reset(seed=42)
+        print(f"[OK] Observations: {observations}")
+        print(f"[OK] Observations shape: {observations[env.agents[0]].shape}")
         
         # Get global state
-        global_state = env.get_global_state()
+        global_state = env.get_state()
+        print(f"[OK] Global state: {global_state}")
+        print(f"[OK] Global state shape: {global_state.shape}")
         
         # Check shape: should be (n_warehouses * obs_dim,)
         obs_dim = 2 * config.n_skus
@@ -110,7 +120,7 @@ class TestEnvironmentGlobalState:
         config = load_environment_config("config_files/environments/base_env.yaml")
         env = InventoryEnvironment(config, seed=42)
         
-        global_state_space = env.get_global_state_space()
+        global_observation_space = env.global_observation_space()
         
         assert isinstance(global_state_space, Box)
         obs_dim = 2 * config.n_skus
@@ -159,10 +169,11 @@ class TestAlgorithmWrappers:
         algorithm_config = load_algorithm_config("config_files/algorithms/ippo.yaml")
         
         env = InventoryEnvironment(env_config, seed=42)
+
         wrapper = get_algorithm("ippo", env, algorithm_config)
         
         assert isinstance(wrapper, BaseAlgorithmWrapper)
-        assert wrapper.config.name == "ippo"
+        assert wrapper.ippo_config.name == "ippo"
     
     def test_mappo_wrapper_initialization(self):
         """Test MAPPO wrapper can be initialized."""
@@ -170,6 +181,7 @@ class TestAlgorithmWrappers:
         algorithm_config = load_algorithm_config("config_files/algorithms/mappo.yaml")
         
         env = InventoryEnvironment(env_config, seed=42)
+
         wrapper = get_algorithm("mappo", env, algorithm_config)
         
         assert isinstance(wrapper, BaseAlgorithmWrapper)
@@ -207,15 +219,22 @@ class TestIntegration:
         
         # Reset environment
         observations, _ = env.reset(seed=42)
+        print(f"[OK] Observations:\n {observations}\n")
         
         # Create normalized actions in [-1, 1] range
         actions = {
             agent_id: np.random.uniform(-1.0, 1.0, size=(config.n_skus,)).astype(np.float32)
             for agent_id in env.agents
         }
+        print(f"[OK] Actions:\n {actions}\n")
         
         # Step environment
         next_obs, rewards, terminations, truncations, infos = env.step(actions)
+        print(f"[OK] Next observations:\n {next_obs}\n")
+        print(f"[OK] Rewards:\n {rewards}\n")
+        print(f"[OK] Terminations:\n {terminations}\n")
+        print(f"[OK] Truncations:\n {truncations}\n")
+        print(f"[OK] Infos:\n {infos}\n")
         
         # Check that step completed successfully
         assert len(next_obs) == len(env.agents)
@@ -226,9 +245,11 @@ class TestIntegration:
         
         # Check that observations have correct shape
         for agent_id in env.agents:
-            assert next_obs[agent_id].shape == (2 * config.n_skus,)
+            assert "local" in next_obs[agent_id]
+            assert next_obs[agent_id]["local"].shape == (2 * config.n_skus,)
+            assert "global" in next_obs[agent_id]
+            assert next_obs[agent_id]["global"].shape == (config.n_warehouses * 2 * config.n_skus,)
     
-    @pytest.mark.skip(reason="Requires RLlib to be properly initialized - may fail in test environment")
     def test_algorithm_train_one_iteration(self):
         """Test that algorithm can train for one iteration (may require RLlib setup)."""
         env_config = load_environment_config("config_files/environments/base_env.yaml")
@@ -238,13 +259,10 @@ class TestIntegration:
         wrapper = get_algorithm("ippo", env, algorithm_config)
         
         # Try to train for one iteration
-        # Note: This may fail if RLlib is not properly initialized
-        try:
-            result = wrapper.train()
-            assert isinstance(result, dict)
-            # Check that result contains expected keys
-            assert "info" in result or "episode_reward_mean" in result or len(result) > 0
-        except Exception as e:
-            # If RLlib setup fails, skip this test
-            pytest.skip(f"RLlib not properly initialized: {e}")
+        result = wrapper.train()
+        print(f"[OK] Result: {result}")
 
+        assert isinstance(result, dict)
+
+        # Check that result contains expected keys
+        assert "info" in result or "episode_reward_mean" in result or len(result) > 0

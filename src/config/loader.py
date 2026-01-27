@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Type, Dict, Any, Union, Annotated, get_origin
 from pydantic import BaseModel, ValidationError, TypeAdapter
 
-from .schema import EnvironmentConfig, IPPOConfig, MAPPOConfig, HAPPOConfig, AlgorithmConfig
+from .schema import EnvironmentConfig, IPPOConfig, MAPPOConfig, AlgorithmConfig, TuneConfig
 
 
 class ConfigError(Exception):
@@ -69,7 +69,7 @@ def validate_config(config_dict: Dict[str, Any], schema: Union[Type[BaseModel], 
     Returns:
         validated_config (BaseModel): Validated Pydantic model instance.
     """
-    
+
     # Validate the configuration dictionary against the schema
     try:
         adapter = TypeAdapter(schema)
@@ -94,8 +94,10 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     Returns:
         validated_config (EnvironmentConfig): Validated EnvironmentConfig instance.
     """
+    
     # Load the configuration dictionary from the YAML file
     config_dict = load_yaml(path)
+
     
     # Extract 'environment' key if present
     if 'environment' in config_dict:
@@ -103,11 +105,11 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     
     # Validate the configuration dictionary against the EnvironmentConfig schema
     validated_config = validate_config(config_dict, EnvironmentConfig)
-    
+
     return validated_config
 
 
-def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig, HAPPOConfig]:
+def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig]:
     """
     Loads and validates algorithm configuration from a YAML file.
     
@@ -117,6 +119,7 @@ def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig, HAPPOConf
     Returns:
         validated_config: Validated algorithm config.
     """
+
     # Load the configuration dictionary from the YAML file
     config_dict = load_yaml(path)
     
@@ -126,6 +129,30 @@ def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig, HAPPOConf
     
     # Validate the configuration dictionary against the AlgorithmConfig discriminated union
     validated_config = validate_config(config_dict, AlgorithmConfig)
+    
+    return validated_config
+
+
+def load_tune_config(path: str) -> TuneConfig:
+    """
+    Loads and validates tune configuration from a YAML file.
+    
+    Args:
+        path (str): Path to tune config YAML file
+        
+    Returns:
+        validated_config (TuneConfig): Validated TuneConfig instance.
+    """
+
+    # Load the configuration dictionary from the YAML file
+    config_dict = load_yaml(path)
+    
+    # Extract 'search_space' key if present (for backward compatibility)
+    if 'search_space' in config_dict:
+        config_dict = config_dict['search_space']
+    
+    # Validate the configuration dictionary against the TuneConfig schema
+    validated_config = validate_config(config_dict, TuneConfig)
     
     return validated_config
 

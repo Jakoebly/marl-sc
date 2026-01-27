@@ -1,7 +1,7 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
-from gymnasium.spaces import Box
+from gymnasium.spaces import Box, Dict as GymDict
 from pettingzoo import ParallelEnv
 
 from src.config.schema import EnvironmentConfig, InitialInventoryUniform, InitialInventoryCustom, InitialInventoryZero
@@ -38,16 +38,29 @@ class InventoryEnvironment(ParallelEnv):
     
     metadata = {"render_modes": ["human"], "name": "inventory_env_v0"}
     
-    def __init__(self, env_config: EnvironmentConfig, seed: Optional[int] = None):
+    def __init__(
+        self, 
+        env_config: EnvironmentConfig, 
+        seed: Optional[int] = None,
+        env_meta: Optional[Dict[str, Any]] = None
+    ):
         """
         Initializes the environment from configuration.
         
         Args:
             env_config (EnvironmentConfig): Environment configuration.
-            seed (Optional[int]): Root seed for reproducibility. If provided, used for preprocessing and stored
-                for reset(). Defaults to None.
+            seed (Optional[int]): Root seed for reproducibility. If provided, used as root seed for SeedManager
+                which spawns component seeds (preprocessing, inventory, demand_sampler, lead_time_sampler).
+                When used with RLlib, this comes from RLlib's `env_meta` (contains `root_seed`).
+                Defaults to None.
+            env_meta (Optional[Dict[str, Any]]): RLlib's environment metadata dict. May contain 'data_mode'
+                parameter that determines which dataset to use ("train" or "val"), and 'seed' parameter
+                containing the root seed. Defaults to None.
         """
 
+        # Store environment config for factory to use
+        self.env_config = env_config
+        
         # Store general environment parameters
         self.n_warehouses = env_config.n_warehouses 
         self.n_skus = env_config.n_skus
@@ -58,9 +71,18 @@ class InventoryEnvironment(ParallelEnv):
         # Initialize seed manager
         self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEED_REGISTRY)
         
-        # Create environment context
+        # Extract data_mode from RLlib's config dict (defaults to "train")
+        data_mode = "train"
+        if env_meta is not None:
+            data_mode = env_meta.get("data_mode", "train")
+        
+        # Create environment context with data_mode
         from src.environment.context import create_environment_context
-        context = create_environment_context(env_config, seed_manager=self.seed_manager)
+        context = create_environment_context(
+            env_config, 
+            seed_manager=self.seed_manager,
+            data_mode=data_mode
+        )
         
         # Initialize components via registry
         self.demand_sampler = get_demand_sampler(env_config, context=context)
@@ -96,9 +118,9 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             Tuple containing:
-                - observations (Dict[str, np.ndarray]): Dictionary mapping agent_id to observation array.
-                    Shape: {warehouse_id: (2 * n_skus,)}.
-                - infos (Dict[str, Dict]): Dictionary mapping agent_id to info dict (empty for now).
+                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping agent_id to dictionary containing local and global observations.
+                    Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
+                - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
         # Update root seed if provided, otherwise use stored seeds
@@ -119,9 +141,9 @@ class InventoryEnvironment(ParallelEnv):
         self.timestep = 0
         
         # Get initial observations
-        observations = self._get_observations() # Shape: {warehouse_id: (2 * n_skus,)}
-
-        # Initialize infos
+        observations = self._get_observations() # Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}
+        
+        # Add any additional information to infos
         infos = {agent: {} for agent in self.agents}
         
         return observations, infos
@@ -146,16 +168,17 @@ class InventoryEnvironment(ParallelEnv):
                 
         Returns:
             Tuple containing:
-                - observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to observation array.
+                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to dictionary containing local and global observations.
                     Shape: {warehouse_id: (2 * n_skus,)}.
-                - rewards (Dict[str, float]): Dictionary mapping warehouse_id to reward array.
+                - rewards (Dict[str, float]): Dictionary mapping warehouse_id to reward value.
                 - terminations (Dict[str, bool]): Dictionary mapping warehouse_id to termination flag.
                 - truncations (Dict[str, bool]): Dictionary mapping warehouse_id to truncation flag.
-                - infos (Dict[str, Dict]): Dictionary mapping warehouse_id to info dictionary (empty for now).
+                - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
         # 1. Rescale normalized actions to order quantities and place replenishment orders
         order_quantities = self._rescale_actions_to_quantities(actions)
+
         self._apply_orders(actions=order_quantities)
 
         # 2. Receive replenishment orders arriving in this timestep
@@ -190,11 +213,13 @@ class InventoryEnvironment(ParallelEnv):
         self.timestep += 1
         terminations = {agent: False for agent in self.agents}  # No early termination
         truncations = {agent: (self.timestep >= self.episode_length) for agent in self.agents}
+        
+        # Add any additional information to infos
         infos = {agent: {} for agent in self.agents}
         
         return observations, rewards, terminations, truncations, infos
     
-    def observation_space(self, agent: str) -> Box:
+    def observation_space(self, agent: str) -> GymDict:
         """
         Returns the observation space for a warehouse consisting of the following features:        
         - Current inventory level
@@ -204,34 +229,38 @@ class InventoryEnvironment(ParallelEnv):
             agent (str): Warehouse ID (unused, all warehouses have same observation space).
             
         Returns:
-            observation_space (Box): Box space that contains the observation space for a warehouse. Shape: (2 * n_skus,).
+            observation_space (GymDict): GymDict that contains the observation space for a warehouse. 
+                Shape: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}.
         """
 
-        # Set the observation dimension
-        obs_size = 2 * self.n_skus
+        # Compute dimensions of local and global observation spaces
+        local_obs_dim = 2 * self.n_skus
+        global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the observation space
-        observation_space = Box(low=0.0, high=np.inf, shape=(obs_size,), dtype=np.float32)
+        observation_space = GymDict({
+            "local": Box(low=0.0, high=np.inf, shape=(local_obs_dim,), dtype=np.float32),
+            "global": Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
+        })
 
         return observation_space
     
-    def state_space(self) -> Box:
+    def global_observation_space(self) -> Box:
         """
-        Returns the observation space for the global state.
+        Returns the global observation space (concatenation of all local observations).
         
         Returns:
-            global_state_space (Box): Box space for global state.
-                Shape: (n_warehouses * 2 * n_skus,).
+            global_observation_space (Box): Box space for global observation space. Shape: (n_warehouses * 2 * n_skus,).
         """
 
-        # Set the observation dimension and global state size
-        obs_dim = 2 * self.n_skus
-        global_state_size = self.n_warehouses * obs_dim
+        # Compute dimension of global observation space
+        local_obs_dim = 2 * self.n_skus
+        global_obs_dim = self.n_warehouses * local_obs_dim
 
-        # Create the global state space
-        global_state_space = Box(low=0.0, high=np.inf, shape=(global_state_size,), dtype=np.float32)
+        # Create the global observation space
+        global_observation_space = Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
 
-        return global_state_space
+        return global_observation_space
 
     def action_space(self, agent: str) -> Box:
         """
@@ -338,49 +367,44 @@ class InventoryEnvironment(ParallelEnv):
             for comp in stochastic_components:
                 comp.reset(None)
 
-    def _get_observations(self) -> Dict[str, np.ndarray]:
+    def _get_observations(self) -> Dict[str, Dict[str, np.ndarray]]:
         """
-        Builds per-warehouse observations consisting of the following features:        
+        Builds per-warehouse local and global observations consisting of the following features:        
         - Current inventory level
         - Sum of all pending orders
         
         Returns:
-            observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to observation array.
-                Shape: {warehouse_id: (2 * n_skus,)}.
+            observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to dictionary containing local and global observations.
+                Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
         """
 
-        # Initialize dictionary to store observations
-        observations = {}
+        # Initialize dictionary to store local observations
+        local_obs = {}
         
-        # Build observations for each warehouse
+        # Build local observations for each warehouse
         for warehouse_idx, warehouse_id in enumerate(self.agents):
-            # Fetch all features for the current warehouse
             obs_inventory = self.inventory[warehouse_idx, :].copy()
-            pending_total = np.zeros(self.n_skus, dtype=float)
+            pending_total = np.zeros(self.n_skus, dtype=np.float32)
             for orders_array in self.pending_orders.values():
                 pending_total += orders_array[warehouse_idx, :]
             
             # Concatenate features and store them in the observations dictionary
-            observation = np.concatenate([obs_inventory, pending_total])
-            observations[warehouse_id] = observation
+            local = np.concatenate([obs_inventory, pending_total]).astype(np.float32)
+            local_obs[warehouse_id] = local
         
-        return observations
-    
-    def get_global_state(self) -> np.ndarray:
-        """
-        Returns the global state by concatenating all agent observations.
-        
-        Returns:
-            global_state (np.ndarray): Concatenated observations from all agents. Shape: (n_warehouses * obs_dim)
-        """
+        # Build global observations
+        global_obs = np.concatenate([local_obs[agent_id] for agent_id in self.agents])
 
-        # Get observations for all agents
-        observations = self._get_observations()
+        # Build observations dictionary
+        obs = {
+            agent_id: {
+                "local": local_obs[agent_id],
+                "global": global_obs,
+            }
+            for agent_id in self.agents
+        }
         
-        # Concatenate observations in agent order
-        global_state = np.concatenate([observations[agent_id] for agent_id in self.agents])
-        
-        return global_state
+        return obs
 
     def _rescale_actions_to_quantities(self, actions: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         """
@@ -419,7 +443,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # Sample lead times for all SKUs
         lead_times = self.lead_time_sampler.sample() # Shape: (n_skus,)
-        
+
         # Stack all actions into a matrix
         actions_matrix = np.array([actions[agent_id] for agent_id in self.agents]) # Shape: (n_warehouses, n_skus)
         

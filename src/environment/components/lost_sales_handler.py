@@ -81,7 +81,7 @@ class CheapestLostSalesHandler(BaseLostSalesHandler):
         # Initialize lost sales assignment matrix
         lost_sales_assigned = np.zeros((self.n_warehouses, self.n_skus), dtype=float) # Shape: (n_warehouses, n_skus)
         
-        # For each region, assign all lost sales to itsclosest warehouse
+        # For each region, assign all lost sales to its closest warehouse
         for region_id in range(self.n_regions):
             closest_wh = self.closest_warehouses[region_id]
             lost_sales_assigned[closest_wh, :] += unfulfilled_demand[region_id, :] # Shape: (n_skus,)
@@ -147,7 +147,7 @@ class ShipmentLostSalesHandler(BaseLostSalesHandler):
 
 class CostLostSalesHandler(BaseLostSalesHandler):
     """
-    Implements a cost-based lost sales handler that assigns lost sales to all warehousesbased on
+    Implements a cost-based lost sales handler that assigns lost sales to all warehouses based on
     their shipment costs to each region using softmax.
     """
     
