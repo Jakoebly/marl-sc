@@ -1,80 +1,147 @@
-from typing import Any, Dict, TYPE_CHECKING
-
+from typing import Dict, Any, Optional
 from ray.rllib.algorithms.ppo import PPO, PPOConfig
-from ray.rllib.env import PettingZooEnv
+from ray.rllib.core.rl_module.rl_module import RLModuleSpec
+from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
+from ray.tune.registry import register_env
+from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 
 from src.algorithms.base import BaseAlgorithmWrapper
-
-if TYPE_CHECKING:
-    from src.environment.environment import InventoryEnvironment
-    from src.config.schema import IPPOConfig
+from src.algorithms.models.rlmodules.base import ActorCriticRLModule
+from src.environment.environment import InventoryEnvironment
 
 
 class IPPOWrapper(BaseAlgorithmWrapper):
-    """Independent PPO wrapper using RLlib PPO with independent policies."""
+    """
+    Wrapper for IPPO (Independent PPO) algorithm.
     
-    def __init__(self, env: 'InventoryEnvironment', config: 'IPPOConfig'):
-        """Initialize IPPO wrapper.
+    Each agent learns independently with its own actor and critic networks.
+    Supports parameter sharing option.
+    """
+    
+    def __init__(self, env, ippo_config, root_seed: Optional[int] = None):
+        """
+        Initializes the IPPO wrapper.
         
         Args:
-            env: InventoryEnvironment instance (PettingZoo ParallelEnv)
-            config: IPPO configuration
+            env (InventoryEnvironment): InventoryEnvironment instance (PettingZoo ParallelEnv)
+            ippo_config (AlgorithmConfig): AlgorithmConfig instance
+            root_seed (Optional[int]): Root seed for RLlib framework seeding and environment instances.
+                Used for both `.debugging(seed=root_seed)` and `env_config["seed"]`. Defaults to None.
         """
 
-        # Store environment and configuration
+        # Store environment and config
         self.env = env
-        self.config = config
+        self.env_config = self.env.env_config
+        self.env_name = self.env.metadata["name"]
+        self.ippo_config = ippo_config
+        self.root_seed = root_seed
+
+        # Create factory function that creates new environment instances
+        env_factory = self.create_env_factory(self.env_config)
         
-        # Convert PettingZoo ParallelEnv to RLlib format
-        rllib_env = PettingZooEnv(env)
+        # Register the factory
+        register_env(self.env_name, env_factory)
         
-        # Get observation and action spaces (same for all agents)
-        obs_space = env.observation_space()
-        act_space = env.action_space()
+        # Extract config values
+        shared_params = self.ippo_config.shared
+        ippo_params = self.ippo_config.algorithm_specific
+        networks_params = ippo_params.networks.model_dump()
+        parameter_sharing = ippo_params.parameter_sharing
+        max_seq_len = self.extract_max_seq_len(networks_params)
+        num_env_runners = shared_params.num_env_runners
+        num_envs_per_env_runner = shared_params.num_envs_per_env_runner
         
-        # Get algorithm specific parameters
-        use_gae = config.algorithm_specific.get("use_gae", True)
-        lambda_gae = config.algorithm_specific.get("lambda", 0.95)
-        parameter_sharing = config.algorithm_specific.get("parameter_sharing", False)
+        # Get observation and action spaces
+        obs_space = env.observation_space(env.agents[0])
+        action_space = env.action_space(env.agents[0])
         
-        # Configure policies based on parameter_sharing flag (shared or independent)
+        # Create model config
+        model_config = {
+            "networks": networks_params,
+            "observation_space": obs_space,
+            "action_space": action_space,
+            "use_centralized_critic": False
+
+        }
+        if max_seq_len is not None:
+            model_config["max_seq_len"] = max_seq_len
+
+        # Create RLModule spec using RLModuleSpec
+        rl_module_spec = RLModuleSpec(
+            module_class=ActorCriticRLModule,
+            observation_space=obs_space,
+            action_space=action_space,
+            model_config=model_config
+        )
+        
+        # Determine multi-agent setup based on parameter sharing
         if parameter_sharing:
-            policies = {
-                "shared_policy": (None, obs_space, act_space, {})
-            }
-            policy_mapping_fn = lambda agent_id, episode, worker, **kwargs: "shared_policy"
+            # Single policy shared across all agents
+            policies = {"shared_policy"}
+            policy_mapping_fn = lambda agent_id, *args, **kwargs: "shared_policy"
+            module_specs = {f"shared_policy": rl_module_spec}
         else:
-            policies = {
-                agent_id: (None, obs_space, act_space, {})
-                for agent_id in env.agents
-            }
-            policy_mapping_fn = lambda agent_id, episode, worker, **kwargs: agent_id
+            # Separate policy per agent (each gets same spec but separate instance)
+            policies = {f"policy_{agent_id}" for agent_id in env.agents}
+            policy_mapping_fn = lambda agent_id, *args, **kwargs: f"policy_{agent_id}"
+            module_specs = {f"policy_{agent_id}": rl_module_spec for agent_id in env.agents}
         
-        # Build RLlib config
-        rllib_config = (
+        # Create PPO config with multi-agent setup included in chain
+        ppo_config = (
             PPOConfig()
-            .environment(env=rllib_env)
-            .training(
-                lr=config.shared.learning_rate,
-                train_batch_size=config.shared.batch_size,
-                sgd_minibatch_size=config.shared.batch_size // 4, 
-                num_sgd_iter=10,
-                vf_loss_coeff=config.algorithm_specific.get("vf_loss_coeff", 0.5),
-                entropy_coeff=config.algorithm_specific.get("entropy_coeff", 0.01),
-                clip_param=config.algorithm_specific.get("clip_param", 0.2),
-                use_gae=use_gae,
-                lambda_=lambda_gae,
+            .debugging(seed=self.root_seed)
+            .environment(
+                env=self.env_name, 
+                clip_actions=True,
+                env_config={
+                    "seed": self.root_seed,
+                    "data_mode": "train" 
+                }
             )
             .multi_agent(
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
             )
-            .rollouts(num_rollout_workers=0)  
-            .resources(num_gpus=0)
+            .rl_module(
+                rl_module_spec=MultiRLModuleSpec(
+                    rl_module_specs=module_specs
+                )
+            )
+            .training(
+                lr=shared_params.learning_rate,
+                train_batch_size_per_learner=shared_params.batch_size,
+                num_epochs=shared_params.num_epochs,
+                minibatch_size=shared_params.batch_size // shared_params.num_minibatches, 
+                shuffle_batch_per_epoch=True,
+                vf_loss_coeff=ippo_params.vf_loss_coeff,
+                entropy_coeff=ippo_params.entropy_coeff,
+                clip_param=ippo_params.clip_param,
+                use_gae=ippo_params.use_gae,
+                lambda_=ippo_params.lam
+            )
+            .env_runners(
+                num_env_runners=num_env_runners,
+                num_envs_per_env_runner=num_envs_per_env_runner
+            )
+            .evaluation(
+                evaluation_interval=shared_params.eval_interval,
+                evaluation_duration=shared_params.num_eval_episodes,
+                evaluation_parallel_to_training=shared_params.evaluation_parallel_to_training,
+                evaluation_config={
+                    "env": self.env_name, 
+                    "clip_actions": True,
+                    "env_config": {
+                        "seed": self.root_seed,
+                        "data_mode": "val" 
+                    }
+                }
+            )
         )
         
-        # Create RLlib trainer
-        self.trainer = PPO(config=rllib_config)
+        # Build trainer and set training parameters
+        self.trainer = ppo_config.build_algo()
+        self.num_iterations = shared_params.num_iterations
+        self.checkpoint_freq = shared_params.checkpoint_freq
     
     def train(self) -> Dict[str, Any]:
         """Run one training iteration.
@@ -86,31 +153,31 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         return result
     
     def get_policy(self):
-        """Get trained policy.
+        """
+        Get trained policy.
         
         Returns:
-            policy: Trained policy object.
+            Trained policy object
         """
-        if self.config.algorithm_specific.get("parameter_sharing", False):
-            # Shared policy
-            return self.trainer.get_policy("shared_policy")
-        else:
-            # Independent policies - return first agent's policy
-            return self.trainer.get_policy(self.env.agents[0])
+        # Return the first policy (or shared policy if parameter sharing)
+        policy_id = list(self.trainer.config.multi_agent.policies.keys())[0]
+        return self.trainer.get_policy(policy_id)
     
     def save_checkpoint(self, path: str):
-        """Save model checkpoint.
+        """
+        Save model checkpoint.
         
         Args:
-            path (str): Path to save checkpoint.
+            path: Path to save checkpoint
         """
         self.trainer.save(checkpoint_dir=path)
     
     def load_checkpoint(self, path: str):
-        """Load model checkpoint.
+        """
+        Load model checkpoint.
         
         Args:
-            path (str): Path to load checkpoint from.
+            path: Path to load checkpoint from
         """
-        self.trainer.restore(checkpoint_path=path)
+        self.trainer.restore(path)
 

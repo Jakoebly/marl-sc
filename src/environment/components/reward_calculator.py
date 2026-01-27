@@ -72,10 +72,17 @@ class CostRewardCalculator(BaseRewardCalculator):
         
         # Extract reward parameters from configuration
         params = component_config.params
-        self.scope = params["scope"]
-        self.scale_factor = params["scale_factor"]
-        self.normalize = params["normalize"]
-        self.cost_weights = np.array(params["cost_weights"], dtype=float)
+        # Handle both dict and Pydantic model access
+        if hasattr(params, "scope"):
+            self.scope = params.scope
+            self.scale_factor = params.scale_factor
+            self.normalize = params.normalize
+            self.cost_weights = np.array(params.cost_weights, dtype=float)
+        else:
+            self.scope = params["scope"]
+            self.scale_factor = params["scale_factor"]
+            self.normalize = params["normalize"]
+            self.cost_weights = np.array(params["cost_weights"], dtype=float)
     
     def calculate(self, inventory: np.ndarray, lost_sales: np.ndarray, shipment_counts: np.ndarray) -> np.ndarray:
         """

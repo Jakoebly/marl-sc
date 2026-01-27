@@ -42,13 +42,15 @@ class EnvironmentContext:
 
     # Data parameters
     preprocessed_data: Optional['PreprocessedData'] = None
+    data_mode: str = "train" 
 
 def preprocess_real_world_data(
     env_config: EnvironmentConfig,
-    seed: Optional[SeedSequence] = None
+    seed: Optional[int] = None
 ) -> Tuple[np.ndarray, Optional['PreprocessedData']]:
     """
     Preprocesses real-world data and extracts shipment costs.
+    Handles data splitting if data_split config is provided.
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
@@ -56,8 +58,7 @@ def preprocess_real_world_data(
         
     Returns:
         shipment_cost (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
-        preprocessed_data (Optional['PreprocessedData']): Preprocessed data if using real_world data source. None if using synthetic data.
-        Tuple of (shipment_cost, preprocessed_data)
+        preprocessed_data (Optional['PreprocessedData']): PreprocessedData instance containing both train and val DataFrames.
     """
        
     # Get raw data path
@@ -75,9 +76,19 @@ def preprocess_real_world_data(
         n_warehouses=env_config.n_warehouses,
         n_regions=env_config.n_regions
     )
-    preprocessed_data, shipment_cost = preprocessor.preprocess(seed=seed)
+
+    # Extract data_split from data_source if it is real_world
+    from src.config.schema import DataSourceRealWorld
+    data_split = None
+    if isinstance(env_config.data_source, DataSourceRealWorld):
+        data_split = env_config.data_source.data_split
     
-    return preprocessed_data, shipment_cost
+    preprocessed_data, shipment_cost = preprocessor.preprocess(
+        data_split=data_split,
+        seed=seed
+    )
+    
+    return shipment_cost, preprocessed_data
 
 def convert_cost_structure(
     cost_structure: CostStructureConfig
@@ -112,7 +123,8 @@ def convert_cost_structure(
 
 def create_environment_context(
     env_config: EnvironmentConfig, 
-    seed_manager: Optional['SeedManager'] = None
+    seed_manager: Optional['SeedManager'] = None,
+    data_mode: str = "train"
 ) -> EnvironmentContext:
     """
     Builds the EnvironmentContext from the EnvironmentConfig by converting the cost 
@@ -121,13 +133,15 @@ def create_environment_context(
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
-        preprocessing_seed (Optional[SeedSequence]): Pre-spawned seed for preprocessing.
+        seed_manager (Optional['SeedManager']): Seed manager to get preprocessing seed from.
+        data_mode (str): Data mode that determines which dataset to use. Defaults to "train".
         
     Returns:
         environment_context (EnvironmentContext): Instantiated EnvironmentContext.
     """
 
     # Extract preprocessing seed from seed_manager if provided
+    preprocessing_seed = None
     if seed_manager is not None:
         preprocessing_seed = seed_manager.get_seed_int('preprocessing')
 
@@ -136,7 +150,7 @@ def create_environment_context(
     
     # Handle real-world data
     if env_config.data_source.type == "real_world":
-        preprocessed_data, shipment_cost = preprocess_real_world_data(env_config, preprocessing_seed)
+        shipment_cost, preprocessed_data = preprocess_real_world_data(env_config, seed=preprocessing_seed)
     
     # Handle synthetic data
     else:
@@ -152,7 +166,8 @@ def create_environment_context(
         holding_cost=holding_cost,
         penalty_cost=penalty_cost,
         shipment_cost=shipment_cost,
-        preprocessed_data=preprocessed_data
+        preprocessed_data=preprocessed_data,
+        data_mode=data_mode
     )
 
     return environment_context

@@ -7,11 +7,30 @@ processing orders, and extracting shipment costs for use in the environment.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 from numpy.random import SeedSequence
+
+if TYPE_CHECKING:
+    from src.config.schema import DataSplitConfig
+
+
+@dataclass
+class PreprocessedData:
+    """
+    Implements a container for preprocessed demand data with optional train/validation split.
+
+    Attributes:
+        demand_data (pd.DataFrame): Preprocessed demand data for training (or full data if no split).
+        val_demand_data (Optional[pd.DataFrame]): Preprocessed demand data for validation. None if no validation data is available.
+    """
+
+    # Demand data
+    demand_data: pd.DataFrame  
+    val_demand_data: Optional[pd.DataFrame] = None 
+
 
 class RawDataLoader:
     """
@@ -180,6 +199,100 @@ class DataSelector:
             available_region_ids, size=self.n_regions, replace=False
         ).tolist()
     
+
+class DataSplitter:
+    """
+    Splits demand data into training and validation subsets.
+    Supports ratio-based and explicit timestep-based splitting.
+    """
+    
+    @staticmethod
+    def split_by_ratio(
+        data: pd.DataFrame, 
+        train_ratio: float, 
+        seed: Optional[int] = None
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Splits data by timestep ratio (e.g., 80% train, 20% val).
+        Ensures no overlap between train and validation timesteps.
+        
+        Args:
+            data (pd.DataFrame): DataFrame with 'timestep' column
+            train_ratio (float): Ratio of data for training (0.0-1.0)
+            seed (Optional[int]): Optional seed for reproducibility (not used for ratio split, but kept for API consistency)
+        
+        Returns:
+            train_data (pd.DataFrame): Training subset DataFrame
+            val_data (pd.DataFrame): Validation subset DataFrame
+        """
+        
+        # Get unique timesteps and sort
+        unique_timesteps = sorted(data['timestep'].unique())
+        if len(unique_timesteps) == 0:
+            raise ValueError("Data contains no timesteps")
+        
+        # Calculate split point
+        split_idx = int(len(unique_timesteps) * train_ratio)
+        
+        # Ensure at least one timestep in each split
+        if split_idx == 0:
+            raise ValueError(f"train_ratio ({train_ratio}) results in 0 training timesteps")
+        if split_idx >= len(unique_timesteps):
+            raise ValueError(f"train_ratio ({train_ratio}) results in 0 validation timesteps")
+
+        # Split timesteps into train and validation timesteps
+        train_timesteps = unique_timesteps[:split_idx]
+        val_timesteps = unique_timesteps[split_idx:]
+        
+        # Split data into train and validation data
+        train_data = data[data['timestep'].isin(train_timesteps)].copy()
+        val_data = data[data['timestep'].isin(val_timesteps)].copy()
+        
+        return train_data, val_data
+    
+    @staticmethod
+    def split_by_timesteps(
+        data: pd.DataFrame,
+        train_timesteps: List[int],
+        val_timesteps: List[int]
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Splits data by explicit timestep lists.
+        Validates no overlap between lists.
+        
+        Args:
+            data (pd.DataFrame): DataFrame with 'timestep' column
+            train_timesteps (List[int]): List of timesteps for training
+            val_timesteps (List[int]): List of timesteps for validation
+        
+        Returns:
+            train_data (pd.DataFrame): Training subset DataFrame
+            val_data (pd.DataFrame): Validation subset DataFrame
+        """
+        
+        # Convert timestep lists to sets for faster lookup
+        train_set = set(train_timesteps)
+        val_set = set(val_timesteps)
+
+        # Check if train and validation timesteps exist in data
+        available_timesteps = set(data['timestep'].unique())
+        train_missing = train_set - available_timesteps
+        val_missing = val_set - available_timesteps
+        if train_missing:
+            raise ValueError(
+                f"train_timesteps contains timesteps not in data: {sorted(train_missing)}"
+            )
+        if val_missing:
+            raise ValueError(
+                f"val_timesteps contains timesteps not in data: {sorted(val_missing)}"
+            )
+        
+        # Split data into train and validation data
+        train_data = data[data['timestep'].isin(train_timesteps)].copy()
+        val_data = data[data['timestep'].isin(val_timesteps)].copy()
+        
+        return train_data, val_data
+
 
 class DataProcessor:
     """
@@ -419,18 +532,29 @@ class DataPreprocessor:
         self.n_warehouses = n_warehouses
         self.n_regions = n_regions
     
-    def preprocess(self, seed: Optional[int] = None) -> Tuple[pd.DataFrame, np.ndarray]:
+    def preprocess(
+        self, 
+        data_split: Optional['DataSplitConfig'] = None,
+        seed: Optional[int] = None
+    ) -> Tuple[PreprocessedData, np.ndarray]:
         """
         Implements the raw data preprocessing pipeline by loading raw data, selecting subsets of SKUs, 
         warehouses, and regions according to the configuration, and processing the data to create 
         preprocessed data ready for environment use. If a seed is provided, it is used to ensure reproducible 
-        subset selection.
+        subset selection. If data_split is provided, splits the data into train and validation sets.
         
         Args:
+            data_split (Optional[DataSplitConfig]): Optional data split configuration. If provided, splits
+                the processed data into train and validation sets. Defaults to None.
             seed (Optional[int]): Random seed for reproducibile data selection. Defaults to None.
+
         
         Returns:
-            preprocessed_data (pd.DataFrame): Processed demand data.
+            preprocessed_data (PreprocessedData): PreprocessedData instance containing demand data.
+                If data_split is None: preprocessed_data.demand_data contains all data and
+                preprocessed_data.val_demand_data is None.
+                If data_split is provided: preprocessed_data.demand_data contains training data,
+                preprocessed_data.val_demand_data contains validation data.
             shipment_costs (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
         """
 
@@ -461,8 +585,35 @@ class DataPreprocessor:
             skus_df=loader.skus_df,
             regions_df=loader.regions_df,
         )
-        preprocessed_data = processor.create_processed_demand_data()
+        processed_data = processor.create_processed_demand_data()
         shipment_costs = processor.get_updated_shipment_costs()
+
+        # 5. Split data if data_split config is provided
+        if data_split is not None:
+            if data_split.type == "ratio":
+                train_data, val_data = DataSplitter.split_by_ratio(
+                    processed_data, 
+                    train_ratio=data_split.train_ratio,
+                    seed=seed
+                )
+            elif data_split.type == "explicit":
+                train_data, val_data = DataSplitter.split_by_timesteps(
+                    processed_data,
+                    train_timesteps=data_split.train_timesteps,
+                    val_timesteps=data_split.val_timesteps
+                )
+            else:
+                raise ValueError(f"Unknown data_split type: {data_split.type}")
+            
+            preprocessed_data = PreprocessedData(
+                demand_data=train_data,
+                val_demand_data=val_data
+            )
+        else:
+            preprocessed_data = PreprocessedData(
+                demand_data=processed_data,
+                val_demand_data=None
+            )
 
         return preprocessed_data, shipment_costs
 

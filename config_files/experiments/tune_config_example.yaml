@@ -1,0 +1,27 @@
+search_space:
+  shared:
+    learning_rate:
+      type: loguniform
+      low: 1e-5
+      high: 1e-2
+    batch_size:
+      type: choice
+      values: [256, 512, 1024]
+    num_epochs:
+      type: randint
+      low: 5
+      high: 15
+  algorithm_specific:
+    vf_loss_coeff:
+      type: uniform
+      low: 0.1
+      high: 1.0
+    entropy_coeff:
+      type: loguniform
+      low: 0.001
+      high: 0.1
+    clip_param:
+      type: uniform
+      low: 0.1
+      high: 0.3
+

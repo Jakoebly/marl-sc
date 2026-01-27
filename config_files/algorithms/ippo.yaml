@@ -1,15 +1,46 @@
 algorithm:
   name: "ippo"
   shared:
-    learning_rate: 0.0003
-    batch_size: 4000
-    num_iterations: 1000
+    num_iterations: 120
     checkpoint_freq: 100
+    batch_size: 100
+    num_epochs: 10
+    num_minibatches: 4
+    learning_rate: 0.0003
+    num_env_runners: 0
+    num_envs_per_env_runner: 1
+    num_cpus_per_env_runner: 1
+    eval_interval: 10  
+    num_eval_episodes: 5  
+    evaluation_parallel_to_training: false
+
   algorithm_specific:
     vf_loss_coeff: 0.5
     entropy_coeff: 0.01
     clip_param: 0.2
     use_gae: true
-    lambda: 0.95
-    parameter_sharing: false
+    lam: 0.95
+    parameter_sharing: true
+    networks:
+      shared_layers:
+        type: "gru"
+        config:
+        #  hidden_sizes: [128, 128]
+        #  activation: "relu"
+        #  output_dim: 128
+          num_layers: 2
+          hidden_size: 128
+          bidirectional: false
+          output_dim: 128
+          max_seq_len: 20
+      actor:
+        type: "mlp"
+        config:
+          hidden_sizes: [256, 256]
+          activation: "relu"
+      critic:
+        type: "mlp"
+        config:
+          hidden_sizes: [64, 64]
+          activation: "relu"
 
