@@ -1,8 +1,12 @@
 """Base classes for environment components."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Tuple
 
+STOCHASTIC_COMPONENT_REGISTRY: Tuple[str, ...] = (
+    'demand_sampler',
+    'lead_time_sampler'
+)
 
 class StochasticComponent(ABC):
     """

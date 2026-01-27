@@ -2,10 +2,10 @@
 
 import yaml
 from pathlib import Path
-from typing import Type, Dict, Any
-from pydantic import BaseModel, ValidationError
+from typing import Type, Dict, Any, Union, Annotated, get_origin
+from pydantic import BaseModel, ValidationError, TypeAdapter
 
-from .schema import EnvironmentConfig
+from .schema import EnvironmentConfig, IPPOConfig, MAPPOConfig, AlgorithmConfig, TuneConfig
 
 
 class ConfigError(Exception):
@@ -58,22 +58,22 @@ def load_yaml(path: str) -> Dict[str, Any]:
         raise ConfigFileError(f"Error reading config file {path}: {e}")
 
 
-def validate_config(config_dict: Dict[str, Any], schema: Type[BaseModel]) -> BaseModel:
+def validate_config(config_dict: Dict[str, Any], schema: Union[Type[BaseModel], Type[Any]]) -> BaseModel:
     """
     Validates a configuration dictionary against a Pydantic schema.
 
     Args:
         config_dict (dict): Configuration dictionary to validate.
-        schema (Type[BaseModel]): Pydantic model class to validate against.
+        schema (Union[Type[BaseModel], Type[Any]]): Pydantic model class or Annotated type to validate against.
         
     Returns:
         validated_config (BaseModel): Validated Pydantic model instance.
     """
 
-    # Validate the configuration dictionary against the Pydantic schema
+    # Validate the configuration dictionary against the schema
     try:
-        validated_config = schema(**config_dict)
-        return validated_config
+        adapter = TypeAdapter(schema)
+        return adapter.validate_python(config_dict)
     except ValidationError as e:
         error_messages = []
         for error in e.errors():
@@ -94,8 +94,10 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     Returns:
         validated_config (EnvironmentConfig): Validated EnvironmentConfig instance.
     """
+    
     # Load the configuration dictionary from the YAML file
     config_dict = load_yaml(path)
+
     
     # Extract 'environment' key if present
     if 'environment' in config_dict:
@@ -103,9 +105,54 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     
     # Validate the configuration dictionary against the EnvironmentConfig schema
     validated_config = validate_config(config_dict, EnvironmentConfig)
+
+    return validated_config
+
+
+def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig]:
+    """
+    Loads and validates algorithm configuration from a YAML file.
+    
+    Args:
+        path (str): Path to algorithm config YAML file
+        
+    Returns:
+        validated_config: Validated algorithm config.
+    """
+
+    # Load the configuration dictionary from the YAML file
+    config_dict = load_yaml(path)
+    
+    # Extract 'algorithm' key if present
+    if 'algorithm' in config_dict:
+        config_dict = config_dict['algorithm']
+    
+    # Validate the configuration dictionary against the AlgorithmConfig discriminated union
+    validated_config = validate_config(config_dict, AlgorithmConfig)
     
     return validated_config
 
 
-# Note: AlgorithmConfig will be implemented later when algorithms are determined
+def load_tune_config(path: str) -> TuneConfig:
+    """
+    Loads and validates tune configuration from a YAML file.
+    
+    Args:
+        path (str): Path to tune config YAML file
+        
+    Returns:
+        validated_config (TuneConfig): Validated TuneConfig instance.
+    """
+
+    # Load the configuration dictionary from the YAML file
+    config_dict = load_yaml(path)
+    
+    # Extract 'search_space' key if present (for backward compatibility)
+    if 'search_space' in config_dict:
+        config_dict = config_dict['search_space']
+    
+    # Validate the configuration dictionary against the TuneConfig schema
+    validated_config = validate_config(config_dict, TuneConfig)
+    
+    return validated_config
 

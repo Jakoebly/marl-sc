@@ -1,7 +1,7 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
-from gymnasium.spaces import Box
+from gymnasium.spaces import Box, Dict as GymDict
 from pettingzoo import ParallelEnv
 
 from src.config.schema import EnvironmentConfig, InitialInventoryUniform, InitialInventoryCustom, InitialInventoryZero
@@ -16,6 +16,7 @@ from src.environment.components.base import StochasticComponent
 from src.environment.components.demand_sampler import Order
 from src.environment.components.demand_allocator import AllocationResult
 from numpy.random import SeedSequence
+from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEED_REGISTRY
 
 
 class InventoryEnvironment(ParallelEnv):
@@ -37,34 +38,64 @@ class InventoryEnvironment(ParallelEnv):
     
     metadata = {"render_modes": ["human"], "name": "inventory_env_v0"}
     
-    def __init__(self, env_config: EnvironmentConfig):
+    def __init__(
+        self, 
+        env_config: EnvironmentConfig, 
+        seed: Optional[int] = None,
+        env_meta: Optional[Dict[str, Any]] = None
+    ):
         """
         Initializes the environment from configuration.
         
         Args:
-            env_config (Dict[str, Any]): Environment configuration.
+            env_config (EnvironmentConfig): Environment configuration.
+            seed (Optional[int]): Root seed for reproducibility. If provided, used as root seed for SeedManager
+                which spawns component seeds (preprocessing, inventory, demand_sampler, lead_time_sampler).
+                When used with RLlib, this comes from RLlib's `env_meta` (contains `root_seed`).
+                Defaults to None.
+            env_meta (Optional[Dict[str, Any]]): RLlib's environment metadata dict. May contain 'data_mode'
+                parameter that determines which dataset to use ("train" or "val"), and 'seed' parameter
+                containing the root seed. Defaults to None.
         """
 
+        # Store environment config for factory to use
+        self.env_config = env_config
+        
         # Store general environment parameters
         self.n_warehouses = env_config.n_warehouses 
         self.n_skus = env_config.n_skus
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
+        self.max_order_quantity = env_config.max_order_quantity
+        
+        # Initialize seed manager
+        self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        
+        # Extract data_mode from RLlib's config dict (defaults to "train")
+        data_mode = "train"
+        if env_meta is not None:
+            data_mode = env_meta.get("data_mode", "train")
+        
+        # Create environment context with data_mode
+        from src.environment.context import create_environment_context
+        context = create_environment_context(
+            env_config, 
+            seed_manager=self.seed_manager,
+            data_mode=data_mode
+        )
         
         # Initialize components via registry
-        self.demand_sampler = get_demand_sampler(env_config)
-        self.demand_allocator = get_demand_allocator(env_config)
-        self.lead_time_sampler = get_lead_time_sampler(env_config)
-        self.lost_sales_handler = get_lost_sales_handler(env_config)
-        self.reward_calculator = get_reward_calculator(env_config)
+        self.demand_sampler = get_demand_sampler(env_config, context=context)
+        self.demand_allocator = get_demand_allocator(env_config, context=context)
+        self.lead_time_sampler = get_lead_time_sampler(env_config, context=context)
+        self.lost_sales_handler = get_lost_sales_handler(env_config, context=context)
+        self.reward_calculator = get_reward_calculator(env_config, context=context)
         
         # Store cost structure and initial inventory config
         self.cost_structure = env_config.cost_structure
         self.initial_inventory_config = env_config.initial_inventory
-    
+
         # Pre-compute closest warehouses for each region
-        from src.environment.context import create_environment_context
-        context = create_environment_context(env_config)
         self.closest_warehouses = np.argmin(context.shipment_cost, axis=0)  # Shape: (n_regions,)
         
         # Set agent IDs
@@ -87,23 +118,32 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             Tuple containing:
-                - observations (Dict[str, np.ndarray]): Dictionary mapping agent_id to observation array.
-                    Shape: {warehouse_id: (2 * n_skus,)}.
-                - infos (Dict[str, Dict]): Dictionary mapping agent_id to info dict (empty for now).
+                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping agent_id to dictionary containing local and global observations.
+                    Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
+                - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
-        # Reset stochastic components and get seed for inventory initialization
-        inventory_seed = self._reset_stochastic_components(seed)
+        # Update root seed if provided, otherwise use stored seeds
+        if seed is not None:
+            self.seed_manager.update_root_seed(seed)
         
+        # Get seeds for stochastic components and initial inventory
+        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
+        stochastic_seeds = self.seed_manager.get_seeds_int_for_components(STOCHASTIC_COMPONENT_REGISTRY)
+        inventory_seed = self.seed_manager.get_seed_int('inventory')
+        
+        # Reset stochastic components
+        self._reset_stochastic_components(seeds=stochastic_seeds)      
+
         # Reset state
-        self.inventory = self._initialize_inventory(inventory_seed)
+        self.inventory = self._initialize_inventory(seed=inventory_seed)
         self.pending_orders = {}
         self.timestep = 0
         
         # Get initial observations
-        observations = self._get_observations() # Shape: {warehouse_id: (2 * n_skus,)}
-
-        # Initialize infos
+        observations = self._get_observations() # Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}
+        
+        # Add any additional information to infos
         infos = {agent: {} for agent in self.agents}
         
         return observations, infos
@@ -128,16 +168,18 @@ class InventoryEnvironment(ParallelEnv):
                 
         Returns:
             Tuple containing:
-                - observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to observation array.
+                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to dictionary containing local and global observations.
                     Shape: {warehouse_id: (2 * n_skus,)}.
-                - rewards (Dict[str, float]): Dictionary mapping warehouse_id to reward array.
+                - rewards (Dict[str, float]): Dictionary mapping warehouse_id to reward value.
                 - terminations (Dict[str, bool]): Dictionary mapping warehouse_id to termination flag.
                 - truncations (Dict[str, bool]): Dictionary mapping warehouse_id to truncation flag.
-                - infos (Dict[str, Dict]): Dictionary mapping warehouse_id to info dictionary (empty for now).
+                - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
-        # 1. Place replenishment orders
-        self._apply_orders(actions)
+        # 1. Rescale normalized actions to order quantities and place replenishment orders
+        order_quantities = self._rescale_actions_to_quantities(actions)
+
+        self._apply_orders(actions=order_quantities)
 
         # 2. Receive replenishment orders arriving in this timestep
         self._apply_arrivals()
@@ -171,11 +213,13 @@ class InventoryEnvironment(ParallelEnv):
         self.timestep += 1
         terminations = {agent: False for agent in self.agents}  # No early termination
         truncations = {agent: (self.timestep >= self.episode_length) for agent in self.agents}
+        
+        # Add any additional information to infos
         infos = {agent: {} for agent in self.agents}
         
         return observations, rewards, terminations, truncations, infos
     
-    def observation_space(self, agent: str) -> Box:
+    def observation_space(self, agent: str) -> GymDict:
         """
         Returns the observation space for a warehouse consisting of the following features:        
         - Current inventory level
@@ -185,23 +229,46 @@ class InventoryEnvironment(ParallelEnv):
             agent (str): Warehouse ID (unused, all warehouses have same observation space).
             
         Returns:
-            observation_space (Box): Box space that contains the observation space for a warehouse. Shape: (2 * n_skus,).
+            observation_space (GymDict): GymDict that contains the observation space for a warehouse. 
+                Shape: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}.
         """
 
-        # Calculate the observation space size
-        obs_size = 2 * self.n_skus
+        # Compute dimensions of local and global observation spaces
+        local_obs_dim = 2 * self.n_skus
+        global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the observation space
-        observation_space = Box(low=0.0, high=np.inf, shape=(obs_size,), dtype=np.float32)
+        observation_space = GymDict({
+            "local": Box(low=0.0, high=np.inf, shape=(local_obs_dim,), dtype=np.float32),
+            "global": Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
+        })
 
         return observation_space
     
+    def global_observation_space(self) -> Box:
+        """
+        Returns the global observation space (concatenation of all local observations).
+        
+        Returns:
+            global_observation_space (Box): Box space for global observation space. Shape: (n_warehouses * 2 * n_skus,).
+        """
+
+        # Compute dimension of global observation space
+        local_obs_dim = 2 * self.n_skus
+        global_obs_dim = self.n_warehouses * local_obs_dim
+
+        # Create the global observation space
+        global_observation_space = Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
+
+        return global_observation_space
+
     def action_space(self, agent: str) -> Box:
         """
-        Returns the action space (replenishment order quantities) for a warehouse.
+        Returns the action space (normalized replenishment order quantities) for a warehouse. Actions are in the
+        range [-1, 1] and will be rescaled to [0, max_order_quantity] internally.
 
         Args:
-            agent (str): Warehouse ID (unused, all warehouses have same observation space).
+            agent (str): Warehouse ID (unused, all warehouses have the same action space).
             
         Returns:
             action_space (Box): Box space that contains the action space for a warehouse. Shape: (n_skus,).
@@ -210,8 +277,8 @@ class InventoryEnvironment(ParallelEnv):
         # Calculate the action space size
         act_size = self.n_skus
 
-        # Create the action space
-        action_space = Box(low=0.0, high=np.inf, shape=(act_size,), dtype=np.float32)
+        # Create the normalized action space [-1, 1]
+        action_space = Box(low=-1.0, high=1.0, shape=(act_size,), dtype=np.float32)
 
         return action_space
 
@@ -264,73 +331,105 @@ class InventoryEnvironment(ParallelEnv):
         
         return inventory.astype(float)
     
-    def _reset_stochastic_components(self, seed: Optional[int] = None) -> Optional[int]:
+    def _reset_stochastic_components(self, seeds: Optional[List[SeedSequence]] = None):
         """
-        Resets all stochastic components with independent random seeds for reproducibility by calling the reset() method 
-        of each component. Since inventory initialization is not a component with a reset method itself but also stochastic,
-        the function returns only the seed for inventory initialization.
+        Resets all stochastic components using pre-spawned seeds.
         
         Args:
-            seed (Optional[int]): Random seed for reproducibility. If None, components are reset without explicit seeds.
-            
-        Returns:
-            seed (Optional[int]): Random seed for inventory initialization (or None if seed was None).
+            seeds (Optional[List[SeedSequence]]): List of seeds for stochastic components. If None, components are reset without explicit seeds.
         """
 
-        # Collect stochastic components
+        # Get stochastic components from the environment
+        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
         stochastic_components = [
-            comp for comp in [
-                self.demand_sampler,
-                self.lead_time_sampler,
-            ] if isinstance(comp, StochasticComponent)
+            getattr(self, attr_name) 
+            for attr_name in STOCHASTIC_COMPONENT_REGISTRY
+            if isinstance(getattr(self, attr_name), StochasticComponent)
         ]
         
-        # Reset stochastic components with independent random seeds
-        if seed is not None:
-            # Create a seed sequence with the provided seed
-            seed_seq = SeedSequence(seed)
-            # Spawn seeds for all stochastic components. Add one additional seed for inventory initialization.
-            seeds = seed_seq.spawn(len(stochastic_components) + 1) 
-            # Reset each component with its corresponding seed
-            for comp, seed_obj in zip(stochastic_components, seeds[:-1]):
-                comp.reset(seed_obj.entropy)
-            # Set the seed for inventory initialization as the last seed in the sequence and return it
-            inventory_seed = seeds[-1].entropy
-            return inventory_seed
+        # If seeds are provided, ensure that they match the number of stochastic components and use them to reset the components
+        if seeds is not None:
+            if len(seeds) != len(stochastic_components):
+                raise ValueError(
+                    f"Number of seeds ({len(seeds)}) must match "
+                    f"number of stochastic components ({len(stochastic_components)})"
+                )
+            
+            for comp, seed_obj in zip(stochastic_components, seeds):
+                if isinstance(seed_obj, SeedSequence):
+                    seed_int = SeedManager.seed_to_int(seed_obj)
+                else:
+                    seed_int = seed_obj  # Already an int
+                comp.reset(seed_int)
 
-        # If no seed is provided, reset all stochastic components without explicit seeds
+        # If no seeds provided, reset all stochastic components without explicit seeds
         else:
             for comp in stochastic_components:
                 comp.reset(None)
-            return None
 
-    def _get_observations(self) -> Dict[str, np.ndarray]:
+    def _get_observations(self) -> Dict[str, Dict[str, np.ndarray]]:
         """
-        Builds per-warehouse observations consisting of the following features:        
+        Builds per-warehouse local and global observations consisting of the following features:        
         - Current inventory level
         - Sum of all pending orders
         
         Returns:
-            observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to observation array.
-                Shape: {warehouse_id: (2 * n_skus,)}.
+            observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to dictionary containing local and global observations.
+                Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
         """
 
-        # Initialize dictionary to store observations
-        observations = {}
+        # Initialize dictionary to store local observations
+        local_obs = {}
         
-        # Build observations for each warehouse
+        # Build local observations for each warehouse
         for warehouse_idx, warehouse_id in enumerate(self.agents):
-            # Fetch all features for the current warehouse
             obs_inventory = self.inventory[warehouse_idx, :].copy()
-            pending_total = np.zeros(self.n_skus, dtype=float)
+            pending_total = np.zeros(self.n_skus, dtype=np.float32)
             for orders_array in self.pending_orders.values():
                 pending_total += orders_array[warehouse_idx, :]
             
             # Concatenate features and store them in the observations dictionary
-            observation = np.concatenate([obs_inventory, pending_total])
-            observations[warehouse_id] = observation
+            local = np.concatenate([obs_inventory, pending_total]).astype(np.float32)
+            local_obs[warehouse_id] = local
         
-        return observations 
+        # Build global observations
+        global_obs = np.concatenate([local_obs[agent_id] for agent_id in self.agents])
+
+        # Build observations dictionary
+        obs = {
+            agent_id: {
+                "local": local_obs[agent_id],
+                "global": global_obs,
+            }
+            for agent_id in self.agents
+        }
+        
+        return obs
+
+    def _rescale_actions_to_quantities(self, actions: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """
+        Rescales normalized actions from a [-1, 1] range to integer order quantities in the range [0, max_order_quantity].
+        
+        Args:
+            actions (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to normalized action array. 
+                Shape: {agent_id: (n_skus,)}
+                
+        Returns:
+            quantities (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to rescaled action array.
+                Shape: {agent_id: (n_skus,)}
+        """
+        
+        # Initialize dictionary to store quantities
+        quantities = {}
+        
+        # Rescale actions to quantities for each warehouse
+        for agent_id, action in actions.items():
+            scaled = (action + 1.0) / 2.0 * self.max_order_quantity 
+            integer_action = np.round(scaled).astype(int)
+            integer_action = np.clip(integer_action, 0, self.max_order_quantity) # Clip to ensure [0, max_order_quantity] range
+            quantities[agent_id] = integer_action.astype(float) # Convert to float for compatibility with _apply_orders
+        
+        return quantities
 
     def _apply_orders(self, actions: Dict[str, np.ndarray]):
         """
@@ -344,7 +443,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # Sample lead times for all SKUs
         lead_times = self.lead_time_sampler.sample() # Shape: (n_skus,)
-        
+
         # Stack all actions into a matrix
         actions_matrix = np.array([actions[agent_id] for agent_id in self.agents]) # Shape: (n_warehouses, n_skus)
         
@@ -385,3 +484,8 @@ class InventoryEnvironment(ParallelEnv):
         if self.timestep in self.pending_orders:
             self.inventory += self.pending_orders[self.timestep]
             del self.pending_orders[self.timestep]
+
+
+
+
+
