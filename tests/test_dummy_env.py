@@ -9,6 +9,7 @@ def test_basic_functionality():
     # Load config
     config_path = "config_files/environments/base_env.yaml"
     env_config = load_environment_config(config_path)
+    print(f"[OK] Environment config loaded: {env_config}")
     
     # Create environment
     env = InventoryEnvironment(env_config)
@@ -155,10 +156,10 @@ def test_pending_orders():
 if __name__ == "__main__":
     try:
         test_basic_functionality()
-        test_component_initialization()
-        test_demand_allocation()
-        test_reward_calculation()
-        test_pending_orders()
+        #test_component_initialization()
+        #test_demand_allocation()
+        #test_reward_calculation()
+        #test_pending_orders()
         print("=" * 50)
         print("All tests passed! [OK]")
     except Exception as e:

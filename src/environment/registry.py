@@ -1,27 +1,29 @@
-from typing import Dict, Type
+from typing import Dict, Type, Optional, TYPE_CHECKING
 
-from .components.demand_sampler import BaseDemandSampler, PoissonDemandSampler, EmpiricalDemandSampler
-from .components.demand_allocator import BaseDemandAllocator, GreedyDemandAllocator
-from .components.lead_time_sampler import BaseLeadTimeSampler, UniformLeadTimeSampler
-from .components.lost_sales_handler import BaseLostSalesHandler, CheapestLostSalesHandler, ShipmentLostSalesHandler, CostLostSalesHandler
-from .components.reward_calculator import BaseRewardCalculator, CostRewardCalculator
 from src.environment.context import EnvironmentContext, create_environment_context
 from src.config.schema import EnvironmentConfig
 
+if TYPE_CHECKING:
+    from .components.demand_sampler import BaseDemandSampler
+    from .components.demand_allocator import BaseDemandAllocator
+    from .components.lead_time_sampler import BaseLeadTimeSampler
+    from .components.lost_sales_handler import BaseLostSalesHandler
+    from .components.reward_calculator import BaseRewardCalculator
+
 
 # Define separate registries for each component type to map component name to component class 
-DEMAND_SAMPLER_REGISTRY: Dict[str, Type[BaseDemandSampler]] = {}
-DEMAND_ALLOCATOR_REGISTRY: Dict[str, Type[BaseDemandAllocator]] = {}
-LEAD_TIME_SAMPLER_REGISTRY: Dict[str, Type[BaseLeadTimeSampler]] = {}
-LOST_SALES_HANDLER_REGISTRY: Dict[str, Type[BaseLostSalesHandler]] = {}
-REWARD_CALCULATOR_REGISTRY: Dict[str, Type[BaseRewardCalculator]] = {}
+DEMAND_SAMPLER_REGISTRY: Dict[str, Type['BaseDemandSampler']] = {}
+DEMAND_ALLOCATOR_REGISTRY: Dict[str, Type['BaseDemandAllocator']] = {}
+LEAD_TIME_SAMPLER_REGISTRY: Dict[str, Type['BaseLeadTimeSampler']] = {}
+LOST_SALES_HANDLER_REGISTRY: Dict[str, Type['BaseLostSalesHandler']] = {}
+REWARD_CALCULATOR_REGISTRY: Dict[str, Type['BaseRewardCalculator']] = {}
 
 
 # ============================================================================
 # Demand Sampler Registry
 # ============================================================================
 
-def register_demand_sampler(name: str, sampler_class: Type[BaseDemandSampler]):
+def register_demand_sampler(name: str, sampler_class: Type['BaseDemandSampler']):
     """
     Registers a demand sampler implementation.
     
@@ -32,14 +34,15 @@ def register_demand_sampler(name: str, sampler_class: Type[BaseDemandSampler]):
 
     DEMAND_SAMPLER_REGISTRY[name] = sampler_class
 
-def get_demand_sampler(env_config: EnvironmentConfig) -> BaseDemandSampler:
+def get_demand_sampler(env_config: EnvironmentConfig, context: Optional[EnvironmentContext] = None) -> 'BaseDemandSampler':
     """
     Builds the demand sampler component by creating an EnvironmentContext, 
-    extracting the demand sampler config, looking up the sampler class in the 
-    registry, and instantiating it.
+    extracting the demand sampler config, retrieving the sampler class from
+    the registry, and instantiating it.
 
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
+        context (Optional[EnvironmentContext]): Pre-created context to use. If None, creates a new context.
 
     Returns:
         demand_sampler (BaseDemandSampler): Instantiated demand sampler component.
@@ -56,8 +59,16 @@ def get_demand_sampler(env_config: EnvironmentConfig) -> BaseDemandSampler:
             f"Available: {list(DEMAND_SAMPLER_REGISTRY.keys())}"
         )
     
-    # Create context and instantiate component
-    context = create_environment_context(env_config)
+    # Use provided context or create new one
+    # Note: For real_world data source, context must be provided with preprocessing_seed
+    if context is None:
+        if env_config.data_source.type == "real_world":
+            raise ValueError(
+                "context must be provided when using real_world data source. "
+                "Preprocessing requires a seed that should be spawned in InventoryEnvironment.__init__()."
+            )
+        context = create_environment_context(env_config)
+    
     sampler_class = DEMAND_SAMPLER_REGISTRY[sampler_type]
     return sampler_class(context, component_config)
 
@@ -66,7 +77,7 @@ def get_demand_sampler(env_config: EnvironmentConfig) -> BaseDemandSampler:
 # Demand Allocator Registry
 # ============================================================================
 
-def register_demand_allocator(name: str, allocator_class: Type[BaseDemandAllocator]):
+def register_demand_allocator(name: str, allocator_class: Type['BaseDemandAllocator']):
     """
     Registers a demand allocator implementation.
     
@@ -77,7 +88,7 @@ def register_demand_allocator(name: str, allocator_class: Type[BaseDemandAllocat
 
     DEMAND_ALLOCATOR_REGISTRY[name] = allocator_class
 
-def get_demand_allocator(env_config: EnvironmentConfig) -> BaseDemandAllocator:
+def get_demand_allocator(env_config: EnvironmentConfig, context: Optional[EnvironmentContext] = None) -> 'BaseDemandAllocator':
     """
     Builds the demand allocator component by creating an EnvironmentContext, 
     extracting the demand allocator config, looking up the allocator class in the 
@@ -85,6 +96,7 @@ def get_demand_allocator(env_config: EnvironmentConfig) -> BaseDemandAllocator:
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
+        context (Optional[EnvironmentContext]): Pre-created context to use. If None, creates a new context.
         
     Returns:
         demand_allocator (BaseDemandAllocator): Instantiated demand allocator component.
@@ -101,8 +113,16 @@ def get_demand_allocator(env_config: EnvironmentConfig) -> BaseDemandAllocator:
             f"Available: {list(DEMAND_ALLOCATOR_REGISTRY.keys())}"
         )
     
-    # Create context and instantiate component
-    context = create_environment_context(env_config)
+    # Use provided context or create new one
+    # Note: For real_world data source, context must be provided with preprocessing_seed
+    if context is None:
+        if env_config.data_source.type == "real_world":
+            raise ValueError(
+                "context must be provided when using real_world data source. "
+                "Preprocessing requires a seed that should be spawned in InventoryEnvironment.__init__()."
+            )
+        context = create_environment_context(env_config)
+    
     allocator_class = DEMAND_ALLOCATOR_REGISTRY[allocator_type]
     return allocator_class(context, component_config)
 
@@ -111,7 +131,7 @@ def get_demand_allocator(env_config: EnvironmentConfig) -> BaseDemandAllocator:
 # Lead Time Sampler Registry
 # ============================================================================
 
-def register_lead_time_sampler(name: str, sampler_class: Type[BaseLeadTimeSampler]):
+def register_lead_time_sampler(name: str, sampler_class: Type['BaseLeadTimeSampler']):
     """
     Registers a lead time sampler implementation.
     
@@ -122,7 +142,7 @@ def register_lead_time_sampler(name: str, sampler_class: Type[BaseLeadTimeSample
 
     LEAD_TIME_SAMPLER_REGISTRY[name] = sampler_class
 
-def get_lead_time_sampler(env_config: EnvironmentConfig) -> BaseLeadTimeSampler:
+def get_lead_time_sampler(env_config: EnvironmentConfig, context: Optional[EnvironmentContext] = None) -> 'BaseLeadTimeSampler':
     """
     Builds the lead time sampler component by creating an EnvironmentContext, 
     extracting the lead time sampler config, looking up the sampler class in the 
@@ -130,6 +150,7 @@ def get_lead_time_sampler(env_config: EnvironmentConfig) -> BaseLeadTimeSampler:
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
+        context (Optional[EnvironmentContext]): Pre-created context to use. If None, creates a new context.
         
     Returns:
         lead_time_sampler (BaseLeadTimeSampler): Instantiated lead time sampler component.
@@ -146,8 +167,16 @@ def get_lead_time_sampler(env_config: EnvironmentConfig) -> BaseLeadTimeSampler:
             f"Available: {list(LEAD_TIME_SAMPLER_REGISTRY.keys())}"
         )
     
-    # Create context and instantiate component
-    context = create_environment_context(env_config)
+    # Use provided context or create new one
+    # Note: For real_world data source, context must be provided with preprocessing_seed
+    if context is None:
+        if env_config.data_source.type == "real_world":
+            raise ValueError(
+                "context must be provided when using real_world data source. "
+                "Preprocessing requires a seed that should be spawned in InventoryEnvironment.__init__()."
+            )
+        context = create_environment_context(env_config)
+    
     sampler_class = LEAD_TIME_SAMPLER_REGISTRY[sampler_type]
     return sampler_class(context, component_config)
 
@@ -156,7 +185,7 @@ def get_lead_time_sampler(env_config: EnvironmentConfig) -> BaseLeadTimeSampler:
 # Lost Sales Handler Registry
 # ============================================================================
 
-def register_lost_sales_handler(name: str, handler_class: Type[BaseLostSalesHandler]):
+def register_lost_sales_handler(name: str, handler_class: Type['BaseLostSalesHandler']):
     """
     Registers a lost sales handler implementation.
     
@@ -167,7 +196,7 @@ def register_lost_sales_handler(name: str, handler_class: Type[BaseLostSalesHand
 
     LOST_SALES_HANDLER_REGISTRY[name] = handler_class
 
-def get_lost_sales_handler(env_config: EnvironmentConfig) -> BaseLostSalesHandler:
+def get_lost_sales_handler(env_config: EnvironmentConfig, context: Optional[EnvironmentContext] = None) -> 'BaseLostSalesHandler':
     """
     Builds the lost sales handler component by creating an EnvironmentContext, 
     extracting the lost sales handler config, looking up the handler class in the 
@@ -175,6 +204,7 @@ def get_lost_sales_handler(env_config: EnvironmentConfig) -> BaseLostSalesHandle
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
+        context (Optional[EnvironmentContext]): Pre-created context to use. If None, creates a new context.
         
     Returns:
         lost_sales_handler (BaseLostSalesHandler): Instantiated lost sales handler component.
@@ -191,8 +221,16 @@ def get_lost_sales_handler(env_config: EnvironmentConfig) -> BaseLostSalesHandle
             f"Available: {list(LOST_SALES_HANDLER_REGISTRY.keys())}"
         )
     
-    # Create context and instantiate component
-    context = create_environment_context(env_config)
+    # Use provided context or create new one
+    # Note: For real_world data source, context must be provided with preprocessing_seed
+    if context is None:
+        if env_config.data_source.type == "real_world":
+            raise ValueError(
+                "context must be provided when using real_world data source. "
+                "Preprocessing requires a seed that should be spawned in InventoryEnvironment.__init__()."
+            )
+        context = create_environment_context(env_config)
+    
     handler_class = LOST_SALES_HANDLER_REGISTRY[handler_type]
     return handler_class(context, component_config)
 
@@ -201,7 +239,7 @@ def get_lost_sales_handler(env_config: EnvironmentConfig) -> BaseLostSalesHandle
 # Reward Calculator Registry
 # ============================================================================
 
-def register_reward_calculator(name: str, calculator_class: Type[BaseRewardCalculator]):
+def register_reward_calculator(name: str, calculator_class: Type['BaseRewardCalculator']):
     """
     Registers a reward calculator implementation.
     
@@ -212,7 +250,7 @@ def register_reward_calculator(name: str, calculator_class: Type[BaseRewardCalcu
 
     REWARD_CALCULATOR_REGISTRY[name] = calculator_class
 
-def get_reward_calculator(env_config: EnvironmentConfig) -> BaseRewardCalculator:
+def get_reward_calculator(env_config: EnvironmentConfig, context: Optional[EnvironmentContext] = None) -> 'BaseRewardCalculator':
     """
     Builds the reward calculator component by creating an EnvironmentContext, 
     extracting the reward calculator config, looking up the calculator class in the 
@@ -220,6 +258,7 @@ def get_reward_calculator(env_config: EnvironmentConfig) -> BaseRewardCalculator
     
     Args:
         env_config (EnvironmentConfig): Full environment configuration.
+        context (Optional[EnvironmentContext]): Pre-created context to use. If None, creates a new context.
         
     Returns:
         reward_calculator (BaseRewardCalculator): Instantiated reward calculator component.
@@ -236,13 +275,27 @@ def get_reward_calculator(env_config: EnvironmentConfig) -> BaseRewardCalculator
             f"Available: {list(REWARD_CALCULATOR_REGISTRY.keys())}"
         )
     
-    # Create context and instantiate component
-    context = create_environment_context(env_config)
+    # Use provided context or create new one
+    # Note: For real_world data source, context must be provided with preprocessing_seed
+    if context is None:
+        if env_config.data_source.type == "real_world":
+            raise ValueError(
+                "context must be provided when using real_world data source. "
+                "Preprocessing requires a seed that should be spawned in InventoryEnvironment.__init__()."
+            )
+        context = create_environment_context(env_config)
+    
     calculator_class = REWARD_CALCULATOR_REGISTRY[calculator_type]
     return calculator_class(context, component_config)
 
 
-# Register implementations
+# Register components
+from .components.demand_sampler import PoissonDemandSampler, EmpiricalDemandSampler
+from .components.demand_allocator import GreedyDemandAllocator
+from .components.lead_time_sampler import UniformLeadTimeSampler
+from .components.lost_sales_handler import CheapestLostSalesHandler, ShipmentLostSalesHandler, CostLostSalesHandler
+from .components.reward_calculator import CostRewardCalculator
+
 register_demand_sampler("poisson", PoissonDemandSampler)
 register_demand_sampler("empirical", EmpiricalDemandSampler)
 register_demand_allocator("greedy", GreedyDemandAllocator)
