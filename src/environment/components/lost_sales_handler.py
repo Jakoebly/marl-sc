@@ -27,13 +27,16 @@ class BaseLostSalesHandler(ABC):
         self.n_warehouses = context.n_warehouses
         self.n_skus = context.n_skus
         self.n_regions = context.n_regions
-        self.shipment_costs = context.shipment_cost
+        self.distances = context.distances
+        self.fixed_cost_per_order = context.shipment_cost.outbound_fixed
+        self.variable_cost_per_weight = context.shipment_cost.outbound_variable
+        self.sku_weights = context.sku_weights
         
-        # Pre-compute closest warehouses for each region
-        self.closest_warehouses = np.argmin(self.shipment_costs, axis=0) # Shape: (n_regions,)
+        # Pre-compute closest warehouses for each region based on distances
+        self.closest_warehouses = np.argmin(self.distances, axis=0) # Shape: (n_regions,)
     
     @abstractmethod
-    def calculate_lost_sales(self, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
+    def calculate_lost_sales(self, lost_order_counts: np.ndarray, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
         """
         Abstract method to calculate lost sales assignments to warehouses.
         
@@ -47,9 +50,9 @@ class BaseLostSalesHandler(ABC):
         pass
 
 
-class CheapestLostSalesHandler(BaseLostSalesHandler):
+class ClosestLostSalesHandler(BaseLostSalesHandler):
     """
-    Implements a cheapest lost sales handler that assigns all lost sales of a region to the closest
+    Implements a closest lost sales handler that assigns all lost sales of a region to the closest
     warehouse only.
     """
     
@@ -65,7 +68,7 @@ class CheapestLostSalesHandler(BaseLostSalesHandler):
         # Initialize base class
         super().__init__(context, component_config)
     
-    def calculate_lost_sales(self, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
+    def calculate_lost_sales(self, lost_order_counts: np.ndarray, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
         """
         Assigns the lost sales of each region to its closest warehouse only.
         
@@ -107,7 +110,7 @@ class ShipmentLostSalesHandler(BaseLostSalesHandler):
         # Initialize base class
         super().__init__(context, component_config)
     
-    def calculate_lost_sales(self, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
+    def calculate_lost_sales(self, lost_order_counts: np.ndarray, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
         """
         Assigns lost sales proportionally to warehouses based on the quantity of units they shipped 
         to each region. If no shipments occurred, falls back to assigning to the closest warehouse only.
@@ -166,7 +169,7 @@ class CostLostSalesHandler(BaseLostSalesHandler):
         # Extract softmax temperature parameter
         self.alpha = component_config.params["alpha"]
     
-    def calculate_lost_sales(self, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
+    def calculate_lost_sales(self, lost_order_counts: np.ndarray, unfulfilled_demand: np.ndarray, shipments: np.ndarray) -> np.ndarray:
         """
         Assigns lost sales proportionally to warehouses based on their shipment costs to each region. Uses 
         a softmax over inverse shipment costs to assign lost sales such that lower cost warehouses get higher
@@ -187,16 +190,22 @@ class CostLostSalesHandler(BaseLostSalesHandler):
         
         # For each region, assign lost sales proportionally based on shipment costs
         for region_id in range(self.n_regions):
+            # Compute total lost weight and orders of the region
+            lost_orders = float(lost_order_counts[region_id])
+            lost_weight = float(unfulfilled_demand[region_id, :].dot(self.sku_weights))
+
             # Get shipment costs of each warehouse to the current region
-            costs = self.shipment_costs[:, region_id] # Shape: (n_warehouses,)
+            costs = (
+                self.fixed_cost_per_order[:, region_id] * lost_orders
+                + self.variable_cost_per_weight[:, region_id] * lost_weight
+            ) # Shape: (n_warehouses,)
             
             # Compute softmax weights based on inverse shipment costs
             logits = -costs / self.alpha 
             weights = softmax(logits) # Shape: (n_warehouses,)
             
             # Assign lost sales for each SKU according to the weights
-            for sku_id in range(self.n_skus):
-                lost_sales_assigned[:, sku_id] += weights * unfulfilled_demand[region_id, sku_id] # Shape: (n_warehouses,)
-        
+            lost_sales_assigned += weights[:, None] * unfulfilled_demand[region_id, :] # Shape: (n_warehouses, n_skus)  
+
         return lost_sales_assigned
 

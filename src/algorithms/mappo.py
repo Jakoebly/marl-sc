@@ -117,7 +117,8 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                 entropy_coeff=mappo_params.entropy_coeff,
                 clip_param=mappo_params.clip_param,
                 use_gae=mappo_params.use_gae,
-                lambda_=mappo_params.lam
+                lambda_=mappo_params.lam,
+                gamma=mappo_params.gamma
             )
             .env_runners(
                 num_env_runners=num_env_runners,

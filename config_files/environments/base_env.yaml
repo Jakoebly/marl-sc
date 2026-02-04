@@ -1,27 +1,59 @@
 environment:
   n_warehouses: 3
-  n_skus: 11
+  n_skus: 5
   n_regions: 3
-  episode_length: 50
-  max_order_quantity: 20
+  episode_length: 100
+  max_order_quantity: 25
   initial_inventory: 
-    type: "uniform"
-    params:
-      min: 1
-      max: 100
+    type: "zero"
+    #params:
+    #  min: 1
+    #  max: 50
   cost_structure:
-    holding_cost: 1.0
-    penalty_cost: 10.0
+    holding_cost: 0.08
+    penalty_cost:
+      - 8.6   # Light item
+      - 9.5   # Medium-light item 
+      - 11.5  # Medium item
+      - 13.2  # Medium-heavy item
+      - 15.2  # Heavy item
     shipment_cost:
-      - [5.0, 5.0, 5.0]
-      - [5.0, 5.0, 5.0]
-      - [5.0, 5.0, 5.0]
+      outbound_fixed:
+        - [25.0, 35.0, 32.0]  # Warehouse 0: Lower for close Region 0, higher for distant regions
+        - [42.0, 22.0, 28.0]  # Warehouse 1: Lower for close Region 1, higher for distant regions
+        - [38.0, 33.0, 18.0]  # Warehouse 2: Lower for close Region 2, higher for distant regions
+      outbound_variable:
+        - [0.15, 0.32, 0.28]  # Warehouse 0: Lower for close Region 0, scales with distance
+        - [0.42, 0.18, 0.25]  # Warehouse 1: Lower for close Region 1, scales with distance
+        - [0.38, 0.29, 0.12]  # Warehouse 2: Lower for close Region 2, scales with distance
+      inbound_fixed:
+        - [10.0, 11.0, 10.5]  # Supplier 0 (SKU 0 - Light item): Moderate costs, slight variation by warehouse
+        - [ 9.0, 10.0,  9.5]  # Supplier 1 (SKU 1 - Medium-light item): Slightly lower, Supplier 1 has better logistics
+        - [13.0, 12.0, 13.5]  # Supplier 2 (SKU 2 - Medium item): Higher costs, Supplier 2 is more expensive
+        - [15.0, 14.0, 15.5]  # Supplier 3 (SKU 3 - Medium-heavy item): Higher costs due to heavier items
+        - [17.0, 18.0, 16.5]  # Supplier 4 (SKU 4 - Heavy item): Highest costs, heavy items require special handling
+      inbound_variable:
+        - [0.12, 0.15, 0.13]  # Supplier 0 (SKU 0 - Light item): Lower variable costs for light items
+        - [0.14, 0.16, 0.15]  # Supplier 1 (SKU 1 - Medium-light item): Slightly higher than Supplier 0
+        - [0.18, 0.20, 0.19]  # Supplier 2 (SKU 2 - Medium item): Higher variable costs for medium items
+        - [0.22, 0.24, 0.23]  # Supplier 3 (SKU 3 - Medium-heavy item): Higher variable costs for heavier items
+        - [0.28, 0.30, 0.26]  # Supplier 4 (SKU 4 - Heavy item): Highest variable costs for heavy items
+    sku_weights: 
+      - 0.45 # Light item
+      - 0.71 # Medium-light item 
+      - 1.41 # Medium item
+      - 2.24 # Medium-heavy item
+      - 3.46 # Heavy item
+    distances: 
+      - [150, 320, 280]  # Warehouse 0: close to Region 0, medium to Regions 1 & 2
+      - [420, 180, 250]  # Warehouse 1: close to Region 1, medium to Regions 0 & 2
+      - [380, 290, 120]  # Warehouse 2: close to Region 2, medium to Regions 0 & 1
   components:
     demand_sampler:
       type: "poisson"
       params:
-        lambda_orders: 5.0
-        lambda_skus: 2.0
+        lambda_orders: 2.5
+        lambda_skus: 1.8
         lambda_quantity: 3.0
     demand_allocator:
       type: "greedy"
@@ -33,7 +65,7 @@ environment:
         min: 1
         max: 5
     lost_sales_handler:
-      type: "cheapest"
+      type: "closest"
       params:
     reward_calculator:
       type: "cost"
@@ -42,13 +74,14 @@ environment:
         scale_factor: 1.0
         normalize: false
         cost_weights:
-          - 0.34
-          - 0.33
-          - 0.33
+          - 0.25
+          - 0.25
+          - 0.25
+          - 0.25
   data_source:
-    type: "real_world"
-    path: "C:/Users/Jakob Ehrenhuber/Desktop/marl-sc/data_files/raw"
-    data_split:
-      type: "ratio"  
-      train_ratio: 0.8  
+    type: "synthetic"
+    #path: "C:/Users/Jakob Ehrenhuber/Desktop/marl-sc/data_files/raw"
+    #data_split:
+    #  type: "ratio"  
+    #  train_ratio: 0.8  
 

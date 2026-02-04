@@ -23,6 +23,10 @@ class AllocationResult:
             Shape: (n_warehouses, n_regions).
         shipment_quantities (np.ndarray): Total units shipped per warehouse-region pair. 
             Shape: (n_warehouses, n_regions).
+        shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU combination.
+            Shape: (n_warehouses, n_regions, n_skus).
+        lost_order_counts (np.ndarray): Number of orders with unfulfilled demand per region.
+            Shape: (n_regions,).
     """
 
     # Result parameters
@@ -30,6 +34,8 @@ class AllocationResult:
     unfulfilled_demands: np.ndarray  # Shape: (n_regions, n_skus)
     shipment_counts: np.ndarray  # Shape: (n_warehouses, n_regions)
     shipment_quantities: np.ndarray  # Shape: (n_warehouses, n_regions)
+    shipment_quantities_by_sku: np.ndarray  # Shape: (n_warehouses, n_regions, n_skus)
+    lost_order_counts: np.ndarray  # Shape: (n_regions,)
 
 
 class BaseDemandAllocator(ABC):
@@ -52,7 +58,9 @@ class BaseDemandAllocator(ABC):
         self.n_warehouses = context.n_warehouses
         self.n_skus = context.n_skus
         self.n_regions = context.n_regions
-        self.shipment_costs = context.shipment_cost
+        self.fixed_cost_per_order = context.shipment_cost.outbound_fixed
+        self.variable_cost_per_weight = context.shipment_cost.outbound_variable
+        self.sku_weights = context.sku_weights
     
     @abstractmethod
     def allocate(self, orders: List[Order], available_inventories: np.ndarray,) -> AllocationResult:
@@ -74,6 +82,8 @@ class BaseDemandAllocator(ABC):
                     Shape: (n_warehouses, n_regions).
                 - shipment_quantities (np.ndarray): Total units shipped per warehouse-region pair. 
                     Shape: (n_warehouses, n_regions).
+                - lost_order_counts (np.ndarray): Number of orders with unfulfilled demand per region.
+                    Shape: (n_regions,).
         """
         pass
 
@@ -103,9 +113,7 @@ class GreedyDemandAllocator(BaseDemandAllocator):
             self.max_splits = self.n_warehouses - 1 # Default: allow splitting across all warehouses
         else:
             self.max_splits = max_splits
-        
-        # Pre-compute warehouse orderings by shipment cost for each region
-        self.warehouse_orderings = np.argsort(self.shipment_costs, axis=0) # Shape: (n_warehouses, n_regions)
+
     
     def allocate(self, orders: List[Order], available_inventories: np.ndarray) -> AllocationResult:
         """
@@ -134,6 +142,10 @@ class GreedyDemandAllocator(BaseDemandAllocator):
                     Shape: (n_warehouses, n_regions).
                 - shipment_quantities (np.ndarray): Total units shipped per warehouse-region pair. 
                     Shape: (n_warehouses, n_regions).
+                - shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU combination.
+                    Shape: (n_warehouses, n_regions, n_skus).
+                - lost_order_counts (np.ndarray): Number of orders with unfulfilled demand per region.
+                    Shape: (n_regions,).
         """
 
         # Initialize variables
@@ -145,13 +157,20 @@ class GreedyDemandAllocator(BaseDemandAllocator):
         fulfillment_matrix = np.zeros((n_orders, self.n_warehouses, self.n_skus), dtype=float) # Shape: (n_orders, n_warehouses, n_skus)
         shipment_counts = np.zeros((self.n_warehouses, self.n_regions), dtype=int) # Shape: (n_warehouses, n_regions)
         shipment_quantities = np.zeros((self.n_warehouses, self.n_regions), dtype=float) # Shape: (n_warehouses, n_regions)
+        shipment_quantities_by_sku = np.zeros((self.n_warehouses, self.n_regions, self.n_skus), dtype=float) # Shape: (n_warehouses, n_regions, n_skus)
         unfulfilled_demands = np.zeros((self.n_regions, self.n_skus), dtype=float) # Shape: (n_regions, n_skus)
+        lost_order_counts = np.zeros(self.n_regions, dtype=int) # Shape: (n_regions,)
         
         # Process each order sequentially
         for order_idx, order in enumerate(orders):
             # Get the current order's region ID and the corresponding warehouse ordering
             region_id = order.region_id
-            warehouse_ordering = self.warehouse_orderings[:, region_id] # Shape: (n_warehouses,)
+            total_weight = order.sku_demands.dot(self.sku_weights)
+            total_costs = (
+                self.fixed_cost_per_order[:, region_id] + 
+                self.variable_cost_per_weight[:, region_id] * total_weight
+            ) # Shape: (n_warehouses,)
+            warehouse_ordering = np.argsort(total_costs) # Shape: (n_warehouses,)
             
             # Track remaining demand for this order and the warehouses used
             remaining_demand = order.sku_demands.copy()
@@ -171,7 +190,8 @@ class GreedyDemandAllocator(BaseDemandAllocator):
                     # Update the result matrices
                     fulfillment_matrix[order_idx, wh_idx, :] += fulfillment 
                     shipment_counts[wh_idx, region_id] += 1 
-                    shipment_quantities[wh_idx, region_id] += fulfillment.sum() 
+                    shipment_quantities[wh_idx, region_id] += fulfillment.sum()
+                    shipment_quantities_by_sku[wh_idx, region_id, :] += fulfillment
 
                     # Update the remaining demand and the warehouse's inventory
                     remaining_demand -= fulfillment 
@@ -185,11 +205,14 @@ class GreedyDemandAllocator(BaseDemandAllocator):
             # Track any unfulfilled demand for this order
             if np.any(remaining_demand > 0):
                 unfulfilled_demands[region_id, :] += remaining_demand
+                lost_order_counts[region_id] += 1
         
         return AllocationResult(
             fulfillment_matrix=fulfillment_matrix,
             unfulfilled_demands=unfulfilled_demands,
             shipment_counts=shipment_counts,
-            shipment_quantities=shipment_quantities
+            shipment_quantities=shipment_quantities,
+            shipment_quantities_by_sku=shipment_quantities_by_sku,
+            lost_order_counts=lost_order_counts
         )
 

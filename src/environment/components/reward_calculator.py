@@ -29,13 +29,18 @@ class BaseRewardCalculator(ABC):
         self.n_regions = context.n_regions
         self.holding_cost = context.holding_cost
         self.penalty_cost = context.penalty_cost
-        self.shipment_cost = context.shipment_cost
+        self.outbound_fixed_cost_per_order = context.shipment_cost.outbound_fixed
+        self.outbound_variable_cost_per_weight = context.shipment_cost.outbound_variable
+        self.inbound_fixed_cost_per_order = context.shipment_cost.inbound_fixed
+        self.inbound_variable_cost_per_weight = context.shipment_cost.inbound_variable
+        self.sku_weights = context.sku_weights
     
     @abstractmethod
     def calculate(self,
                   inventory: np.ndarray,  
                   lost_sales: np.ndarray,
-                  shipment_counts: np.ndarray,  
+                  shipment_counts: np.ndarray,
+                  shipment_quantities_by_sku: np.ndarray,
                   ) -> np.ndarray:
         """
         Abstract method to calculate rewards for each warehouse.
@@ -45,6 +50,8 @@ class BaseRewardCalculator(ABC):
             lost_sales (np.ndarray): Lost sales assigned to each warehouse. Shape: (n_warehouses, n_skus)
             shipment_counts (np.ndarray): Number of shipments per warehouse-region pair.
                 Shape: (n_warehouses, n_regions)
+            shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU combination.
+                Shape: (n_warehouses, n_regions, n_skus)
         
         Returns:
             rewards (np.ndarray): Reward array. Shape: (n_warehouses,).
@@ -70,8 +77,12 @@ class CostRewardCalculator(BaseRewardCalculator):
         # Initialize base class
         super().__init__(context, component_config)
         
+        # Normalize SKU weights for reward calculation
+        self.sku_weights_norm = self.sku_weights / self.sku_weights.mean() # Shape: (n_skus,)
+
         # Extract reward parameters from configuration
         params = component_config.params
+
         # Handle both dict and Pydantic model access
         if hasattr(params, "scope"):
             self.scope = params.scope
@@ -84,7 +95,14 @@ class CostRewardCalculator(BaseRewardCalculator):
             self.normalize = params["normalize"]
             self.cost_weights = np.array(params["cost_weights"], dtype=float)
     
-    def calculate(self, inventory: np.ndarray, lost_sales: np.ndarray, shipment_counts: np.ndarray) -> np.ndarray:
+    def calculate(
+        self, 
+        inventory: np.ndarray, 
+        ordered_skus: np.ndarray, 
+        lost_sales: np.ndarray, 
+        shipment_counts: np.ndarray, 
+        shipment_quantities_by_sku: np.ndarray,
+        ) -> np.ndarray:
         """
         Calculates rewards as the weighted sum of negative supply chain costs. The calculator computes the reward by 
         performing the following steps:
@@ -97,36 +115,60 @@ class CostRewardCalculator(BaseRewardCalculator):
         
         Args:
             inventory (np.ndarray): Current inventory levels. Shape: (n_warehouses, n_skus)
+            ordered_skus (np.ndarray): Ordered SKUs by each warehouse. Shape: (n_warehouses, n_skus)
             lost_sales (np.ndarray): Lost sales assigned to each warehouse. Shape: (n_warehouses, n_skus)
             shipment_counts (np.ndarray): Number of shipments per warehouse-region pair. 
                 Shape: (n_warehouses, n_regions)
+            shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU combination.
+                Shape: (n_warehouses, n_regions, n_skus)
             
         Returns:
             rewards (np.ndarray): Reward array. Shape: (n_warehouses,).
         """
 
         # Compute holding costs for each warehouse
-        if isinstance(self.holding_cost, np.ndarray): # Per-warehouse holding costs
-            holding_costs_total = (inventory * self.holding_cost[:, np.newaxis]).sum(axis=1) # Shape: (n_warehouses,)
-        else: # Scalar holding costs
-            holding_costs_total = (inventory * self.holding_cost).sum(axis=1) # Shape: (n_warehouses,)
+        if isinstance(self.holding_cost, np.ndarray):  # Per-SKU holding costs
+            holding_costs_total = (inventory * self.holding_cost[np.newaxis, :]).sum(axis=1) # Shape: (n_warehouses,)
+        else:  # Scalar holding costs
+            holding_costs_total = (inventory * self.sku_weights[np.newaxis, :] * self.holding_cost).sum(axis=1) # Shape: (n_warehouses,)
         
         # Compute penalty costs for each warehouse
         if isinstance(self.penalty_cost, np.ndarray): # Per-SKU penalty costs
             penalty_costs_total = (lost_sales * self.penalty_cost[np.newaxis, :]).sum(axis=1) # Shape: (n_warehouses,)
         else: # Scalar penalty costs
-            penalty_costs_total = (lost_sales * self.penalty_cost).sum(axis=1) # Shape: (n_warehouses,)
+            penalty_costs_total = (lost_sales * self.sku_weights[np.newaxis, :] * self.penalty_cost).sum(axis=1) # Shape: (n_warehouses,)
         
-        # Compute shipment costs for each warehouse
-        shipment_costs_total = (shipment_counts * self.shipment_cost).sum(axis=1) # Shape: (n_warehouses,)
+        # Compute outbound shipment costs for each warehouse
+        outbound_fixed_costs_total = (shipment_counts * self.outbound_fixed_cost_per_order).sum(axis=1) # Shape: (n_warehouses,)
+        outbound_shipment_weights = (shipment_quantities_by_sku * self.sku_weights[np.newaxis, np.newaxis, :]).sum(axis=2) # Shape: (n_warehouses, n_regions)
+        outbound_variable_costs_total = (outbound_shipment_weights * self.outbound_variable_cost_per_weight).sum(axis=1) # Shape: (n_warehouses,)
+
+        # Compute inbound shipment costs for each warehouse
+        order_counts = (ordered_skus > 0).astype(int) # Shape: (n_warehouses, n_skus)
+        inbound_fixed_costs_total = (order_counts * self.inbound_fixed_cost_per_order.T).sum(axis=1) # Shape: (n_warehouses,)
+        inbound_shipment_weights = (ordered_skus * self.sku_weights[np.newaxis, :])	 # Shape: (n_warehouses, n_skus)
+        inbound_variable_costs_total = (inbound_shipment_weights * self.inbound_variable_cost_per_weight.T).sum(axis=1) # Shape: (n_warehouses,)
+        
+        # Total shipment costs
+        outbound_shipment_costs_total = outbound_fixed_costs_total + outbound_variable_costs_total # Shape: (n_warehouses,)
+        inbound_shipment_costs_total = inbound_fixed_costs_total + inbound_variable_costs_total # Shape: (n_warehouses,)
         
         # Compute weighted total costs for each warehouse
-        costs_per_warehouse = (
-            self.cost_weights[0] * holding_costs_total +
-            self.cost_weights[1] * penalty_costs_total +
-            self.cost_weights[2] * shipment_costs_total
-        ) # Shape: (n_warehouses,)
+        #costs_per_warehouse = (
+        #    self.cost_weights[0] * holding_costs_total +
+        #    self.cost_weights[1] * penalty_costs_total +
+        #    self.cost_weights[2] * outbound_shipment_costs_total +
+        #    self.cost_weights[3] * inbound_shipment_costs_total
+        #) # Shape: (n_warehouses,)
         
+        # Compute unweighted total costs for each warehouse
+        costs_per_warehouse = (
+            holding_costs_total +
+            penalty_costs_total +
+            outbound_shipment_costs_total +
+            inbound_shipment_costs_total
+        ) # Shape: (n_warehouses,)
+
         # Normalize if enabled
         if self.normalize:
             pass # TODO: Implement normalization

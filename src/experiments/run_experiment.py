@@ -55,7 +55,7 @@ def run_single_experiment(
     if experiment_name is None:
         experiment_name = generate_experiment_name(
             algorithm_config_path=algorithm_config_path,
-            search_type="single",  # Indicate this is a single run
+            search_type="single", 
             scheduler_type=None,
         )
 
@@ -68,7 +68,7 @@ def run_single_experiment(
         wandb_project=wandb_project,
         algorithm_config_path=algorithm_config_path,
         mode="single",
-        wandb_name=wandb_name,
+        wandb_name=wandb_name if wandb_name else experiment_name,
     )
     
     # Create experiment directory
