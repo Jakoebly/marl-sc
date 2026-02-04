@@ -34,8 +34,8 @@ wandb/
 # =========================
 # Data
 # =========================
-data_files/raw/*
-!data_files/raw/.gitkeep
+data_files/*
+!data_files/.gitkeep
 data_files/processed/
 
 # =========================
