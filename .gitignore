@@ -27,15 +27,15 @@ ENV/
 # =========================
 # Experiment outputs
 # =========================
-experiment_outputs/
-runs/
+experiment_outputs/*
+!experiment_outputs/.gitkeep
 wandb/
-logs/
 
 # =========================
 # Data
 # =========================
-data_files/raw/
+data_files/raw/*
+!data_files/raw/.gitkeep
 data_files/processed/
 
 # =========================
