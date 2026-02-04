@@ -12,6 +12,23 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class ShipmentCosts:
+    """
+    Implements a dataclass for fixed and variable shipment costs (both outbound and inbound).
+    
+    Attributes:
+        outbound_fixed (np.ndarray): Fixed cost per outbound shipment order. Shape: (n_warehouses, n_regions).
+        outbound_variable (np.ndarray): Variable cost per unit weight for outbound. Shape: (n_warehouses, n_regions).
+        inbound_fixed (np.ndarray): Fixed cost per inbound shipment order. Shape: (n_suppliers, n_warehouses).
+        inbound_variable (np.ndarray): Variable cost per unit weight for inbound. Shape: (n_suppliers, n_warehouses).
+    """
+    outbound_fixed: np.ndarray  # Shape: (n_warehouses, n_regions)
+    outbound_variable: np.ndarray  # Shape: (n_warehouses, n_regions)
+    inbound_fixed: np.ndarray  # Shape: (n_suppliers, n_warehouses)
+    inbound_variable: np.ndarray  # Shape: (n_suppliers, n_warehouses)
+
+
+@dataclass
 class EnvironmentContext:
     """
     Implements a shared environment context that is passed to all components. It contains
@@ -23,9 +40,11 @@ class EnvironmentContext:
         n_skus (int): Number of stock-keeping units.
         n_regions (int): Number of demand regions.
         episode_length (int): Maximum number of timesteps per episode.
-        holding_cost (Union[float, np.ndarray]): Holding cost rate(s). Shape: scalar or (n_warehouses,).
+        holding_cost (Union[float, np.ndarray]): Holding cost rate(s). Shape: scalar or (n_skus,).
         penalty_cost (Union[float, np.ndarray]): Penalty cost rate(s). Shape: scalar or (n_skus,).
-        shipment_cost (np.ndarray): Shipment costs per warehouse-region pair. Shape: (n_warehouses, n_regions).
+        shipment_cost (ShipmentCosts): Shipment costs containing outbound and inbound fixed/variable costs.
+        sku_weights (np.ndarray): SKU unit weights for weight-based cost calculations. Shape: (n_skus,).
+        distances (np.ndarray): Warehouse-region distance matrix. Shape: (n_warehouses, n_regions). 
         preprocessed_data (Optional[PreprocessedData]): Preprocessed data if using real_world data source. None if using synthetic data.
     """
 
@@ -36,9 +55,11 @@ class EnvironmentContext:
     episode_length: int
 
     # Cost structure parameters
-    holding_cost: Union[float, np.ndarray]  # Scalar or (n_warehouses,)
+    holding_cost: Union[float, np.ndarray]  # Scalar or (n_skus,)
     penalty_cost: Union[float, np.ndarray]  # Scalar or (n_skus,)
-    shipment_cost: np.ndarray  # Shape: (n_warehouses, n_regions)
+    shipment_cost: ShipmentCosts  # Dataclass containing outbound and inbound shipment costs
+    sku_weights: np.ndarray  # Shape: (n_skus,)
+    distances: np.ndarray  # Shape: (n_warehouses, n_regions).
 
     # Data parameters
     preprocessed_data: Optional['PreprocessedData'] = None
@@ -47,9 +68,9 @@ class EnvironmentContext:
 def preprocess_real_world_data(
     env_config: EnvironmentConfig,
     seed: Optional[int] = None
-) -> Tuple[np.ndarray, Optional['PreprocessedData']]:
+) -> Tuple['ShipmentCosts', Optional['PreprocessedData'], np.ndarray, np.ndarray]:
     """
-    Preprocesses real-world data and extracts shipment costs.
+    Preprocesses real-world data and extracts shipment costs, SKU weights, and distances.
     Handles data splitting if data_split config is provided.
     
     Args:
@@ -57,8 +78,10 @@ def preprocess_real_world_data(
         seed (Optional[int]): Pre-spawned seed for preprocessing.
         
     Returns:
-        shipment_cost (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
+        shipment_cost (ShipmentCosts): ShipmentCosts dataclass containing outbound and inbound shipment costs.
         preprocessed_data (Optional['PreprocessedData']): PreprocessedData instance containing both train and val DataFrames.
+        sku_weights (np.ndarray): SKU unit weights. Shape: (n_skus,).
+        distances (np.ndarray): Warehouse-region distance matrix. Shape: (n_warehouses, n_regions).
     """
        
     # Get raw data path
@@ -83,12 +106,12 @@ def preprocess_real_world_data(
     if isinstance(env_config.data_source, DataSourceRealWorld):
         data_split = env_config.data_source.data_split
     
-    preprocessed_data, shipment_cost = preprocessor.preprocess(
+    preprocessed_data, shipment_cost, sku_weights, distances = preprocessor.preprocess(
         data_split=data_split,
         seed=seed
     )
     
-    return shipment_cost, preprocessed_data
+    return shipment_cost, preprocessed_data, sku_weights, distances
 
 def convert_cost_structure(
     cost_structure: CostStructureConfig
@@ -100,15 +123,15 @@ def convert_cost_structure(
         cost_structure (CostStructureConfig): Cost structure configuration.
         
     Returns:
-        holding_cost (Union[float, np.ndarray]): Holding cost rate(s). Shape: scalar or (n_warehouses,).
+        holding_cost (Union[float, np.ndarray]): Holding cost rate(s). Shape: scalar or (n_skus,).
         penalty_cost (Union[float, np.ndarray]): Penalty cost rate(s). Shape: scalar or (n_skus,).
         Tuple of (holding_cost, penalty_cost)
     """
 
-    # Convert holding costs to NumPy array or float depending on its type 
+    # Convert holding costs to NumPy array or float depending on its type
     holding_cost = cost_structure.holding_cost
     if isinstance(holding_cost, list):
-        holding_cost = np.array(holding_cost, dtype=float) # Shape: (n_warehouses,)
+        holding_cost = np.array(holding_cost, dtype=float) # Shape: (n_skus,)
     else:
         holding_cost = float(holding_cost)
     
@@ -150,12 +173,24 @@ def create_environment_context(
     
     # Handle real-world data
     if env_config.data_source.type == "real_world":
-        shipment_cost, preprocessed_data = preprocess_real_world_data(env_config, seed=preprocessing_seed)
+        shipment_cost, preprocessed_data, sku_weights, distances = preprocess_real_world_data(env_config, seed=preprocessing_seed)
     
     # Handle synthetic data
     else:
-        shipment_cost = np.array(env_config.cost_structure.shipment_cost, dtype=float) # Shape: (n_warehouses, n_regions)
         preprocessed_data = None
+        sku_weights = np.array(env_config.cost_structure.sku_weights, dtype=float) # Shape: (n_skus,)
+        distances = np.array(env_config.cost_structure.distances, dtype=float) # Shape: (n_warehouses, n_regions)
+        outbound_fixed = np.array(env_config.cost_structure.shipment_cost.outbound_fixed, dtype=float) # Shape: (n_warehouses, n_regions)
+        outbound_variable = np.array(env_config.cost_structure.shipment_cost.outbound_variable, dtype=float) # Shape: (n_warehouses, n_regions)
+        inbound_fixed = np.array(env_config.cost_structure.shipment_cost.inbound_fixed, dtype=float) # Shape: (n_suppliers, n_warehouses)
+        inbound_variable = np.array(env_config.cost_structure.shipment_cost.inbound_variable, dtype=float) # Shape: (n_suppliers, n_warehouses)
+        # For synthetic data, assume no inbound costs (zero matrices)
+        shipment_cost = ShipmentCosts(
+            outbound_fixed=outbound_fixed,
+            outbound_variable=outbound_variable,
+            inbound_fixed=inbound_fixed,
+            inbound_variable=inbound_variable
+        )
     
     # Create the EnvironmentContext
     environment_context = EnvironmentContext(
@@ -166,6 +201,8 @@ def create_environment_context(
         holding_cost=holding_cost,
         penalty_cost=penalty_cost,
         shipment_cost=shipment_cost,
+        sku_weights=sku_weights,
+        distances=distances,
         preprocessed_data=preprocessed_data,
         data_mode=data_mode
     )

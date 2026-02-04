@@ -20,6 +20,7 @@ algorithm:
     clip_param: 0.2
     use_gae: true
     lam: 0.95
+    gamma: 0.99
     parameter_sharing: true
     networks:
       shared_layers:

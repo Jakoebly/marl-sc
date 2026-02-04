@@ -94,9 +94,6 @@ class InventoryEnvironment(ParallelEnv):
         # Store cost structure and initial inventory config
         self.cost_structure = env_config.cost_structure
         self.initial_inventory_config = env_config.initial_inventory
-
-        # Pre-compute closest warehouses for each region
-        self.closest_warehouses = np.argmin(context.shipment_cost, axis=0)  # Shape: (n_regions,)
         
         # Set agent IDs
         self.agents = [f"warehouse_{i}" for i in range(self.n_warehouses)]
@@ -178,8 +175,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # 1. Rescale normalized actions to order quantities and place replenishment orders
         order_quantities = self._rescale_actions_to_quantities(actions)
-
-        self._apply_orders(actions=order_quantities)
+        ordered_skus = self._apply_orders(actions=order_quantities) # Shape: (n_warehouses, n_skus)
 
         # 2. Receive replenishment orders arriving in this timestep
         self._apply_arrivals()
@@ -192,16 +188,18 @@ class InventoryEnvironment(ParallelEnv):
         fulfillment_matrix = allocation_result.fulfillment_matrix  # Shape: (n_orders, n_warehouses, n_skus)
         shipment_counts = allocation_result.shipment_counts  # Shape: (n_warehouses, n_regions)
         shipment_quantities = allocation_result.shipment_quantities  # Shape: (n_warehouses, n_regions)
+        shipment_quantities_by_sku = allocation_result.shipment_quantities_by_sku  # Shape: (n_warehouses, n_regions, n_skus)
         unfulfilled_demands = allocation_result.unfulfilled_demands  # Shape: (n_regions, n_skus)
+        lost_order_counts = allocation_result.lost_order_counts  # Shape: (n_regions,)
                 
         # 5. Update inventories
         self.inventory = np.maximum(self.inventory - fulfillment_matrix.sum(axis=0), 0.0)
         
         # 6. Assign lost sales
-        lost_sales = self.lost_sales_handler.calculate_lost_sales(unfulfilled_demands, shipment_quantities) # Shape: (n_warehouses, n_skus)
+        lost_sales = self.lost_sales_handler.calculate_lost_sales(lost_order_counts, unfulfilled_demands, shipment_quantities) # Shape: (n_warehouses, n_skus)
         
         # 7. Calculate rewards 
-        rewards_array = self.reward_calculator.calculate(self.inventory, lost_sales, shipment_counts)  # Shape: (n_warehouses,)
+        rewards_array = self.reward_calculator.calculate(self.inventory, ordered_skus, lost_sales, shipment_counts, shipment_quantities_by_sku)  # Shape: (n_warehouses,)
         
         # Convert rewards array to dictionary keyed by warehouse IDs
         rewards = {agent_id: float(rewards_array[i]) for i, agent_id in enumerate(self.agents)}
@@ -456,7 +454,8 @@ class InventoryEnvironment(ParallelEnv):
 
         # Return early if there are no valid orders
         if not np.any(valid_skus):
-            return 
+            ordered_skus = np.zeros((self.n_warehouses, self.n_skus), dtype=bool)
+            return ordered_skus
         
         # Get unique arrival timesteps that have valid orders
         unique_arrival_timesteps = np.unique(arrival_timesteps[valid_skus])
@@ -474,6 +473,11 @@ class InventoryEnvironment(ParallelEnv):
 
             # Add orders arriving in the current arrival timestep to pending_orders
             self.pending_orders[arrival_timestep] += np.where(mask, actions_matrix, 0.0)
+        
+        # Get all ordered SKUs
+        ordered_skus = np.where(valid_skus, actions_matrix, 0.0) # Shape: (n_warehouses, n_skus)
+        
+        return ordered_skus
 
     def _apply_arrivals(self):
         """

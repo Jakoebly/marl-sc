@@ -11,7 +11,7 @@ class BaseAlgorithmWrapper(ABC):
     """Base class for RLlib algorithm wrappers."""
     
     @staticmethod
-    def create_env_factory(env_config: 'EnvironmentConfig') -> Callable[[Dict[str, Any]], ParallelPettingZooEnv]:
+    def create_env_factory(env_config: 'EnvironmentConfig') -> Callable[[Dict[str, Any]], 'ParallelPettingZooEnv']:
         """
         Creates an environment factory function for RLlib.
         

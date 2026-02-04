@@ -74,24 +74,106 @@ InitialInventoryConfig = Union[InitialInventoryUniform, InitialInventoryCustom, 
 # Cost Structure Config Schemas
 # ============================================================================
 
+# Shipment cost configuration
+class ShipmentCostConfig(BaseModel):
+    """Configuration for shipment costs."""
+    
+    outbound_fixed: Optional[List[List[NonNegativeFloat]]] = None
+    outbound_variable: Optional[List[List[NonNegativeFloat]]] = None
+    inbound_fixed: Optional[List[List[NonNegativeFloat]]] = None
+    inbound_variable: Optional[List[List[NonNegativeFloat]]] = None
+    
+    model_config = ConfigDict(extra="forbid")
+    
+    @field_validator("outbound_fixed")
+    @classmethod
+    def _check_outbound_fixed_is_rectangular(cls, v: Optional[List[List[NonNegativeFloat]]]):
+        if v is not None:
+            if not v or any(not row for row in v):
+                raise ValueError("shipment_cost.outbound_fixed must be a non-empty 2D list")
+            if len({len(row) for row in v}) != 1:
+                raise ValueError("shipment_cost.outbound_fixed must be rectangular (all rows same length)")
+        return v
+    
+    @field_validator("outbound_variable")
+    @classmethod
+    def _check_outbound_variable_is_rectangular(cls, v: Optional[List[List[NonNegativeFloat]]]):
+        if v is not None:
+            if not v or any(not row for row in v):
+                raise ValueError("shipment_cost.outbound_variable must be a non-empty 2D list")
+            if len({len(row) for row in v}) != 1:
+                raise ValueError("shipment_cost.outbound_variable must be rectangular (all rows same length)")
+        return v
+    
+    @field_validator("inbound_fixed")
+    @classmethod
+    def _check_inbound_fixed_is_rectangular(cls, v: Optional[List[List[NonNegativeFloat]]]):
+        if v is not None:
+            if not v or any(not row for row in v):
+                raise ValueError("shipment_cost.inbound_fixed must be a non-empty 2D list")
+            if len({len(row) for row in v}) != 1:
+                raise ValueError("shipment_cost.inbound_fixed must be rectangular (all rows same length)")
+        return v
+    
+    @field_validator("inbound_variable")
+    @classmethod
+    def _check_inbound_variable_is_rectangular(cls, v: Optional[List[List[NonNegativeFloat]]]):
+        if v is not None:
+            if not v or any(not row for row in v):
+                raise ValueError("shipment_cost.inbound_variable must be a non-empty 2D list")
+            if len({len(row) for row in v}) != 1:
+                raise ValueError("shipment_cost.inbound_variable must be rectangular (all rows same length)")
+        return v
+    
+    @model_validator(mode="after")
+    def _check_variable_matches_fixed_shape(self):
+        # Check outbound costs
+        if self.outbound_variable is not None:
+            if self.outbound_fixed is None:
+                raise ValueError(
+                    "shipment_cost.outbound_variable cannot be specified without "
+                    "shipment_cost.outbound_fixed"
+                )
+            if len(self.outbound_variable) != len(self.outbound_fixed):
+                raise ValueError(
+                    f"shipment_cost.outbound_variable must have same number of rows as outbound_fixed "
+                    f"({len(self.outbound_fixed)}), got {len(self.outbound_variable)}"
+                )
+            if len(self.outbound_variable[0]) != len(self.outbound_fixed[0]):
+                raise ValueError(
+                    f"shipment_cost.outbound_variable must have same number of columns as outbound_fixed "
+                    f"({len(self.outbound_fixed[0])}), got {len(self.outbound_variable[0])}"
+                )
+        
+        # Check inbound costs
+        if self.inbound_variable is not None:
+            if self.inbound_fixed is None:
+                raise ValueError(
+                    "shipment_cost.inbound_variable cannot be specified without "
+                    "shipment_cost.inbound_fixed"
+                )
+            if len(self.inbound_variable) != len(self.inbound_fixed):
+                raise ValueError(
+                    f"shipment_cost.inbound_variable must have same number of rows as inbound_fixed "
+                    f"({len(self.inbound_fixed)}), got {len(self.inbound_variable)}"
+                )
+            if len(self.inbound_variable[0]) != len(self.inbound_fixed[0]):
+                raise ValueError(
+                    f"shipment_cost.inbound_variable must have same number of columns as inbound_fixed "
+                    f"({len(self.inbound_fixed[0])}), got {len(self.inbound_variable[0])}"
+                )
+        return self
+
 # Cost structures
 class CostStructureConfig(BaseModel):
     """Configuration for cost structure."""
 
-    holding_cost:  Union[NonNegativeFloat, List[NonNegativeFloat]]
+    holding_cost:  Union[PositiveFloat, List[PositiveFloat]]
     penalty_cost:  Union[NonNegativeFloat, List[NonNegativeFloat]]
-    shipment_cost: List[List[NonNegativeFloat]]
+    shipment_cost: ShipmentCostConfig
+    sku_weights: Optional[List[PositiveFloat]] = None
+    distances: Optional[List[List[NonNegativeFloat]]] = None
     model_config = ConfigDict(extra="forbid")
-
-    # Type and shape of shipment_cost parameter
-    @field_validator("shipment_cost")
-    @classmethod
-    def _check_shipment_cost_is_rectangular(cls, v: List[List[NonNegativeFloat]]):
-        if not v or any(not row for row in v):
-            raise ValueError("shipment_cost must be a non-empty 2D list")
-        if len({len(row) for row in v}) != 1:
-            raise ValueError("shipment_cost must be rectangular (all rows same length)")
-        return v
 
 # ============================================================================
 # Component Config Schemas
@@ -111,7 +193,7 @@ class DemandSamplerEmpirical(BaseModel):
     """Configuration for empirical demand sampler."""
 
     type: Literal["empirical"]
-    params: Optional[None] = None  # No params needed - episode_length comes from environment config
+    params: Optional[None] = None 
     model_config = ConfigDict(extra="forbid")
 
 # Union of demand sampler configurations
@@ -166,10 +248,10 @@ LeadTimeSamplerConfig = Union[LeadTimeSamplerUniform]
 
 #  ---------- Lost sales handler ---------
 # Cheapest assignment
-class LostSalesCheapest(BaseModel):
-    """Configuration for cheapest lost sales assignment."""
+class LostSalesClosest(BaseModel):
+    """Configuration for closest lost sales assignment."""
 
-    type: Literal["cheapest"]
+    type: Literal["closest"]
     params: Optional[None] = None
     model_config = ConfigDict(extra="forbid")
 
@@ -190,12 +272,13 @@ class LostSalesCost(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 # Union of lost sales handler configurations
-LostSalesHandlerConfig = Union[LostSalesCheapest, LostSalesShipment, LostSalesCost]
+LostSalesHandlerConfig = Union[LostSalesClosest, LostSalesShipment, LostSalesCost]
 
 
 #  ---------- Reward calculator----------
 # Cost-based reward calculator
 Scope = Literal["team", "agent"]
+COST_TYPES = ["holding_cost", "penalty_cost", "outbound_shipment_cost", "inbound_shipment_cost"]
 
 class RewardCostParams(BaseModel):
     scope: Scope
@@ -227,12 +310,12 @@ class RewardCalculatorCost(BaseModel):
     # Length of cost_weights must match number of cost types
     @model_validator(mode="after")
     def _check_cost_weights_length(self):
-        expected = len(CostStructureConfig.model_fields)
+        expected = len(COST_TYPES)
         actual = len(self.params.cost_weights)
         if actual != expected:
             raise ValueError(
                 f"reward_calculator.params.cost_weights must have length {expected} "
-                f"(one weight per cost type: {list(CostStructureConfig.model_fields.keys())})"
+                f"(one weight per cost type: {COST_TYPES})"
             )
         return self
 
@@ -373,22 +456,62 @@ class EnvironmentConfig(BaseModel):
                             f"got {len(row)}"
                         )
 
-        # Holding_cost: scalar or (n_warehouses,)
+        # Holding_cost: scalar or (n_skus,)
         hc = self.cost_structure.holding_cost
-        if isinstance(hc, list) and len(hc) != nw:
-            raise ValueError(f"holding_cost list must have length n_warehouses={nw}")
+        if isinstance(hc, list) and len(hc) != ns:
+            raise ValueError(f"holding_cost list must have length n_skus={ns}, got {len(hc)}")
 
         # Penalty_cost: scalar or (n_skus,)
         pc = self.cost_structure.penalty_cost
         if isinstance(pc, list) and len(pc) != ns:
             raise ValueError(f"penalty_cost list must have length n_skus={ns}")
 
-        # Shipment_cost: (n_warehouses, n_regions)
-        sc = self.cost_structure.shipment_cost
-        if len(sc) != nw:
-            raise ValueError(f"shipment_cost must have {nw} rows (n_warehouses)")
-        if any(len(row) != nr for row in sc):
-            raise ValueError(f"shipment_cost must have {nr} columns (n_regions) in every row")
+        # Outbound shipment costs: (n_warehouses, n_regions)
+        sc_outbound_fixed = self.cost_structure.shipment_cost.outbound_fixed
+        if sc_outbound_fixed is not None:
+            if len(sc_outbound_fixed) != nw:
+                raise ValueError(f"shipment_cost.outbound_fixed must have {nw} rows (n_warehouses), got {len(sc_outbound_fixed)}")
+            if any(len(row) != nr for row in sc_outbound_fixed):
+                raise ValueError(f"shipment_cost.outbound_fixed must have {nr} columns (n_regions) in every row")
+        
+        sc_outbound_variable = self.cost_structure.shipment_cost.outbound_variable
+        if sc_outbound_variable is not None:
+            if len(sc_outbound_variable) != nw:
+                raise ValueError(f"shipment_cost.outbound_variable must have {nw} rows (n_warehouses), got {len(sc_outbound_variable)}")
+            if any(len(row) != nr for row in sc_outbound_variable):
+                raise ValueError(f"shipment_cost.outbound_variable must have {nr} columns (n_regions) in every row")
+        
+        # Inbound shipment costs: (n_suppliers, n_warehouses) where n_suppliers = n_skus
+        sc_inbound_fixed = self.cost_structure.shipment_cost.inbound_fixed
+        if sc_inbound_fixed is not None:
+            if len(sc_inbound_fixed) != ns:
+                raise ValueError(f"shipment_cost.inbound_fixed must have {ns} rows (n_suppliers=n_skus), got {len(sc_inbound_fixed)}")
+            if any(len(row) != nw for row in sc_inbound_fixed):
+                raise ValueError(f"shipment_cost.inbound_fixed must have {nw} columns (n_warehouses) in every row")
+        
+        sc_inbound_variable = self.cost_structure.shipment_cost.inbound_variable
+        if sc_inbound_variable is not None:
+            if len(sc_inbound_variable) != ns:
+                raise ValueError(f"shipment_cost.inbound_variable must have {ns} rows (n_suppliers=n_skus), got {len(sc_inbound_variable)}")
+            if any(len(row) != nw for row in sc_inbound_variable):
+                raise ValueError(f"shipment_cost.inbound_variable must have {nw} columns (n_warehouses) in every row")
+
+        # SKU_weights: optional (n_skus,) for synthetic mode
+        sw = self.cost_structure.sku_weights
+        if sw is not None and len(sw) != ns:
+            raise ValueError(f"sku_weights list must have length n_skus={ns}, got {len(sw)}")
+
+        # Distances: (n_warehouses, n_regions)
+        dist = self.cost_structure.distances
+        if dist is not None:
+            if not dist or any(not row for row in dist):
+                raise ValueError("distances must be a non-empty 2D list")
+            if len({len(row) for row in dist}) != 1:
+                raise ValueError("distances must be rectangular (all rows same length)")
+            if len(dist) != nw:
+                raise ValueError(f"distances must have {nw} rows (n_warehouses), got {len(dist)}")
+            if any(len(row) != nr for row in dist):
+                raise ValueError(f"distances must have {nr} columns (n_regions) in every row")
 
         return self
 
@@ -407,12 +530,50 @@ class EnvironmentConfig(BaseModel):
                 if ms >= nw:
                     raise ValueError(f"demand_allocator.greedy max_splits must be < n_warehouses={nw}")
 
-        # Data source validation: empirical sampler requires real_world data_source
+        # Data source validation
         if isinstance(self.components.demand_sampler, DemandSamplerEmpirical):
             if self.data_source.type != "real_world":
                 raise ValueError(
                     "demand_sampler.type='empirical' requires data_source.type='real_world', "
                     f"got data_source.type='{self.data_source.type}'"
+                )
+        
+        # Shipment costs validation
+        if self.data_source.type == "synthetic":
+            if self.cost_structure.shipment_cost.outbound_fixed is None:
+                raise ValueError(
+                    "shipment_cost.fixed_per_order must be specified when using synthetic data source. "
+                    "For real_world data source, fixed_per_order is extracted from the data."
+                )
+            if self.cost_structure.shipment_cost.outbound_variable is None:
+                raise ValueError(
+                    "shipment_cost.variable_per_weight must be specified when using synthetic data source. "
+                    "For real_world data source, variable_per_weight is extracted from the data."
+                )
+            if self.cost_structure.shipment_cost.inbound_fixed is None:
+                raise ValueError(
+                    "shipment_cost.inbound_fixed must be specified when using synthetic data source. "
+                    "For real_world data source, inbound_fixed is extracted from the data."
+                )
+            if self.cost_structure.shipment_cost.inbound_variable is None:
+                raise ValueError(
+                    "shipment_cost.inbound_variable must be specified when using synthetic data source. "
+                    "For real_world data source, inbound_variable is extracted from the data."
+                )
+        
+        # SKU weights validation
+        if self.data_source.type == "synthetic":
+            if self.cost_structure.sku_weights is None:
+                raise ValueError(
+                    "sku_weights must be specified when using synthetic data source. "
+                    "For real_world data source, sku_weights are extracted from the data."
+                )
+        # Distances validation
+        if self.data_source.type == "synthetic":
+            if self.cost_structure.distances is None:
+                raise ValueError(
+                    "distances must be specified when using synthetic data source. "
+                    "For real_world data source, distances are extracted from the data."
                 )
         
         return self
@@ -567,6 +728,7 @@ class PPOConfig(BaseModel):
     clip_param: PositiveFloat = 0.2
     use_gae: bool = True
     lam: NonNegativeFloat = 0.95
+    gamma: NonNegativeFloat = 0.99
     model_config = ConfigDict(extra="forbid")
     
     @model_validator(mode="after")
@@ -576,6 +738,8 @@ class PPOConfig(BaseModel):
             raise ValueError("clip_param should typically be <= 1.0")
         if self.lam < 0.0 or self.lam > 1.0:
             raise ValueError("lam must be in [0.0, 1.0]")
+        if self.gamma < 0.0 or self.gamma > 1.0:
+            raise ValueError("gamma must be in [0.0, 1.0]")
         return self
 
 # IPPO-specific parameters

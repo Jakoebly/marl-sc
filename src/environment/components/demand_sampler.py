@@ -166,6 +166,8 @@ class EmpiricalDemandSampler(BaseDemandSampler):
         # Initialize base class
         super().__init__(context, component_config) 
         
+        print(f"[DEBUG] Preprocessed data: {context.preprocessed_data}")
+
         # Extract episode length from context (shared with environment)
         self.episode_length = context.episode_length
         

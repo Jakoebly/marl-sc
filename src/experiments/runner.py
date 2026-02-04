@@ -78,6 +78,7 @@ class ExperimentRunner:
         
         # Train for the specified number of iterations
         for iteration in range(1, num_iterations + 1):
+            print(f"[INFO] Training iteration {iteration} of {num_iterations}")
             # Train one iteration
             result = self.algorithm.train()
             
@@ -88,9 +89,10 @@ class ExperimentRunner:
             # Save and log a checkpoint (if checkpoint frequency is reached)
             checkpoint_path = None
             if iteration % checkpoint_freq == 0 and self.checkpoint_dir:
+                print(f"[INFO] Saving checkpoint at iteration {iteration}")
                 checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
                 checkpoint_path.mkdir(parents=True, exist_ok=True)
-                checkpoint_path = str(checkpoint_path)
+                checkpoint_path = str(checkpoint_path.resolve())
                 self.algorithm.save_checkpoint(checkpoint_path)
                 if self.wandb_config:
                     wandb.log({"checkpoint_iteration": iteration})
@@ -104,7 +106,7 @@ class ExperimentRunner:
         if self.checkpoint_dir:
             final_checkpoint_path = self.checkpoint_dir / "checkpoint_final"
             final_checkpoint_path.mkdir(parents=True, exist_ok=True)
-            final_checkpoint_path = str(final_checkpoint_path)
+            final_checkpoint_path = str(final_checkpoint_path.resolve())
             self.algorithm.save_checkpoint(str(final_checkpoint_path))
         
         # Report final metrics and the final checkpoint back to Ray Tune

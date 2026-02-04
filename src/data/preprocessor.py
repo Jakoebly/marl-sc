@@ -15,6 +15,7 @@ from numpy.random import SeedSequence
 
 if TYPE_CHECKING:
     from src.config.schema import DataSplitConfig
+    from src.environment.context import ShipmentCosts
 
 
 @dataclass
@@ -138,6 +139,7 @@ class DataSelector:
         self.selected_sku_ids: Optional[List[str]] = None
         self.selected_warehouse_ids: Optional[List[str]] = None
         self.selected_region_ids: Optional[List[str]] = None
+        self.selected_supplier_ids: Optional[List[str]] = None
         
         # Initialize RNG
         self._rng = np.random.default_rng(selection_seed)
@@ -198,6 +200,43 @@ class DataSelector:
         self.selected_region_ids = self._rng.choice(
             available_region_ids, size=self.n_regions, replace=False
         ).tolist()
+    
+    def select_suppliers(
+        self,
+        selected_sku_ids: List[str],
+        skus_per_supplier_df: pd.DataFrame,
+    ):
+        """
+        Selects the first supplier for each selected SKU (first supplier that appears in skus_per_supplier_df).
+        
+        Args:
+            selected_sku_ids: List of selected SKU IDs.
+            skus_per_supplier_df: DataFrame with columns: itemid, supplierid
+        """
+
+        # Initialize mapping from SKU ID to first supplier ID
+        sku_to_supplier = {}
+
+        # Iterate over skus_per_supplier_df to build mapping from SKU ID to first supplier ID
+        for _, row in skus_per_supplier_df.iterrows():
+            # Get SKU ID and supplier ID
+            sku_id = str(row['itemid'])
+            supplier_id = str(row['supplierid'])
+
+            # Store the first supplier ID we encounter for each SKU
+            if sku_id not in sku_to_supplier:
+                sku_to_supplier[sku_id] = supplier_id
+        
+        # Initialize set of selected supplier IDs
+        selected_supplier_ids = []
+        
+        # Iterate over selected SKU IDs to select the corresponding supplier
+        for sku_id in selected_sku_ids:
+            supplier_id = sku_to_supplier.get(str(sku_id))
+            if supplier_id is None:
+                raise ValueError(f"No suppliers found for SKU {sku_id}")
+            selected_supplier_ids.append(supplier_id)
+        self.selected_supplier_ids = selected_supplier_ids
     
 
 class DataSplitter:
@@ -305,7 +344,9 @@ class DataProcessor:
         selected_sku_ids: List[str],
         selected_warehouse_ids: List[str],
         selected_region_ids: List[str],
+        selected_supplier_ids: List[str],
         warehouse_to_region_df: pd.DataFrame,
+        supplier_to_warehouse_df: pd.DataFrame,
         orders_df: pd.DataFrame,
         order_sku_demand_df: pd.DataFrame,
         skus_df: pd.DataFrame,
@@ -318,7 +359,9 @@ class DataProcessor:
             selected_sku_ids (List[str]): Selected SKU IDs.
             selected_warehouse_ids (List[str]): Selected warehouse IDs.
             selected_region_ids (List[str]): Selected region IDs.
+            selected_supplier_ids (List[str]): Selected supplier IDs.
             warehouse_to_region_df (pd.DataFrame): Warehouse-to-region relationships with costs.
+            supplier_to_warehouse_df (pd.DataFrame): Supplier-to-warehouse relationships with costs.
             orders_df (pd.DataFrame): Orders DataFrame (must have 'regionid' column).
             order_sku_demand_df (pd.DataFrame): Order-SKU demand DataFrame.
             skus_df (pd.DataFrame): SKUs DataFrame (must have 'sku_index' column).
@@ -329,7 +372,9 @@ class DataProcessor:
         self.selected_sku_ids = selected_sku_ids
         self.selected_warehouse_ids = selected_warehouse_ids
         self.selected_region_ids = selected_region_ids
+        self.selected_supplier_ids = selected_supplier_ids
         self.warehouse_to_region_df = warehouse_to_region_df
+        self.supplier_to_warehouse_df = supplier_to_warehouse_df
         self.orders_df = orders_df
         self.order_sku_demand_df = order_sku_demand_df
         self.skus_df = skus_df
@@ -396,21 +441,32 @@ class DataProcessor:
         
         return mapped_regions
     
-    def get_updated_shipment_costs(self) -> np.ndarray:
+    def get_updated_shipment_costs(self) -> 'ShipmentCosts':
         """
-        Extracts the shipment costs for all (warehouse, region) pairs in the selected sets.
-        If a pair does not exist in the data, it uses the average cost for the warehouse as fallback.
+        Extracts both outbound and inbound shipment costs (fixed and variable) for all pairs in the selected sets.
+        If a pair does not exist in the data, it uses the average cost as fallback.
         
         Returns:
-            cost_matrix (np.ndarray): Shipment cost matrix. Shape: (n_warehouses, n_regions).
+            shipment_costs (ShipmentCosts): ShipmentCosts dataclass containing:
+                - outbound_fixed_per_order: Shape (n_warehouses, n_regions)
+                - outbound_variable_per_weight: Shape (n_warehouses, n_regions)
+                - inbound_fixed_per_order: Shape (n_suppliers, n_warehouses)
+                - inbound_variable_per_weight: Shape (n_suppliers, n_warehouses)
         """
 
-        # Initialize cost matrix
+        # Import ShipmentCosts dataclass
+        from src.environment.context import ShipmentCosts
+
+        # Get number of warehouses, regions, and suppliers
         n_warehouses = len(self.selected_warehouse_ids)
         n_regions = len(self.selected_region_ids)
-        cost_matrix = np.zeros((n_warehouses, n_regions), dtype=float)
+        n_suppliers = len(self.selected_supplier_ids)
         
-        # Extract costs for each warehouse-region pair
+        # Initialize outbound cost matrices (warehouse -> region)
+        outbound_fixed = np.zeros((n_warehouses, n_regions), dtype=float)
+        outbound_variable = np.zeros((n_warehouses, n_regions), dtype=float)
+        
+        # Extract outbound costs for each warehouse-region pair
         for wh_idx, warehouse_id in enumerate(self.selected_warehouse_ids):
             # Convert warehouse ID to string for comparison
             warehouse_id_str = str(warehouse_id)
@@ -425,9 +481,10 @@ class DataProcessor:
                     (self.warehouse_to_region_df['destinationregionid'].astype(str) == region_id_str)
                 ]
                 
-                # If pair exists, use fixed_costs from the data
+                # If pair exists, use costs from the data
                 if len(pair_data) > 0:
-                    cost_matrix[wh_idx, reg_idx] = pair_data['fixed_costs'].iloc[0]
+                    outbound_fixed[wh_idx, reg_idx] = pair_data['fixed_costs'].iloc[0]
+                    outbound_variable[wh_idx, reg_idx] = pair_data['variable_costs_per_weight'].iloc[0]
                 
                 # If pair doesn't exist, use fallback method
                 else:
@@ -436,16 +493,137 @@ class DataProcessor:
                         self.warehouse_to_region_df['sourcenodeid'].astype(str) == warehouse_id_str
                     ]
                     
-                    # If no costs for this warehouse exist, use high default
+                    # If no costs for this warehouse exist, use high default for fixed, zero for variable
                     if len(warehouse_costs) == 0:
-                        cost_matrix[wh_idx, reg_idx] = 10000.0 
+                        outbound_fixed[wh_idx, reg_idx] = 10000.0
+                        outbound_variable[wh_idx, reg_idx] = 0.0
 
-                    # If costs for this warehouse exist, use mean cost
+                    # If other costs for this warehouse exist, use mean cost
                     else:
-                        mean_cost = warehouse_costs['fixed_costs'].mean()
-                        cost_matrix[wh_idx, reg_idx] = mean_cost
+                        outbound_fixed[wh_idx, reg_idx] = warehouse_costs['fixed_costs'].mean()
+                        outbound_variable[wh_idx, reg_idx] = warehouse_costs['variable_costs_per_weight'].mean()
         
-        return cost_matrix
+        # Initialize inbound cost matrices (supplier -> warehouse)
+        inbound_fixed = np.zeros((n_suppliers, n_warehouses), dtype=float)
+        inbound_variable = np.zeros((n_suppliers, n_warehouses), dtype=float)
+
+        # Extract inbound costs for each supplier-warehouse pair
+        for supp_idx, supplier_id in enumerate(self.selected_supplier_ids):
+            # Convert supplier ID to string for comparison
+            supplier_id_str = str(supplier_id)
+            
+            for wh_idx, warehouse_id in enumerate(self.selected_warehouse_ids):
+                # Convert warehouse ID to string for comparison
+                warehouse_id_str = str(warehouse_id)
+                
+                # Get data for this supplier-warehouse pair
+                pair_data = self.supplier_to_warehouse_df[
+                    (self.supplier_to_warehouse_df['sourcesupplierid'].astype(str) == supplier_id_str) &
+                    (self.supplier_to_warehouse_df['destinationnodeid'].astype(str) == warehouse_id_str)
+                ]
+                
+                # If pair exists, use costs from the data
+                if len(pair_data) > 0:
+                    inbound_fixed[supp_idx, wh_idx] = pair_data['fixed_costs'].iloc[0]
+                    inbound_variable[supp_idx, wh_idx] = pair_data['variable_costs_per_weight'].iloc[0]
+                
+                # If pair doesn't exist, use fallback method
+                else:
+                    # Get all costs for this supplier
+                    supplier_costs = self.supplier_to_warehouse_df[
+                        self.supplier_to_warehouse_df['sourcesupplierid'].astype(str) == supplier_id_str
+                    ]
+                    
+                    # If no costs for this supplier exist, use high default for fixed, zero for variable
+                    if len(supplier_costs) == 0:
+                        inbound_fixed[supp_idx, wh_idx] = 10000.0
+                        inbound_variable[supp_idx, wh_idx] = 0.0
+                    
+                    # If other costs for this supplier exist, use mean cost
+                    else:
+                        inbound_fixed[supp_idx, wh_idx] = supplier_costs['fixed_costs'].mean()
+                        inbound_variable[supp_idx, wh_idx] = supplier_costs['variable_costs_per_weight'].mean()
+        
+        return ShipmentCosts(
+            outbound_fixed=outbound_fixed,
+            outbound_variable=outbound_variable,
+            inbound_fixed=inbound_fixed,
+            inbound_variable=inbound_variable
+        )
+    
+    def get_distances(self) -> np.ndarray:
+        """
+        Extracts the distances (in km) for all (warehouse, region) pairs in the selected sets.
+        If a pair does not exist in the data, it uses the average distance for the warehouse as fallback.
+        
+        Returns:
+            distance_matrix (np.ndarray): Distance matrix. Shape: (n_warehouses, n_regions).
+        """
+        
+        # Initialize distance matrix
+        n_warehouses = len(self.selected_warehouse_ids)
+        n_regions = len(self.selected_region_ids)
+        distance_matrix = np.zeros((n_warehouses, n_regions), dtype=float)
+        
+        # Extract distances for each warehouse-region pair
+        for wh_idx, warehouse_id in enumerate(self.selected_warehouse_ids):
+            # Convert warehouse ID to string for comparison
+            warehouse_id_str = str(warehouse_id)
+
+            for reg_idx, region_id in enumerate(self.selected_region_ids):
+                # Convert region ID to string for comparison
+                region_id_str = str(region_id)
+                
+                # Get data for this warehouse-region pair
+                pair_data = self.warehouse_to_region_df[
+                    (self.warehouse_to_region_df['sourcenodeid'].astype(str) == warehouse_id_str) &
+                    (self.warehouse_to_region_df['destinationregionid'].astype(str) == region_id_str)
+                ]
+                
+                # If pair exists, use distance from the data
+                if len(pair_data) > 0:
+                    distance_matrix[wh_idx, reg_idx] = pair_data['distance_km'].iloc[0]
+                
+                # If pair doesn't exist, use fallback method
+                else:
+                    # Get all distances for this warehouse
+                    warehouse_distances = self.warehouse_to_region_df[
+                        self.warehouse_to_region_df['sourcenodeid'].astype(str) == warehouse_id_str
+                    ]
+                    
+                    # If no distances for this warehouse exist, use high default
+                    if len(warehouse_distances) == 0:
+                        distance_matrix[wh_idx, reg_idx] = 10000.0
+
+                    # If distances for this warehouse exist, use mean distance
+                    else:
+                        mean_distance = warehouse_distances['distance_km'].mean()
+                        distance_matrix[wh_idx, reg_idx] = mean_distance
+        
+        return distance_matrix
+    
+    def get_sku_weights(self) -> np.ndarray:
+        """
+        Extracts SKU weights for selected SKUs in the same order as selected_sku_ids.
+        
+        Returns:
+            sku_weights (np.ndarray): SKU weights array. Shape: (n_skus,).
+        """
+        
+        # Check if 'weight' column exists in skus_df
+        if 'weight' not in self.skus_df.columns:
+            raise ValueError("SKUs DataFrame must have 'weight' column")
+        
+        # Create mapping from SKU ID to weight
+        sku_id_to_weight = dict(zip(self.skus_df['itemid'], self.skus_df['weight']))
+        
+        # Extract weights for selected SKUs in order
+        sku_weights = np.array([
+            sku_id_to_weight[sku_id] 
+            for sku_id in self.selected_sku_ids
+        ], dtype=float)
+        
+        return sku_weights
     
     def create_processed_demand_data(self) -> pd.DataFrame:
         """
@@ -460,18 +638,26 @@ class DataProcessor:
             processed_demand_data (pd.DataFrame): Processed demand data with columns:
                 timestep, region_id, order_id, sku_id, quantity
         """
+        #print(f"[DEBUG] Total number of orders before merge: {len(self.order_sku_demand_df)}")
         # 1. Merge orders with order-SKU demand
         merged = self.order_sku_demand_df.merge(
             self.orders_df,
             on='salesorderid',
             how='inner'
         )
+        #print(f"[DEBUG] Total number of orders after merge: {len(merged)}")
+        #print(f"DEBUG: Unique day_ids before SKU filtering: {merged['day_id'].nunique()}")
 
         # 2. Map excluded regions to included regions
         merged['regionid'] = self.map_excluded_regions(merged['regionid'])
+
+        #print(f"DEBUG: Orders after SKU filtering: {len(merged)}")
+        #print(f"DEBUG: Unique day_ids after SKU filtering: {merged['day_id'].nunique()}")  
         
         # 3. Filter only selected SKUs
         merged = merged[merged['itemid'].isin(self.selected_sku_ids)]
+        #print(f"DEBUG: Orders after selecting SKUs: {len(merged)}")
+        #print(f"DEBUG: Unique day_ids after selecting SKUs: {merged['day_id'].nunique()}")
         
         # 4. Build mappings from global string IDs (e.g. SKU_12345, REG_EU) to global CSV indices
         sku_global_id_to_index = dict(zip(self.skus_df['itemid'], self.skus_df['sku_index']))
@@ -503,6 +689,9 @@ class DataProcessor:
             'quantity': merged['quantity'].astype(float)
         })
         
+        #print(f"DEBUG: Final processed data timesteps: {processed_demand_data['timestep'].nunique()}")
+        #print(f"DEBUG: Final unique timesteps: {sorted(processed_demand_data['timestep'].unique())}")
+
         # 8. Sort by timestep for efficient querying
         processed_demand_data = processed_demand_data.sort_values(['timestep', 'region_id', 'order_id', 'sku_id']).reset_index(drop=True)
         
@@ -536,7 +725,7 @@ class DataPreprocessor:
         self, 
         data_split: Optional['DataSplitConfig'] = None,
         seed: Optional[int] = None
-    ) -> Tuple[PreprocessedData, np.ndarray]:
+    ) -> Tuple[PreprocessedData, 'ShipmentCosts', np.ndarray, np.ndarray]:
         """
         Implements the raw data preprocessing pipeline by loading raw data, selecting subsets of SKUs, 
         warehouses, and regions according to the configuration, and processing the data to create 
@@ -555,7 +744,9 @@ class DataPreprocessor:
                 preprocessed_data.val_demand_data is None.
                 If data_split is provided: preprocessed_data.demand_data contains training data,
                 preprocessed_data.val_demand_data contains validation data.
-            shipment_costs (np.ndarray): Shipment costs matrix. Shape: (n_warehouses, n_regions).
+            shipment_costs (ShipmentCosts): ShipmentCosts dataclass containing outbound and inbound shipment costs.
+            sku_weights (np.ndarray): SKU unit weights. Shape: (n_skus,).
+            distances (np.ndarray): Distance matrix. Shape: (n_warehouses, n_regions).
         """
 
         # 1. Load and validate raw data
@@ -564,22 +755,30 @@ class DataPreprocessor:
         loader.validate_relationships()
 
         # 2. Get available IDs of SKUs, warehouses, and regions
-        available_sku_ids = loader.skus_df['itemid'].unique().tolist()
+        available_sku_ids = loader.order_sku_demand_df['itemid'].unique().tolist()
         available_warehouse_ids = loader.warehouses_df['nodeid'].unique().tolist()
         available_region_ids = loader.regions_df['regionid'].unique().tolist()
 
-        # 3. Select subsets of SKUs, warehouses, and regions      
+        # 3. Select subsets of SKUs, warehouses, regions, and suppliers      
         selector = DataSelector(self.n_skus, self.n_warehouses, self.n_regions, seed)
         selector.select_skus(available_sku_ids)
         selector.select_warehouses(available_warehouse_ids)
         selector.select_regions(available_region_ids)
-        
+        selector.select_suppliers(selector.selected_sku_ids, loader.skus_per_supplier_df)
+
+        #print(f"[DEBUG] Selected SKUs: {selector.selected_sku_ids}")
+        #print(f"[DEBUG] Selected warehouses: {selector.selected_warehouse_ids}")
+        #print(f"[DEBUG] Selected regions: {selector.selected_region_ids}")
+        #print(f"[DEBUG] Selected suppliers: {selector.selected_supplier_ids}")
+
         # 4. Process data
         processor = DataProcessor(
             selected_sku_ids=selector.selected_sku_ids,
             selected_warehouse_ids=selector.selected_warehouse_ids,
             selected_region_ids=selector.selected_region_ids,
+            selected_supplier_ids=selector.selected_supplier_ids,
             warehouse_to_region_df=loader.warehouse_to_region_df,
+            supplier_to_warehouse_df=loader.supplier_to_warehouse_df,
             orders_df=loader.orders_df,
             order_sku_demand_df=loader.order_sku_demand_df,
             skus_df=loader.skus_df,
@@ -587,6 +786,8 @@ class DataPreprocessor:
         )
         processed_data = processor.create_processed_demand_data()
         shipment_costs = processor.get_updated_shipment_costs()
+        sku_weights = processor.get_sku_weights()
+        distances = processor.get_distances()
 
         # 5. Split data if data_split config is provided
         if data_split is not None:
@@ -615,5 +816,5 @@ class DataPreprocessor:
                 val_demand_data=None
             )
 
-        return preprocessed_data, shipment_costs
+        return preprocessed_data, shipment_costs, sku_weights, distances
 

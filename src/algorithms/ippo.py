@@ -117,7 +117,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 entropy_coeff=ippo_params.entropy_coeff,
                 clip_param=ippo_params.clip_param,
                 use_gae=ippo_params.use_gae,
-                lambda_=ippo_params.lam
+                lambda_=ippo_params.lam,
+                gamma=ippo_params.gamma
             )
             .env_runners(
                 num_env_runners=num_env_runners,
