@@ -26,6 +26,17 @@ source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environme
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 
+# How many CPUs Slurm actually gave you
+CPUS=${SLURM_CPUS_PER_TASK:-1}
+
+echo "Starting Ray with ${CPUS} CPUs"
+
+# Start Ray explicitly with ONLY those CPUs
+ray start --head \
+  --num-cpus="${CPUS}" \
+  --include-dashboard=false \
+  --disable-usage-stats
+
 ##############################
 # Run training
 ##############################
