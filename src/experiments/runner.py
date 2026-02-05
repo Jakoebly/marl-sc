@@ -76,6 +76,7 @@ class ExperimentRunner:
         num_iterations = self.algorithm_config.shared.num_iterations
         checkpoint_freq = self.algorithm_config.shared.checkpoint_freq
         
+        print(f"[DEBUG] Running training loop")
         # Train for the specified number of iterations
         for iteration in range(1, num_iterations + 1):
             print(f"[INFO] Training iteration {iteration} of {num_iterations}")
