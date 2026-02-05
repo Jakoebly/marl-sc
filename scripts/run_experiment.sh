@@ -24,6 +24,7 @@ cd /home/jakobeh/projects/marl-sc               # Change to the project director
 source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
 
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONUNBUFFERED=1
 
 ##############################
 # Run training
