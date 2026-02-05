@@ -20,7 +20,10 @@
 ##############################
 
 module load miniforge/25.11.0-0                 # Load the Python distribution
+cd /home/jakobeh/projects/marl-sc               # Change to the project directory
 source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
+
+export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 
 ##############################
 # Run training
