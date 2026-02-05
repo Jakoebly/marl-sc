@@ -51,6 +51,9 @@ def run_single_experiment(
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
     """
 
+    # Initialize Ray
+    ray.init(ignore_reinit_error=True)
+
     # Generate experiment name if not provided
     if experiment_name is None:
         experiment_name = generate_experiment_name(
@@ -64,13 +67,6 @@ def run_single_experiment(
     experiment_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = str(experiment_dir)
 
-    # Set the Ray results directory to the experiment directory
-    import os
-    os.environ["RAY_RESULTS_DIR"] = str(experiment_dir.resolve())
-
-    # Initialize Ray
-    ray.init(ignore_reinit_error=True)
-
     # Setup WandB to log metrics to WandB
     wandb_config, _ = setup_wandb(
         wandb_project=wandb_project,
@@ -81,7 +77,7 @@ def run_single_experiment(
 
     # Load configs
     env_config = load_environment_config(env_config_path)
-    algorithm_config = load_algorithm_config(algorithm_config_path)
+    algorithm_config = load_algorithm_config(algorithm_config_path)    
 
     # Create experiment runner
     runner = ExperimentRunner(
