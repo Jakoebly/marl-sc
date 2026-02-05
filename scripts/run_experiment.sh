@@ -25,6 +25,12 @@ source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environme
 
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 
+# Debug: Check if Ray is already running
+echo "[DEBUG] Checking Ray status..."
+ray status 2>&1 || echo "[DEBUG] Ray not running or not accessible"
+ps aux | grep -i ray | grep -v grep || echo "[DEBUG] No Ray processes found"
+
+
 ##############################
 # Run training
 ##############################
