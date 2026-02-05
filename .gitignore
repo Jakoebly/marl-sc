@@ -25,11 +25,17 @@ env/
 ENV/
 
 # =========================
-# Experiment outputs
+# Experiments
 # =========================
 experiment_outputs/*
 !experiment_outputs/.gitkeep
 wandb/
+scripts/*
+!scripts/.gitkeep
+!scripts/logs/
+scripts/logs/*
+!scripts/logs/.gitkeep
+
 
 # =========================
 # Data
