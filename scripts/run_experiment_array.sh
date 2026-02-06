@@ -268,9 +268,27 @@ export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
 RAY_LOGDIR="scripts/logs/ray/${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$RAY_LOGDIR"
 
+MIN_WORKER_PORT=$((BASE_PORT + 0))
+MAX_WORKER_PORT=$((BASE_PORT + 49))
+NODE_MANAGER_PORT=$((BASE_PORT + 50))
+OBJECT_MANAGER_PORT=$((BASE_PORT + 51))
+RUNTIME_ENV_AGENT_PORT=$((BASE_PORT + 52))
+DASHBOARD_AGENT_PORT=$((BASE_PORT + 53))
+METRICS_EXPORT_PORT=$((BASE_PORT + 54))
+GCS_SERVER_PORT=$((BASE_PORT + 55))   # optional, but safe
+
+ray stop --force || true
+
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
   --port="${RAY_PORT}" \
+  --node-manager-port="${NODE_MANAGER_PORT}" \
+  --object-manager-port="${OBJECT_MANAGER_PORT}" \
+  --runtime-env-agent-port="${RUNTIME_ENV_AGENT_PORT}" \
+  --dashboard-agent-listen-port="${DASHBOARD_AGENT_PORT}" \
+  --metrics-export-port="${METRICS_EXPORT_PORT}" \
+  --min-worker-port="${MIN_WORKER_PORT}" \
+  --max-worker-port="${MAX_WORKER_PORT}" \
   --temp-dir "${RAY_TMPDIR}" \
   --num-cpus="${CPUS}" \
   --include-dashboard=false \
