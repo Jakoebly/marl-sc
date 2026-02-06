@@ -265,6 +265,8 @@ RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 export RAY_TMPDIR
 export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
+RAY_LOGDIR="scripts/logs/ray/${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$RAY_LOGDIR"
 
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
@@ -293,8 +295,22 @@ python src/experiments/run_experiment.py \
 ##############################
 
 cleanup() {
+  exit_code=$?
+
+  # Try to copy Ray logs BEFORE deleting tmpdir
+  if [ -d "$RAY_TMPDIR" ]; then
+    # Ray sessions are under $RAY_TMPDIR/session_*/
+    cp -r "$RAY_TMPDIR"/session_* "$RAY_LOGDIR"/ 2>/dev/null || true
+  fi
+
   rm -f "$TEMP_CONFIG"
-  rm -rf "$RAY_TMPDIR"
+
+  # Only delete tmpdir if job succeeded (optional but recommended for debugging)
+  if [ $exit_code -eq 0 ]; then
+    rm -rf "$RAY_TMPDIR"
+  fi
+
   ray stop --force >/dev/null 2>&1 || true
+  exit $exit_code
 }
 trap cleanup EXIT

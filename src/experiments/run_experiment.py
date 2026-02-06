@@ -98,6 +98,9 @@ def run_single_experiment(
     # Run the experiment and return the result
     result = runner.run()
 
+    # Stop Ray
+    ray.shutdown()
+    
     return result
 
 def run_tune_experiment(
