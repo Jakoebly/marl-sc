@@ -273,6 +273,7 @@ ray start --head \
   --num-cpus="${CPUS}" \
   --include-dashboard=false \
   --disable-usage-stats
+sleep 2
 
 ##############################
 # Run training
@@ -291,5 +292,9 @@ python src/experiments/run_experiment.py \
 # Cleanup
 ##############################
 
-rm "$TEMP_CONFIG"
-rm -rf "$RAY_TMPDIR"
+cleanup() {
+  rm -f "$TEMP_CONFIG"
+  rm -rf "$RAY_TMPDIR"
+  ray stop --force >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
