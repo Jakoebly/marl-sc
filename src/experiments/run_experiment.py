@@ -62,7 +62,6 @@ def run_single_experiment(
     # Load configs
     env_config = load_environment_config(env_config_path)
     algorithm_config = load_algorithm_config(algorithm_config_path)  
-    print(f"[DEBUG] Loaded configs successfully")
 
     # Setup WandB to log metrics to WandB
     wandb_config, _ = setup_wandb(
@@ -85,7 +84,6 @@ def run_single_experiment(
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
     )
-    print(f"[DEBUG] Created experiment runner successfully")
     
     # Resume from checkpoint if specified
     if resume_from:
