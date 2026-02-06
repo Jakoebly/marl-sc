@@ -12,8 +12,9 @@
 #SBATCH --mem=32G                               # Memory allocation
 #SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
-#SBATCH --output=scripts/logs/%x_%j.out         # Standard output
-#SBATCH --error=scripts/logs/%x_%j.err          # Standard error
+#SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
+#SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
+#SBATCH --array=0-5                             # Array for 6 jobs (indices 0-5)
 
 ##############################
 # Load modules + env
@@ -47,7 +48,7 @@ with open('config_files/environments/base_env.yaml', 'r') as f:
 config['environment']['n_warehouses'] = $N_WAREHOUSES
 config['environment']['n_skus'] = $N_SKUS
 with open('$TEMP_CONFIG', 'w') as f:
-    yaml.dump(config, f default_flow_style=False, sort_keys=False)
+    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 "
 
 echo "TEMP_CONFIG: ${TEMP_CONFIG}"
@@ -70,7 +71,7 @@ ray start --head \
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config config_files/environments/base_env.yaml \
+    --env-config "$TEMP_CONFIG" \
     --algorithm-config config_files/algorithms/ippo.yaml \
     --output-dir ./experiment_outputs \
     --wandb-project marl-sc \
