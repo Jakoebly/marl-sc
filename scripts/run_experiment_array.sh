@@ -80,3 +80,4 @@ python src/experiments/run_experiment.py \
 
 # Cleanup
 rm "$TEMP_CONFIG"
+ray stop --force || true
