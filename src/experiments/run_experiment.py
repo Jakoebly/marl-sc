@@ -265,6 +265,7 @@ def trainable(config: Dict[str, Any]):
 
 
 def generate_experiment_name(
+    env_config_path: str,
     algorithm_config_path: str,
     search_type: str = "random",
     scheduler_type: Optional[str] = None,
@@ -274,6 +275,7 @@ def generate_experiment_name(
     Generates a default experiment name based on the algorithm name, search type, and scheduler type.
     
     Args:
+        env_config_path (str): Path to environment config (to extract environment name)
         algorithm_config_path (str): Path to algorithm config (to extract algorithm name)
         search_type (str): Search algorithm type
         scheduler_type (Optional[str]): Scheduler type (if not None)
@@ -288,12 +290,16 @@ def generate_experiment_name(
     except Exception:
         # Fallback to config filename if loading fails
         algo_name = Path(algorithm_config_path).stem
+
+    env_config = load_environment_config(env_config_path)
+    n_warehouses = env_config.n_warehouses
+    n_skus = env_config.n_skus
     
     # Get current timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     
     # Build name components
-    name_parts = [algo_name, search_type]
+    name_parts = [algo_name, search_type, f"{n_warehouses}WH", f"{n_skus}SKU"]
     if scheduler_type and scheduler_type != "none":
         name_parts.append(scheduler_type)
     name_parts.append(timestamp)
