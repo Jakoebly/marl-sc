@@ -272,7 +272,7 @@ ray start --head \
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config "$TEMP_CONFIG" \
-    --algorithm-config config_files/algorithms/ippo.yaml \
+    --algorithm-config config_files/algorithms/mappo.yaml \
     --output-dir ./experiment_outputs \
     --wandb-project marl-sc \
     --root-seed 42
