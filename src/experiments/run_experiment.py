@@ -62,7 +62,6 @@ def run_single_experiment(
     # Load configs
     env_config = load_environment_config(env_config_path)
     algorithm_config = load_algorithm_config(algorithm_config_path)  
-    print(f"[DEBUG] env_config: {env_config}")
 
     # Setup WandB to log metrics to WandB
     wandb_config, _ = setup_wandb(
