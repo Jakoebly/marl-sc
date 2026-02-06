@@ -54,6 +54,7 @@ def run_single_experiment(
     # Generate experiment name if not provided
     if experiment_name is None:
         experiment_name = generate_experiment_name(
+            env_config_path=env_config_path,
             algorithm_config_path=algorithm_config_path,
             search_type="single", 
             scheduler_type=None,
@@ -134,6 +135,7 @@ def run_tune_experiment(
     # Generate experiment name if not provided
     if experiment_name is None:
         experiment_name = generate_experiment_name(
+            env_config_path=env_config_path,
             algorithm_config_path=algorithm_config_path,
             search_type=search_type,
             scheduler_type=scheduler_type,
