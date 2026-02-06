@@ -292,5 +292,4 @@ python src/experiments/run_experiment.py \
 ##############################
 
 rm "$TEMP_CONFIG"
-ray stop --address="127.0.0.1:${RAY_PORT}" || true
 rm -rf "$RAY_TMPDIR"
