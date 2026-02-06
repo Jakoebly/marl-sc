@@ -259,8 +259,17 @@ CPUS=${SLURM_CPUS_PER_TASK:-1}
 
 echo "Starting Ray with ${CPUS} CPUs"
 
+# Make Ray isolate per array task (avoid collisions on same node)
+RAY_PORT=$((6379 + $SLURM_ARRAY_TASK_ID))
+RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$RAY_TMPDIR"
+export RAY_TMPDIR
+export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
+
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
+  --port="${RAY_PORT}" \
+  --temp-dir "${RAY_TMPDIR}" \
   --num-cpus="${CPUS}" \
   --include-dashboard=false \
   --disable-usage-stats
@@ -284,3 +293,4 @@ python src/experiments/run_experiment.py \
 
 rm "$TEMP_CONFIG"
 ray stop --force || true
+rm -rf "$RAY_TMPDIR"
