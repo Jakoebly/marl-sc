@@ -265,7 +265,8 @@ RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 export RAY_TMPDIR
 export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
-
+RAY_LOGDIR="scripts/logs/ray/${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$RAY_LOGDIR"
 
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
