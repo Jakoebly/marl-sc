@@ -47,6 +47,7 @@ with open('config_files/environments/base_env.yaml', 'r') as f:
     config = yaml.safe_load(f)
 config['environment']['n_warehouses'] = $N_WAREHOUSES
 config['environment']['n_skus'] = $N_SKUS
+config['environment']['n_regions'] = $N_WAREHOUSES
 with open('$TEMP_CONFIG', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 "
