@@ -15,6 +15,7 @@
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
 #SBATCH --array=0-48%5                          # Array for 49 jobs (indices 0-48) with 5 jobs at once per node
+#SBATCH --exclusive                             # Exclusive use of the node
 
 
 ##############################
@@ -279,8 +280,6 @@ DASHBOARD_AGENT_PORT=$(( BASE_PORT + 53 ))
 METRICS_EXPORT_PORT=$(( BASE_PORT + 54 ))
 GCS_SERVER_PORT=$(( BASE_PORT + 55 ))
 
-ray stop --force || true
-
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
   --port="${RAY_PORT}" \
@@ -325,7 +324,6 @@ cleanup() {
 
   rm -f "$TEMP_CONFIG"
 
-  ray stop --force >/dev/null 2>&1 || true
   exit $exit_code
 }
 trap cleanup EXIT
