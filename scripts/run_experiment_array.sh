@@ -15,7 +15,6 @@
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
 #SBATCH --array=0-48%1                          # Array for 49 jobs (indices 0-48) with 5 jobs at once per node
-#SBATCH --exclusive                             # Exclusive use of the node
 
 
 ##############################
