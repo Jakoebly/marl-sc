@@ -56,8 +56,7 @@ def run_single_experiment(
         experiment_name = generate_experiment_name(
             env_config_path=env_config_path,
             algorithm_config_path=algorithm_config_path,
-            search_type="single", 
-            scheduler_type=None,
+            mode="single"
         )
 
     # Load configs
@@ -137,6 +136,7 @@ def run_tune_experiment(
         experiment_name = generate_experiment_name(
             env_config_path=env_config_path,
             algorithm_config_path=algorithm_config_path,
+            mode="tune",
             search_type=search_type,
             scheduler_type=scheduler_type,
         )
@@ -269,9 +269,9 @@ def trainable(config: Dict[str, Any]):
 def generate_experiment_name(
     env_config_path: str,
     algorithm_config_path: str,
-    search_type: str = "random",
-    scheduler_type: Optional[str] = None,
     mode: str = "single",
+    search_type: Optional[str] = None,
+    scheduler_type: Optional[str] = None,
 ) -> str:
     """
     Generates a default experiment name based on the algorithm name, search type, and scheduler type.
@@ -301,9 +301,12 @@ def generate_experiment_name(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     
     # Build name components
-    name_parts = [algo_name, search_type, f"{n_warehouses}WH", f"{n_skus}SKU"]
-    if scheduler_type and scheduler_type != "none":
-        name_parts.append(scheduler_type)
+    name_parts = [algo_name, mode, f"{n_warehouses}WH", f"{n_skus}SKU"]
+    if mode == "tune":	
+        if search_type and search_type != "none":
+            name_parts.append(search_type)
+        if scheduler_type and scheduler_type != "none":
+            name_parts.append(scheduler_type)
     name_parts.append(timestamp)
     
     # Join with underscores
