@@ -50,12 +50,6 @@ def run_single_experiment(
         resume_from (Optional[str]): Path to checkpoint to resume from
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
     """
-    # Initialize Ray
-    import os
-    address = os.environ.get("RAY_ADDRESS")
-    if not address:
-        raise RuntimeError("RAY_ADDRESS not set; refusing to start/connect Ray implicitly.")
-    ray.init(address=address, ignore_reinit_error=True)
 
     # Generate experiment name if not provided
     if experiment_name is None:
@@ -98,9 +92,6 @@ def run_single_experiment(
     # Run the experiment and return the result
     result = runner.run()
 
-    # Stop Ray
-    ray.shutdown()
-    
     return result
 
 def run_tune_experiment(

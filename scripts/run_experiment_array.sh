@@ -282,5 +282,4 @@ python src/experiments/run_experiment.py \
 # Cleanup
 ##############################
 
-ray stop --force || true
 rm -f "$TEMP_CONFIG"
