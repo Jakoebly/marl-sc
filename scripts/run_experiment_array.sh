@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-48                             # Array for 6 jobs (indices 0-5)
+#SBATCH --array=0-48%5                          # Array for 49 jobs (indices 0-48) with 5 jobs at once per node
 
 
 ##############################
@@ -51,7 +51,6 @@ N_WAREHOUSES=${WAREHOUSE_VALUES[$WH_IDX]}
 N_REGIONS=$N_WAREHOUSES
 
 echo "Task $ID -> n_warehouses=$N_WAREHOUSES, n_skus=$N_SKUS (n_regions=$N_REGIONS)"
-
 
 ##############################
 # Create temporary config + export vars for Python
@@ -249,8 +248,6 @@ ship["inbound_variable"]  = inbound_var.round(5).tolist()
 with open(TEMP_CONFIG, "w") as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 PY
-
-cat $TEMP_CONFIG
 
 
 ##############################
