@@ -34,8 +34,8 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Define possible values for warehouses and SKUs
-WAREHOUSE_VALUES=(3 5 7 10 12 15 20)
-SKU_VALUES=(1 3 5 10 20 50 100)
+WAREHOUSE_VALUES=(3 5 10 15)
+SKU_VALUES=(3 5 10 20 50 100)
 
 # Compute the number of possible tasks
 N_WHVALS=${#WAREHOUSE_VALUES[@]}   # 7
