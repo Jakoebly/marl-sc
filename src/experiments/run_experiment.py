@@ -9,7 +9,7 @@ from ray import tune
 from ray.tune import RunConfig, CLIReporter
 
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
-from src.experiments.runner import ExperimentRunner
+from src.experiments.runner import ExperimentRunner, EvaluationRunner
 from src.experiments.utils.wandb import setup_wandb
 from src.config.loader import (
     load_environment_config,
@@ -46,7 +46,8 @@ def run_single_experiment(
         output_dir (str): Output directory for results
         wandb_project (Optional[str]): WandB project name
         wandb_name (Optional[str]): WandB run name
-        root_seed (Optional[int]): Root seed for all components (env, RLlib, Ray Tune)
+        root_seed (Optional[int]): Root seed for reproducibility. Split into independent
+            train_seed and eval_seed by ExperimentRunner.
         resume_from (Optional[str]): Path to checkpoint to resume from
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
     """
@@ -94,6 +95,67 @@ def run_single_experiment(
 
     return result
 
+def run_evaluation(
+    env_config_path: str,
+    algorithm_config_path: str,
+    checkpoint_dir: str,
+    eval_episodes: Optional[int] = None,
+    root_seed: Optional[int] = None,
+    visualize: bool = False,
+    output_dir: Optional[str] = None,
+    wandb_project: Optional[str] = None,
+    wandb_name: Optional[str] = None,
+):
+    """
+    Runs standalone evaluation of a trained checkpoint.
+    
+    Args:
+        env_config_path (str): Path to environment config
+        algorithm_config_path (str): Path to algorithm config
+        checkpoint_dir (str): Path to checkpoint directory to evaluate
+        eval_episodes (Optional[int]): Number of evaluation episodes (overrides config default)
+        root_seed (Optional[int]): Root seed for reproducibility. Split into train_seed and eval_seed 
+            by EvaluationRunner (only eval_seed is used).
+        visualize (bool): If True, run manual rollout and generate visualization plots.
+        output_dir (Optional[str]): Directory for saving visualizations. 
+            If None, defaults to parent of checkpoint_dir.
+        wandb_project (Optional[str]): WandB project name
+        wandb_name (Optional[str]): WandB run name
+    """
+
+    # Load configs
+    env_config = load_environment_config(env_config_path)
+    algorithm_config = load_algorithm_config(algorithm_config_path)
+
+    # Setup WandB to log metrics
+    wandb_config, _ = setup_wandb(
+        wandb_project=wandb_project,
+        algorithm_config_path=algorithm_config_path,
+        mode="single",
+        wandb_name=wandb_name if wandb_name else f"eval_{Path(checkpoint_dir).name}",
+    )
+
+    # Create experiment directory
+    output_dir = output_dir if output_dir else str(Path(checkpoint_dir).parent)
+
+    # Create evaluation runner
+    runner = EvaluationRunner(
+        env_config=env_config,
+        algorithm_config=algorithm_config,
+        checkpoint_dir=checkpoint_dir,
+        eval_episodes=eval_episodes,
+        root_seed=root_seed,
+        visualize=visualize,
+        output_dir=output_dir,
+        wandb_config=wandb_config,
+    )
+
+    # Run evaluation and return the result
+    result = runner.run()
+
+    return result
+
+
 def run_tune_experiment(
     env_config_path: str,
     algorithm_config_path: str,
@@ -125,7 +187,7 @@ def run_tune_experiment(
             Default: 2
         num_gpus (int): GPUs per trial
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
-        root_seed (Optional[int]): Root seed for all components (env, RLlib, Ray Tune). Defaults to None.
+        root_seed (Optional[int]): Root seed for reproducibility. Defaults to None.
     """
     
     # Initialize Ray
@@ -327,9 +389,9 @@ def main():
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["single", "tune"],
+        choices=["single", "tune", "evaluate"],
         required=True,
-        help="Experiment mode: 'single' for single run, 'tune' for hyperparameter search"
+        help="Experiment mode: 'single' for training, 'tune' for hyperparameter search, 'evaluate' for evaluation"
     )
     
     # Config paths
@@ -402,12 +464,30 @@ def main():
     parser.add_argument(
         "--root-seed",
         type=int,
-        help="Root seed for all components (env, RLlib, Ray Tune)"
+        help="Root seed for reproducibility. Split into independent train_seed and eval_seed internally."
     )
     parser.add_argument(
         "--resume-from",
         type=str,
         help="Path to checkpoint to resume from"
+    )
+
+    # Evaluation-specific
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        help="Path to checkpoint directory for evaluation (required for evaluate mode)"
+    )
+    parser.add_argument(
+        "--eval-episodes",
+        type=int,
+        help="Number of evaluation episodes (overrides config default)"
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        default=False,
+        help="Generate visualization plots from manual rollout (evaluate mode only)"
     )
     
     # Resources
@@ -468,6 +548,25 @@ def main():
             num_gpus=args.num_gpus,
             experiment_name=args.experiment_name,
             root_seed=args.root_seed,
+        )
+
+    # Run evaluation if mode is "evaluate"
+    elif args.mode == "evaluate":
+        # Check if checkpoint path is provided (required for evaluate mode)
+        if not args.checkpoint_dir:
+            raise ValueError("--checkpoint-dir is required for evaluate mode")
+
+        # Run evaluation
+        run_evaluation(
+            env_config_path=args.env_config,
+            algorithm_config_path=args.algorithm_config,
+            checkpoint_dir=args.checkpoint_dir,
+            eval_episodes=args.eval_episodes,
+            root_seed=args.root_seed,
+            visualize=args.visualize,
+            output_dir=args.output_dir,
+            wandb_project=args.wandb_project,
+            wandb_name=args.wandb_name,
         )
 
 

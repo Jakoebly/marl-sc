@@ -18,15 +18,17 @@ class IPPOWrapper(BaseAlgorithmWrapper):
     Supports parameter sharing option.
     """
     
-    def __init__(self, env, ippo_config, root_seed: Optional[int] = None):
+    def __init__(self, env, ippo_config, train_seed: Optional[int] = None, eval_seed: Optional[int] = None):
         """
         Initializes the IPPO wrapper.
         
         Args:
             env (InventoryEnvironment): InventoryEnvironment instance (PettingZoo ParallelEnv)
             ippo_config (AlgorithmConfig): AlgorithmConfig instance
-            root_seed (Optional[int]): Root seed for RLlib framework seeding and environment instances.
-                Used for both `.debugging(seed=root_seed)` and `env_config["seed"]`. Defaults to None.
+            train_seed (Optional[int]): Seed for training environments and RLlib framework seeding
+                (`.debugging(seed=...)` and training `env_config["seed"]`). Defaults to None.
+            eval_seed (Optional[int]): Seed for evaluation environments 
+                (`evaluation_config["env_config"]["seed"]`). Defaults to None.
         """
 
         # Store environment and config
@@ -34,7 +36,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.env_config = self.env.env_config
         self.env_name = self.env.metadata["name"]
         self.ippo_config = ippo_config
-        self.root_seed = root_seed
+        self.train_seed = train_seed
+        self.eval_seed = eval_seed
 
         # Create factory function that creates new environment instances
         env_factory = self.create_env_factory(self.env_config)
@@ -86,15 +89,18 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             policy_mapping_fn = lambda agent_id, *args, **kwargs: f"policy_{agent_id}"
             module_specs = {f"policy_{agent_id}": rl_module_spec for agent_id in env.agents}
         
+        # Store policy mapping function for future use (e.g., rollout)
+        self.policy_mapping_fn = policy_mapping_fn
+        
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
             PPOConfig()
-            .debugging(seed=self.root_seed)
+            .debugging(seed=self.train_seed)
             .environment(
                 env=self.env_name, 
                 clip_actions=True,
                 env_config={
-                    "seed": self.root_seed,
+                    "seed": self.train_seed,
                     "data_mode": "train" 
                 }
             )
@@ -132,7 +138,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     "env": self.env_name, 
                     "clip_actions": True,
                     "env_config": {
-                        "seed": self.root_seed,
+                        "seed": self.eval_seed,
                         "data_mode": "val" 
                     }
                 }
@@ -143,42 +149,5 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.trainer = ppo_config.build_algo()
         self.num_iterations = shared_params.num_iterations
         self.checkpoint_freq = shared_params.checkpoint_freq
-    
-    def train(self) -> Dict[str, Any]:
-        """Run one training iteration.
-        
-        Returns:
-            metrics (Dict[str, Any]): Training metrics dictionary.
-        """
-        result = self.trainer.train()
-        return result
-    
-    def get_policy(self):
-        """
-        Get trained policy.
-        
-        Returns:
-            Trained policy object
-        """
-        # Return the first policy (or shared policy if parameter sharing)
-        policy_id = list(self.trainer.config.multi_agent.policies.keys())[0]
-        return self.trainer.get_policy(policy_id)
-    
-    def save_checkpoint(self, path: str):
-        """
-        Save model checkpoint.
-        
-        Args:
-            path: Path to save checkpoint
-        """
-        self.trainer.save(checkpoint_dir=path)
-    
-    def load_checkpoint(self, path: str):
-        """
-        Load model checkpoint.
-        
-        Args:
-            path: Path to load checkpoint from
-        """
-        self.trainer.restore(path)
+
 

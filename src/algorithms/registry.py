@@ -19,7 +19,13 @@ def register_algorithm(name: str, algorithm_class: Type['BaseAlgorithmWrapper'])
     """
     ALGORITHM_REGISTRY[name] = algorithm_class
 
-def get_algorithm(name: str, env: 'InventoryEnvironment', config: 'AlgorithmConfig', root_seed: Optional[int] = None) -> 'BaseAlgorithmWrapper':
+def get_algorithm(
+    name: str, 
+    env: 'InventoryEnvironment', 
+    config: 'AlgorithmConfig', 
+    train_seed: Optional[int] = None,
+    eval_seed: Optional[int] = None,
+) -> 'BaseAlgorithmWrapper':
     """Builds an algorithm wrapper instance by retrieving the algorithm 
     name from the registry and instantiating it with the given environment
     and configuration.
@@ -28,7 +34,8 @@ def get_algorithm(name: str, env: 'InventoryEnvironment', config: 'AlgorithmConf
         name (str): Algorithm name
         env (InventoryEnvironment): InventoryEnvironment instance
         config (AlgorithmConfig): Algorithm configuration
-        root_seed (Optional[int]): Root seed for RLlib and environment instances. Defaults to None.
+        train_seed (Optional[int]): Seed for training environments and RLlib framework. Defaults to None.
+        eval_seed (Optional[int]): Seed for evaluation environments. Defaults to None.
         
     Returns:
         algorithm_wrapper (BaseAlgorithmWrapper): Algorithm wrapper instance
@@ -40,7 +47,7 @@ def get_algorithm(name: str, env: 'InventoryEnvironment', config: 'AlgorithmConf
     
     # Get the algorithm class from the registry and instantiate it
     algorithm_class = ALGORITHM_REGISTRY[name]
-    return algorithm_class(env, config, root_seed=root_seed)
+    return algorithm_class(env, config, train_seed=train_seed, eval_seed=eval_seed)
 
 
 # Register algorithms
