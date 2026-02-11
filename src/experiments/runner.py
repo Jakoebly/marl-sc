@@ -172,7 +172,7 @@ class EvaluationRunner:
         self.algorithm_config = algorithm_config
         
         # Store checkpoint directory
-        self.checkpoint_dir = checkpoint_dir
+        self.checkpoint_dir = Path(checkpoint_dir)
         self.output_dir = Path(output_dir)
 
         # Create template environment (seed=None; eval envs get eval_seed via evaluation_config)

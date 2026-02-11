@@ -137,6 +137,10 @@ def run_evaluation(
 
     # Create experiment directory
     output_dir = output_dir if output_dir else str(Path(checkpoint_dir).parent)
+    print(f"[DEBUG] output_dir: {output_dir}")
+    print(f"[DEBUG] checkpoint_dir: {checkpoint_dir}")
+    print(f"[DEBUG] checkpoint_dir.parent: {Path(checkpoint_dir).parent}")
+
 
     # Create evaluation runner
     runner = EvaluationRunner(
