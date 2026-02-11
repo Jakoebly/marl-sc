@@ -38,6 +38,10 @@ CPUS=${SLURM_CPUS_PER_TASK:-1}
 
 echo "Starting Ray with ${CPUS} CPUs"
 
+# Clean up stale Ray state and ensure we use a fresh local cluster
+unset RAY_ADDRESS
+ray stop --force 2>/dev/null || true
+
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
   --num-cpus="${CPUS}" \

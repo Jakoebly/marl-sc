@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
-
 import numpy as np
 import torch
 
