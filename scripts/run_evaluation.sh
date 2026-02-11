@@ -58,5 +58,4 @@ python src/experiments/run_experiment.py \
     --algorithm-config config_files/algorithms/mappo.yaml \
     --checkpoint-dir "${CHECKPOINT_DIR}" \
     --visualize \
-    --output-dir ./experiment_outputs \
     --root-seed 42
