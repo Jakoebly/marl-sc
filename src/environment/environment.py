@@ -49,20 +49,20 @@ class InventoryEnvironment(ParallelEnv):
         
         Args:
             env_config (EnvironmentConfig): Environment configuration.
-            seed (Optional[int]): Root seed for reproducibility. If provided, used as root seed for SeedManager
+            seed (Optional[int]): Seed for reproducibility. If provided, used as root seed for SeedManager
                 which spawns component seeds (preprocessing, inventory, demand_sampler, lead_time_sampler).
-                When used with RLlib, this comes from RLlib's `env_meta` (contains `root_seed`).
+                When used with RLlib, this comes from RLlib's `env_meta["seed"]` (train_seed or eval_seed).
                 Defaults to None.
             env_meta (Optional[Dict[str, Any]]): RLlib's environment metadata dict. May contain 'data_mode'
                 parameter that determines which dataset to use ("train" or "val"), and 'seed' parameter
-                containing the root seed. Defaults to None.
+                containing the seed. Defaults to None.
         """
 
         # Store environment config for factory to use
         self.env_config = env_config
         
         # Store general environment parameters
-        self.n_warehouses = env_config.n_warehouses 
+        self.n_warehouses = env_config.n_warehouses
         self.n_skus = env_config.n_skus
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
@@ -104,6 +104,10 @@ class InventoryEnvironment(ParallelEnv):
         self.pending_orders = {}  # Shape: {arrival_timestep: (n_warehouses, n_skus)}
         self.timestep = 0
 
+        # Visualization flag: when True, step() populates infos with detailed per-step data.
+        # Default False to avoid overhead during training. Set to True for manual rollout.
+        self.collect_step_info = False
+
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
         """
         Resets the environment to its initial state by resetting all stochastic components with independent seeds, 
@@ -120,9 +124,11 @@ class InventoryEnvironment(ParallelEnv):
                 - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
-        # Update root seed if provided, otherwise use stored seeds
+        # Update root seed if provided, otherwise advance to next episode seeds
         if seed is not None:
             self.seed_manager.update_root_seed(seed)
+        else:
+            self.seed_manager.advance_episode()
         
         # Get seeds for stochastic components and initial inventory
         from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
@@ -173,6 +179,13 @@ class InventoryEnvironment(ParallelEnv):
                 - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
+        # Capture pre-step state for visualization (before any modifications)
+        if self.collect_step_info:
+            inventory_before = self.inventory.copy()
+            pending_total = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+            for arr in self.pending_orders.values():
+                pending_total += arr
+
         # 1. Rescale normalized actions to order quantities and place replenishment orders
         order_quantities = self._rescale_actions_to_quantities(actions)
         ordered_skus = self._apply_orders(actions=order_quantities) # Shape: (n_warehouses, n_skus)
@@ -212,8 +225,32 @@ class InventoryEnvironment(ParallelEnv):
         terminations = {agent: False for agent in self.agents}  # No early termination
         truncations = {agent: (self.timestep >= self.episode_length) for agent in self.agents}
         
-        # Add any additional information to infos
-        infos = {agent: {} for agent in self.agents}
+        # Populate detailed step info for visualization (if enabled)
+        if self.collect_step_info:
+            # Aggregate demand from orders into a (n_regions, n_skus) matrix
+            demand_per_region = np.zeros((self.n_regions, self.n_skus))
+            for order in orders:
+                demand_per_region[order.region_id] += order.sku_demands
+
+            # Read cost breakdown stored by reward calculator
+            cost_breakdown = getattr(self.reward_calculator, '_cost_breakdown', {})
+
+            step_info = {
+                "inventory": inventory_before,
+                "pending_total": pending_total,
+                "order_quantities": ordered_skus.copy(),
+                "demand_per_region": demand_per_region,
+                "fulfilled_per_warehouse": fulfillment_matrix.sum(axis=0).copy(),
+                "unfulfilled_demands": unfulfilled_demands.copy(),
+                "shipment_counts": shipment_counts.copy(),
+                "shipment_quantities": shipment_quantities.copy(),
+                "lost_order_counts": lost_order_counts.copy(),
+                "lost_sales": lost_sales.copy(),
+                **cost_breakdown,
+            }
+            infos = {agent: step_info for agent in self.agents}
+        else:
+            infos = {agent: {} for agent in self.agents}
         
         return observations, rewards, terminations, truncations, infos
     

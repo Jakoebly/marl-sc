@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Optional, Tuple
 from numpy.random import SeedSequence
+import numpy as np
 
 
 # Define the registry of environment seed names in allocation order
@@ -31,6 +32,8 @@ class SeedManager:
 
         # Store root seed and seed registry
         self.root_seed = root_seed
+        self._original_root_seed = root_seed
+        self._episode_counter = 0
         self._seed_registry = seed_registry if seed_registry is not None else ENVIRONMENT_SEED_REGISTRY
 
         # Initialize seed sequences and spawn seeds
@@ -99,20 +102,46 @@ class SeedManager:
         seed_seq = self.get_seed(name)
 
         # Convert seed sequence to integer seed (entropy)
-        seed_int = seed_seq.entropy if seed_seq is not None else None
+        seed_int = int(seed_seq.generate_state(1, dtype=np.uint32)[0]) if seed_seq is not None else None
 
         return seed_int
     
+    def advance_episode(self) -> None:
+        """
+        Advances to the next episode's seeds. Call at each env.reset().
+        
+        If a root seed is set, derives a new deterministic seed from
+        (original_root_seed, episode_counter) and re-spawns all component seeds.
+        If no root seed is set, this is a no-op (components keep using random RNG).
+        """
+
+        # If no original root seed, components stay random (no-op)
+        if self._original_root_seed is None:
+            return
+
+        # Derive a deterministic per-episode seed from (original_root_seed, episode_counter)
+        derived_seed = int(
+            SeedSequence([self._original_root_seed, self._episode_counter])
+            .generate_state(1, dtype=np.uint32)[0]
+        )
+        self.root_seed = derived_seed
+        self._spawn_seeds()
+        self._episode_counter += 1
+
     def update_root_seed(self, root_seed: Optional[int]) -> None:
         """
-        Updates the root seed and respawns all seeds.
+        Updates the root seed, resets the episode counter, and respawns all seeds.
         
         Args:
             root_seed (Optional[int]): New root seed.
         """
 
-        # Update root seed and respawn seeds
+        # Update root seed, original root seed, and episode counter
         self.root_seed = root_seed
+        self._original_root_seed = root_seed
+        self._episode_counter = 0
+
+        # Respawn seeds
         self._spawn_seeds()
     
     def get_seeds_for_components(self, component_names: List[str]) -> List[Optional[SeedSequence]]:
@@ -160,7 +189,28 @@ class SeedManager:
         """
 
         # Convert seed sequence to integer seed (entropy)
-        seed_int = seed.entropy if seed is not None else None
+        seed_int = int(seed.generate_state(1, dtype=np.uint32)[0]) if seed is not None else None
 
         return seed_int
 
+
+def split_seed(root_seed: Optional[int], num_children: int = 2) -> List[Optional[int]]:
+    """
+    Splits a root seed into multiple independent child seeds using SeedSequence.
+    
+    Args:
+        root_seed (Optional[int]): Root seed to split. If None, returns [None] * num_children.
+        num_children (int): Number of child seeds to generate. Defaults to 2.
+        
+    Returns:
+        child_seeds (List[Optional[int]]): List of independent child seeds 
+            (or Nones if root_seed is None).
+    """
+
+    # If no root seed is provided, return None for each child
+    if root_seed is None:
+        return [None] * num_children
+    
+    # Spawn child seeds from the root seed
+    children = SeedSequence(root_seed).spawn(num_children)
+    return [int(child.generate_state(1, dtype=np.uint32)[0]) for child in children]
