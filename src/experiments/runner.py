@@ -228,8 +228,8 @@ class EvaluationRunner:
 
             # Generate and save visualizations
             from src.experiments.visualization import generate_visualizations
-            viz_dir = self.output_dir / "visualizations"
-            generate_visualizations(episodes_data, str(viz_dir))
+            vizualization_dir = self.output_dir / "visualizations"
+            generate_visualizations(episodes_data, str(vizualization_dir))
 
             # Build a lightweight result dict from rollout data
             total_rewards = [ep["rewards"].sum() for ep in episodes_data]
@@ -239,7 +239,7 @@ class EvaluationRunner:
                     "episode_reward_min": float(np.min(total_rewards)),
                     "episode_reward_max": float(np.max(total_rewards)),
                     "num_episodes": num_episodes,
-                    "visualizations_dir": str(viz_dir),
+                    "visualizations_dir": str(vizualization_dir),
                 }
             }
         
