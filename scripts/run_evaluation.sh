@@ -19,8 +19,8 @@
 # Parse arguments
 ##############################
 
-CHECKPOINT_DIR=${1:?"Usage: sbatch run_evaluation.sh <checkpoint-dir>"}
-echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
+EXPERIMENT_NAME=${1:?"Usage: sbatch run_evaluation.sh <ExperimentName>"}
+echo "EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 
 ##############################
 # Load modules + env
@@ -54,8 +54,6 @@ ray start --head \
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --env-config config_files/environments/base_env.yaml \
-    --algorithm-config config_files/algorithms/mappo.yaml \
-    --checkpoint-dir "${CHECKPOINT_DIR}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42

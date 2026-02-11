@@ -43,8 +43,8 @@ ray start --head \
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config config_files/environments/base_env.yaml \
-    --algorithm-config config_files/algorithms/ippo.yaml \
-    --output-dir experiment_outputs \
+    --env-config ./config_files/environments/base_env.yaml \
+    --algorithm-config ./onfig_files/algorithms/ippo.yaml \
+    --output-dir ./experiment_outputs \
     --wandb-project marl-sc \
     --root-seed 42

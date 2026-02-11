@@ -88,6 +88,10 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     """
     Loads and validates environment configuration from a YAML file.
     
+    When data_source.type is "synthetic", cost structures (penalty_cost, sku_weights,
+    distances, shipment costs) are automatically generated to match the environment
+    dimensions (n_warehouses, n_skus, n_regions) before validation.
+    
     Args:
         path (str): Path to environment config YAML file
         
@@ -98,15 +102,59 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     # Load the configuration dictionary from the YAML file
     config_dict = load_yaml(path)
 
-    
     # Extract 'environment' key if present
     if 'environment' in config_dict:
         config_dict = config_dict['environment']
     
+    # Auto-generate costs for synthetic data mode
+    config_dict = _apply_synthetic_costs(config_dict)
+
     # Validate the configuration dictionary against the EnvironmentConfig schema
     validated_config = validate_config(config_dict, EnvironmentConfig)
 
     return validated_config
+
+
+def _apply_synthetic_costs(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generates cost structures matching the environment dimensions and 
+    injects them into the config dictionary if data_source.type is "synthetic".
+    
+    Args:
+        config_dict (Dict[str, Any]): Raw environment config dictionary.
+        
+    Returns:
+        config_dict (Dict[str, Any]): Config dictionary with generated costs applied.
+    """
+    from src.utils.cost_generator import generate_synthetic_costs
+
+    # Check if data source is synthetic
+    data_source = config_dict.get("data_source", {})
+    if not isinstance(data_source, dict) or data_source.get("type") != "synthetic":
+        return config_dict
+
+    # Get environment dimensions
+    n_warehouses = config_dict.get("n_warehouses", 3)
+    n_skus = config_dict.get("n_skus", 5)
+    n_regions = config_dict.get("n_regions", n_warehouses)
+
+    # Generate costs matching dimensions
+    costs = generate_synthetic_costs(n_warehouses, n_skus, n_regions)
+
+    # Ensure cost_structure and shipment_cost dicts exist
+    config_dict.setdefault("cost_structure", {})
+    config_dict["cost_structure"].setdefault("shipment_cost", {})
+
+    # Apply generated costs
+    config_dict["cost_structure"]["penalty_cost"] = costs["penalty_cost"]
+    config_dict["cost_structure"]["sku_weights"] = costs["sku_weights"]
+    config_dict["cost_structure"]["distances"] = costs["distances"]
+    config_dict["cost_structure"]["shipment_cost"]["outbound_fixed"] = costs["outbound_fixed"]
+    config_dict["cost_structure"]["shipment_cost"]["outbound_variable"] = costs["outbound_variable"]
+    config_dict["cost_structure"]["shipment_cost"]["inbound_fixed"] = costs["inbound_fixed"]
+    config_dict["cost_structure"]["shipment_cost"]["inbound_variable"] = costs["inbound_variable"]
+
+    return config_dict
 
 
 def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig]:

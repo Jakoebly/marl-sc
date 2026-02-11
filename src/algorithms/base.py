@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
 import numpy as np
 import torch
+import yaml
 
 if TYPE_CHECKING:
     from src.environment.environment import InventoryEnvironment
@@ -190,21 +192,66 @@ class BaseAlgorithmWrapper(ABC):
 
         return all_episodes
 
-    def save_checkpoint(self, path: str):
-        """Saves model checkpoint.
+    def save_checkpoint(
+        self,
+        path: str,
+        env_config: Optional['EnvironmentConfig'] = None,
+        algorithm_config: Optional['AlgorithmConfig'] = None,
+    ):
+        """
+        Saves model checkpoint using RLlib's Checkpointable API.
+        
+        Also saves environment and algorithm configs to the experiment directory
+        (parent of the checkpoint path) if provided. Configs are only written once;
+        subsequent calls skip saving if config files already exist.
         
         Args:
-            path (str): Path to save checkpoint.
+            path (str): Path to save the RLlib checkpoint.
+            env_config (Optional[EnvironmentConfig]): Environment config to save alongside
+                the checkpoint. Saved as env_config.yaml in the experiment directory.
+            algorithm_config (Optional[AlgorithmConfig]): Algorithm config to save alongside
+                the checkpoint. Saved as algorithm_config.yaml in the experiment directory.
         """
-        self.trainer.save(checkpoint_dir=path)
-    
+        # Save RLlib checkpoint state using the Checkpointable API
+        self.trainer.save_to_path(path)
+
+        # Save configs to the experiment directory (parent of checkpoint path)
+        experiment_dir = Path(path).parent
+
+        # Save environment config if provided
+        if env_config is not None:
+            env_config_path = experiment_dir / "env_config.yaml"
+            if not env_config_path.exists():
+                with open(env_config_path, "w", encoding="utf-8") as f:
+                    yaml.dump(
+                        {"environment": env_config.model_dump()},
+                        f,
+                        default_flow_style=False,
+                        sort_keys=False,
+                    )
+                print(f"[INFO] Saved environment config to: {env_config_path}")
+
+        # Save algorithm config if provided
+        if algorithm_config is not None:
+            algo_config_path = experiment_dir / "algorithm_config.yaml"
+            if not algo_config_path.exists():
+                with open(algo_config_path, "w", encoding="utf-8") as f:
+                    yaml.dump(
+                        {"algorithm": algorithm_config.model_dump()},
+                        f,
+                        default_flow_style=False,
+                        sort_keys=False,
+                    )
+                print(f"[INFO] Saved algorithm config to: {algo_config_path}")
+
     def load_checkpoint(self, path: str):
-        """Loads model checkpoint.
+        """
+        Loads model checkpoint using RLlib's Checkpointable API (restore_from_path).
         
         Args:
             path (str): Path to load checkpoint from.
         """
-        self.trainer.restore(path)
+        self.trainer.restore_from_path(path)
 
     def get_policy(self):
         """Gets trained policy.

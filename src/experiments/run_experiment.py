@@ -27,6 +27,106 @@ from src.experiments.utils.ray_tune import (
 )
 
 
+# ============================================================================
+# Helpers
+# ============================================================================
+
+def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
+    """
+    Searches recursively for a directory with the given experiment name
+    under base_dir. Supports both single-run layouts (base_dir/experiment_name)
+    and array-run layouts (base_dir/array_name/experiment_name).
+    
+    Args:
+        base_dir (str): Root directory to search under (e.g., "./experiment_outputs").
+        experiment_name (str): Name of the experiment directory to find.
+        
+    Returns:
+        experiment_dir (Path): Path to the found experiment directory.
+    """
+
+    # Get the base directory and check if it exists
+    base = Path(base_dir)
+    if not base.exists():
+        raise FileNotFoundError(
+            f"Base directory '{base_dir}' does not exist."
+        )
+
+    # Search for directories matching the experiment name
+    matches = [
+        p for p in base.rglob(experiment_name)
+        if p.is_dir() and p.name == experiment_name
+    ]
+
+    # If no matches are found, raise an error
+    if len(matches) == 0:
+        raise FileNotFoundError(
+            f"Experiment '{experiment_name}' not found under '{base_dir}'."
+        )
+    
+    # If multiple matches are found, raise an error
+    if len(matches) > 1:
+        paths_str = "\n  ".join(str(m) for m in matches)
+        raise ValueError(
+            f"Multiple directories named '{experiment_name}' found under '{base_dir}':\n  {paths_str}\n"
+            f"Please provide a more specific path or rename duplicate experiments."
+        )
+
+    return matches[0]
+
+def generate_experiment_name(
+    env_config_path: str,
+    algorithm_config_path: str,
+    mode: str = "single",
+    search_type: Optional[str] = None,
+    scheduler_type: Optional[str] = None,
+) -> str:
+    """
+    Generates a default experiment name based on the algorithm name, search type, and scheduler type.
+    
+    Args:
+        env_config_path (str): Path to environment config (to extract environment name)
+        algorithm_config_path (str): Path to algorithm config (to extract algorithm name)
+        search_type (str): Search algorithm type
+        scheduler_type (Optional[str]): Scheduler type (if not None)
+        
+    Returns:
+        experiment_name (str): Generated experiment name
+    """
+    # Get algorithm name from config
+    try:
+        algorithm_config = load_algorithm_config(algorithm_config_path)
+        algo_name = algorithm_config.name
+    except Exception:
+        # Fallback to config filename if loading fails
+        algo_name = Path(algorithm_config_path).stem
+
+    env_config = load_environment_config(env_config_path)
+    n_warehouses = env_config.n_warehouses
+    n_skus = env_config.n_skus
+    
+    # Get current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    
+    # Build name components
+    name_parts = [algo_name, mode, f"{n_warehouses}WH", f"{n_skus}SKU"]
+    if mode == "tune":	
+        if search_type and search_type != "none":
+            name_parts.append(search_type)
+        if scheduler_type and scheduler_type != "none":
+            name_parts.append(scheduler_type)
+    name_parts.append(timestamp)
+    
+    # Join with underscores
+    experiment_name = "_".join(name_parts)
+    
+    return experiment_name
+
+
+# ============================================================================
+# Run Experiment Functions
+# ============================================================================
+
 def run_single_experiment(
     env_config_path: str,
     algorithm_config_path: str,
@@ -96,32 +196,45 @@ def run_single_experiment(
     return result
 
 def run_evaluation(
-    env_config_path: str,
-    algorithm_config_path: str,
     checkpoint_dir: str,
+    output_dir: str,
+    env_config_path: Optional[str] = None,
+    algorithm_config_path: Optional[str] = None,
     eval_episodes: Optional[int] = None,
     root_seed: Optional[int] = None,
     visualize: bool = False,
-    output_dir: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_name: Optional[str] = None,
 ):
     """
     Runs standalone evaluation of a trained checkpoint.
     
+    Configs are loaded from the experiment directory (saved during training)
+    if env_config_path / algorithm_config_path are not provided.
+    
     Args:
-        env_config_path (str): Path to environment config
-        algorithm_config_path (str): Path to algorithm config
-        checkpoint_dir (str): Path to checkpoint directory to evaluate
+        checkpoint_dir (str): Path to checkpoint directory to evaluate.
+        output_dir (str): Directory for saving visualizations (typically the experiment dir).
+        env_config_path (Optional[str]): Path to environment config. If None, loaded from
+            saved config in the experiment directory (parent of checkpoint_dir).
+        algorithm_config_path (Optional[str]): Path to algorithm config. If None, loaded from
+            saved config in the experiment directory (parent of checkpoint_dir).
         eval_episodes (Optional[int]): Number of evaluation episodes (overrides config default)
         root_seed (Optional[int]): Root seed for reproducibility. Split into train_seed and eval_seed 
             by EvaluationRunner (only eval_seed is used).
         visualize (bool): If True, run manual rollout and generate visualization plots.
-        output_dir (Optional[str]): Directory for saving visualizations. 
-            If None, defaults to parent of checkpoint_dir.
         wandb_project (Optional[str]): WandB project name
         wandb_name (Optional[str]): WandB run name
     """
+
+    # Resolve config paths: prefer provided paths, fall back to saved configs in experiment dir
+    experiment_dir = Path(checkpoint_dir).parent
+    if env_config_path is None:
+        env_config_path = str(experiment_dir / "env_config.yaml")
+        print(f"[INFO] Loading saved environment config from: {env_config_path}")
+    if algorithm_config_path is None:
+        algorithm_config_path = str(experiment_dir / "algorithm_config.yaml")
+        print(f"[INFO] Loading saved algorithm config from: {algorithm_config_path}")
 
     # Load configs
     env_config = load_environment_config(env_config_path)
@@ -135,13 +248,6 @@ def run_evaluation(
         wandb_name=wandb_name if wandb_name else f"eval_{Path(checkpoint_dir).name}",
     )
 
-    # Create experiment directory
-    output_dir = output_dir if output_dir else str(Path(checkpoint_dir).parent)
-    print(f"[DEBUG] output_dir: {output_dir}")
-    print(f"[DEBUG] checkpoint_dir: {checkpoint_dir}")
-    print(f"[DEBUG] checkpoint_dir.parent: {Path(checkpoint_dir).parent}")
-
-
     # Create evaluation runner
     runner = EvaluationRunner(
         env_config=env_config,
@@ -154,7 +260,7 @@ def run_evaluation(
         wandb_config=wandb_config,
     )
 
-    # Run evaluation and return the result
+    # Run evaluation 
     result = runner.run()
 
     return result
@@ -332,61 +438,14 @@ def trainable(config: Dict[str, Any]):
     return result
 
 
-def generate_experiment_name(
-    env_config_path: str,
-    algorithm_config_path: str,
-    mode: str = "single",
-    search_type: Optional[str] = None,
-    scheduler_type: Optional[str] = None,
-) -> str:
-    """
-    Generates a default experiment name based on the algorithm name, search type, and scheduler type.
-    
-    Args:
-        env_config_path (str): Path to environment config (to extract environment name)
-        algorithm_config_path (str): Path to algorithm config (to extract algorithm name)
-        search_type (str): Search algorithm type
-        scheduler_type (Optional[str]): Scheduler type (if not None)
-        
-    Returns:
-        experiment_name (str): Generated experiment name
-    """
-    # Get algorithm name from config
-    try:
-        algorithm_config = load_algorithm_config(algorithm_config_path)
-        algo_name = algorithm_config.name
-    except Exception:
-        # Fallback to config filename if loading fails
-        algo_name = Path(algorithm_config_path).stem
-
-    env_config = load_environment_config(env_config_path)
-    n_warehouses = env_config.n_warehouses
-    n_skus = env_config.n_skus
-    
-    # Get current timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    
-    # Build name components
-    name_parts = [algo_name, mode, f"{n_warehouses}WH", f"{n_skus}SKU"]
-    if mode == "tune":	
-        if search_type and search_type != "none":
-            name_parts.append(search_type)
-        if scheduler_type and scheduler_type != "none":
-            name_parts.append(scheduler_type)
-    name_parts.append(timestamp)
-    
-    # Join with underscores
-    experiment_name = "_".join(name_parts)
-    
-    return experiment_name
-
-
 # ============================================================================
 # Main Function
 # ============================================================================
 
 def main():
     """Main CLI entry point."""
+
+    # Create parser for command line arguments
     parser = argparse.ArgumentParser(description="Run RL experiments")
     
     # Experiment type
@@ -402,14 +461,14 @@ def main():
     parser.add_argument(
         "--env-config",
         type=str,
-        required=True,
-        help="Path to environment config YAML"
+        help="Path to environment config YAML (required for single/tune modes; "
+             "optional for evaluate when using --experiment-name)"
     )
     parser.add_argument(
         "--algorithm-config",
         type=str,
-        required=True,
-        help="Path to algorithm config YAML"
+        help="Path to algorithm config YAML (required for single/tune modes; "
+             "optional for evaluate when using --experiment-name)"
     )
     
     # Tune-specific
@@ -480,7 +539,7 @@ def main():
     parser.add_argument(
         "--checkpoint-dir",
         type=str,
-        help="Path to checkpoint directory for evaluation (required for evaluate mode)"
+        help="Path to checkpoint directory for evaluation. Mutually exclusive with --experiment-name."
     )
     parser.add_argument(
         "--eval-episodes",
@@ -515,6 +574,13 @@ def main():
     # Parse arguments
     args = parser.parse_args()
     
+    # Validate that config paths are provided for modes that need them
+    if args.mode in ("single", "tune"):
+        if not args.env_config:
+            raise ValueError("--env-config is required for single/tune mode")
+        if not args.algorithm_config:
+            raise ValueError("--algorithm-config is required for single/tune mode")
+
     # Run a single experiment if mode is "single"
     if args.mode == "single":
         # Run the single experiment
@@ -556,19 +622,38 @@ def main():
 
     # Run evaluation if mode is "evaluate"
     elif args.mode == "evaluate":
-        # Check if checkpoint path is provided (required for evaluate mode)
-        if not args.checkpoint_dir:
-            raise ValueError("--checkpoint-dir is required for evaluate mode")
+        # Option 1: Name-based path
+        if args.experiment_name:
+            # Use the --experiment-name to search for the checkpoint directory
+            base_dir = args.output_dir if args.output_dir != "./experiment_outputs" else "./experiment_outputs"
+            experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
+            checkpoint_dir = str(experiment_dir / "checkpoint_final") # Default checkpoint directory
+            output_dir = str(experiment_dir) # Default output directory
+            # Load configs
+            env_config_path = args.env_config  # May be None
+            algorithm_config_path = args.algorithm_config  # May be None  
+        # Option 2: Explicit path 
+        elif args.checkpoint_dir:
+            # Use explicit path from --checkpoint-dir for the checkpoint directory
+            checkpoint_dir = args.checkpoint_dir
+            output_dir = str(Path(args.checkpoint_dir).parent)
+            # Load configs
+            env_config_path = args.env_config  # May be None
+            algorithm_config_path = args.algorithm_config  # May be None
+        else:
+            raise ValueError(
+                "Either --experiment-name or --checkpoint-dir is required for evaluate mode"
+            )
 
         # Run evaluation
         run_evaluation(
-            env_config_path=args.env_config,
-            algorithm_config_path=args.algorithm_config,
-            checkpoint_dir=args.checkpoint_dir,
+            checkpoint_dir=checkpoint_dir,
+            output_dir=output_dir,
+            env_config_path=env_config_path,
+            algorithm_config_path=algorithm_config_path,
             eval_episodes=args.eval_episodes,
             root_seed=args.root_seed,
             visualize=args.visualize,
-            output_dir=args.output_dir,
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
         )

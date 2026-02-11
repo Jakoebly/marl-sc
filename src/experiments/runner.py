@@ -102,7 +102,11 @@ class ExperimentRunner:
                 checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
                 checkpoint_path.mkdir(parents=True, exist_ok=True)
                 checkpoint_path = str(checkpoint_path.resolve())
-                self.algorithm.save_checkpoint(checkpoint_path)
+                self.algorithm.save_checkpoint(
+                    checkpoint_path,
+                    env_config=self.env_config,
+                    algorithm_config=self.algorithm_config,
+                )
                 if self.wandb_config:
                     wandb.log({"checkpoint_iteration": iteration})
             
@@ -116,7 +120,11 @@ class ExperimentRunner:
             final_checkpoint_path = self.checkpoint_dir / "checkpoint_final"
             final_checkpoint_path.mkdir(parents=True, exist_ok=True)
             final_checkpoint_path = str(final_checkpoint_path.resolve())
-            self.algorithm.save_checkpoint(str(final_checkpoint_path))
+            self.algorithm.save_checkpoint(
+                final_checkpoint_path,
+                env_config=self.env_config,
+                algorithm_config=self.algorithm_config,
+            )
         
         # Report final metrics and the final checkpoint back to Ray Tune
         if tune_callback:
