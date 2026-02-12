@@ -92,14 +92,51 @@ PY
 # Start Ray explicitly
 ##############################
 
+# Make Ray not accidentally attach somewhere else
+unset RAY_ADDRESS
+
 # Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
-
 echo "Starting Ray with ${CPUS} CPUs"
+
+# Choose a per-task port (not guaranteed unique, but we probe/fallback)
+BASE_PORT=20000
+
+# Create a job-specific port block to reduce collision probability
+# (100 possible blocks * 200 ports/block => 20k ports range starting at 20000)
+JOB_BLOCK=$(( (SLURM_JOB_ID % 100) * 200 ))
+RAY_PORT=$(( BASE_PORT + JOB_BLOCK + SLURM_ARRAY_TASK_ID ))
+
+# Find a free port if the first choice is already taken
+for i in $(seq 0 50); do
+  CANDIDATE=$((RAY_PORT + i))
+  if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${CANDIDATE}$"; then
+    RAY_PORT=$CANDIDATE
+    break
+  fi
+done
+
+# Per-task Ray temp dir to avoid session/state collisions on shared nodes
+RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$RAY_TMPDIR"
+
+# Cleanup function for Ray temp dir
+cleanup() {
+  rm -f "$TEMP_CONFIG" >/dev/null 2>&1 || true
+  rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# Force this task's driver to connect to this task's head
+export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
+echo "Starting Ray head at ${RAY_ADDRESS} with ${CPUS} CPUs"
+echo "Ray temp dir: ${RAY_TMPDIR}"
 
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
+  --port="${RAY_PORT}" \
   --num-cpus="${CPUS}" \
+  --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats
 
@@ -120,5 +157,3 @@ python src/experiments/run_experiment.py \
 ##############################
 # Cleanup
 ##############################
-
-rm -f "$TEMP_CONFIG"
