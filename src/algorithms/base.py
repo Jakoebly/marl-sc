@@ -251,7 +251,12 @@ class BaseAlgorithmWrapper(ABC):
         Args:
             path (str): Path to load checkpoint from.
         """
-        self.trainer.restore_from_path(path)
+        # Ray's restore_from_path uses PyArrow FileSystem.from_uri which requires a URI with scheme
+        abs_path = Path(path).resolve()
+        print(f"[INFO] Absolute path: {abs_path}")
+        uri = abs_path.as_uri()
+        print(f"[INFO] URI: {uri}")
+        self.trainer.restore_from_path(uri)
 
     def get_policy(self):
         """Gets trained policy.
