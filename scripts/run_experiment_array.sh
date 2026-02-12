@@ -100,26 +100,17 @@ CPUS=${SLURM_CPUS_PER_TASK:-1}
 echo "Starting Ray with ${CPUS} CPUs"
 
 # Allocate a unique port block per task
-BASE_PORT=20000
-BLOCK_SIZE=300   # room for worker ports
-JOB_BLOCK=$(( (SLURM_JOB_ID % 100) * 3000 ))  # 100 jobs -> spread out
-TASK_BLOCK=$(( SLURM_ARRAY_TASK_ID * BLOCK_SIZE ))
-P=$(( BASE_PORT + JOB_BLOCK + TASK_BLOCK ))
+BASE_PORT=30000
+BLOCK_SIZE=200   # room for worker ports
+JOB_OFFSET=$(( (SLURM_JOB_ID % 100) * BLOCK_SIZE ))
+TASK_OFFSET=$(( SLURM_ARRAY_TASK_ID * BLOCK_SIZE ))
+P=$(( BASE_PORT + JOB_OFFSET + TASK_OFFSET ))
 
 RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
 RAY_MIN_WORKER_PORT=$((P + 20))
-RAY_MAX_WORKER_PORT=$((P + 299))
-
-# Find a free port if the first choice is already taken
-for i in $(seq 0 50); do
-  CANDIDATE=$((RAY_PORT + i))
-  if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${CANDIDATE}$"; then
-    RAY_PORT=$CANDIDATE
-    break
-  fi
-done
+RAY_MAX_WORKER_PORT=$((P + 199))
 
 # Per-task Ray temp dir to avoid session/state collisions on shared nodes
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
