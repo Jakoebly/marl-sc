@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-24%1                          # Array for 25 jobs (indices 0-24) with 1 job at once per node
+#SBATCH --array=0-24%5                          # Array for 25 jobs (indices 0-24) with 1 job at once per node
 
 
 ##############################
