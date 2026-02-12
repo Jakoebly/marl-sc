@@ -99,13 +99,18 @@ unset RAY_ADDRESS
 CPUS=${SLURM_CPUS_PER_TASK:-1}
 echo "Starting Ray with ${CPUS} CPUs"
 
-# Choose a per-task port (not guaranteed unique, but we probe/fallback)
+# Allocate a unique port block per task
 BASE_PORT=20000
+BLOCK_SIZE=300   # room for worker ports
+JOB_BLOCK=$(( (SLURM_JOB_ID % 100) * 3000 ))  # 100 jobs -> spread out
+TASK_BLOCK=$(( SLURM_ARRAY_TASK_ID * BLOCK_SIZE ))
+P=$(( BASE_PORT + JOB_BLOCK + TASK_BLOCK ))
 
-# Create a job-specific port block to reduce collision probability
-# (100 possible blocks * 200 ports/block => 20k ports range starting at 20000)
-JOB_BLOCK=$(( (SLURM_JOB_ID % 100) * 200 ))
-RAY_PORT=$(( BASE_PORT + JOB_BLOCK + SLURM_ARRAY_TASK_ID ))
+RAY_GCS_PORT=$((P + 0))
+RAY_NODE_MANAGER_PORT=$((P + 1))
+RAY_OBJECT_MANAGER_PORT=$((P + 2))
+RAY_MIN_WORKER_PORT=$((P + 20))
+RAY_MAX_WORKER_PORT=$((P + 299))
 
 # Find a free port if the first choice is already taken
 for i in $(seq 0 50); do
@@ -128,13 +133,20 @@ cleanup() {
 trap cleanup EXIT
 
 # Force this task's driver to connect to this task's head
-export RAY_ADDRESS="127.0.0.1:${RAY_PORT}"
-echo "Starting Ray head at ${RAY_ADDRESS} with ${CPUS} CPUs"
-echo "Ray temp dir: ${RAY_TMPDIR}"
+export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
+echo "Ray head:        ${RAY_ADDRESS}"
+echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
+echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
+echo "Worker ports:    ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT}"
+echo "Ray temp dir:    ${RAY_TMPDIR}"
 
 # Start Ray explicitly with ONLY those CPUs
 ray start --head \
-  --port="${RAY_PORT}" \
+  --port="${RAY_GCS_PORT}" \
+  --node-manager-port="${RAY_NODE_MANAGER_PORT}" \
+  --object-manager-port="${RAY_OBJECT_MANAGER_PORT}" \
+  --min-worker-port="${RAY_MIN_WORKER_PORT}" \
+  --max-worker-port="${RAY_MAX_WORKER_PORT}" \
   --num-cpus="${CPUS}" \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
