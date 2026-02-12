@@ -89,7 +89,7 @@ PY
 
 
 ##############################
-# Start Ray explicitly
+# Start Ray explicitly (with port allocation)
 ##############################
 
 # Make Ray not accidentally attach somewhere else
@@ -97,20 +97,69 @@ unset RAY_ADDRESS
 
 # Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
-echo "Starting Ray with ${CPUS} CPUs"
 
-# Allocate a unique port block per task
-BASE_PORT=30000
-BLOCK_SIZE=200   # room for worker ports
-JOB_OFFSET=$(( (SLURM_JOB_ID % 100) * BLOCK_SIZE ))
-TASK_OFFSET=$(( SLURM_ARRAY_TASK_ID * BLOCK_SIZE ))
-P=$(( BASE_PORT + JOB_OFFSET + TASK_OFFSET ))
+# Determine array size and number of tasks
+MAX_TASK_ID=${SLURM_ARRAY_TASK_MAX:-${SLURM_ARRAY_TASK_ID}}
+N_TASKS=$((MAX_TASK_ID + 1))
 
+# Define the port range
+BASE_PORT=20000
+MAX_PORT=65535
+AVAILABLE=$((MAX_PORT - BASE_PORT + 1))
+
+# Define the preferred block size (i.e., number of ports) per task
+PREFERRED_BLOCK_SIZE=200
+
+# Reserve the first 20 ports in the block for fixed components and leave the rest for workers
+RESERVED_WITHIN_BLOCK=20
+
+# Define the minimum block size such that the worker range is non-empty
+MIN_BLOCK_SIZE=$((RESERVED_WITHIN_BLOCK + 1))
+
+# Cap the preferred block size to the maximum possible if necessary
+BLOCK_SIZE=$PREFERRED_BLOCK_SIZE
+MAX_BLOCK_SIZE=$((AVAILABLE / N_TASKS))
+if [ $MAX_BLOCK_SIZE -lt $BLOCK_SIZE ]; then
+  BLOCK_SIZE=$MAX_BLOCK_SIZE
+fi
+
+# Sanity check if the block size is too small
+if [ $BLOCK_SIZE -lt $MIN_BLOCK_SIZE ]; then
+  echo "ERROR: Array too large to allocate ports safely."
+  echo "N_TASKS=${N_TASKS}, AVAILABLE_PORTS=${AVAILABLE}, computed BLOCK_SIZE=${BLOCK_SIZE} (< ${MIN_BLOCK_SIZE})"
+  echo "Fix: reduce array concurrency per node (e.g., use --exclusive) or lower PORT_BASE / change policy."
+  exit 1
+fi
+
+# Define the job width (i.e., number of ports per job)
+ARRAY_WIDTH=$((N_TASKS * BLOCK_SIZE)) # total number of ports for all jobs in the array
+ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH)) # number of arrays with the same size as the current array that can fit in the available port range
+
+# Sanity check if the number of array slots is at least 1
+if [ $ARRAY_SLOTS -lt 1 ]; then
+  echo "ERROR: Not enough port space for even one array slot (this should not happen if BLOCK_SIZE check passed)."
+  exit 1
+fi
+
+# Get the array slot for the current array
+ARRAY_SLOT=$((SLURM_JOB_ID % ARRAY_SLOTS))
+
+# Compute the first port for the current task
+TASK_ID=${SLURM_ARRAY_TASK_ID}
+P=$((PORT_BASE + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
+
+# Set the ports for the Ray components of the current task
 RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
-RAY_MIN_WORKER_PORT=$((P + 20))
-RAY_MAX_WORKER_PORT=$((P + 199))
+RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
+RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
+
+# Sanity check if the maximum worker port is within the available port range
+if [ $RAY_MAX_WORKER_PORT -gt $PORT_MAX ]; then
+  echo "ERROR: Port calculation overflowed: ${RAY_MAX_WORKER_PORT} > ${PORT_MAX}"
+  exit 1
+fi
 
 # Per-task Ray temp dir to avoid session/state collisions on shared nodes
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
@@ -123,15 +172,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Force this task's driver to connect to this task's head
+# Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
+
+# Print the current task's ports and Ray components
+echo "Array tasks:     ${N_TASKS} (max id ${MAX_TASK_ID})"
+echo "Port base/range: ${PORT_BASE}-${PORT_MAX} (available ${AVAILABLE})"
+echo "Block size:      ${BLOCK_SIZE} ports per task (workers: $((BLOCK_SIZE - RESERVED_WITHIN_BLOCK)))"
+echo "Job slots:       ${JOB_SLOTS} (using slot ${JOB_SLOT})"
 echo "Ray head:        ${RAY_ADDRESS}"
 echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
 echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
 echo "Worker ports:    ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT}"
 echo "Ray temp dir:    ${RAY_TMPDIR}"
 
-# Start Ray explicitly with ONLY those CPUs
+# Start Ray explicitly with ports and number of CPUs
 ray start --head \
   --port="${RAY_GCS_PORT}" \
   --node-manager-port="${RAY_NODE_MANAGER_PORT}" \
@@ -141,7 +196,8 @@ ray start --head \
   --num-cpus="${CPUS}" \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
-  --disable-usage-stats
+  --disable-usage-stats \
+  || { echo "ERROR: ray start failed"; exit 1; }
 
 
 ##############################
