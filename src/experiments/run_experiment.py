@@ -629,9 +629,15 @@ def main():
             experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
             checkpoint_dir = str(experiment_dir / "checkpoint_final") # Default checkpoint directory
             output_dir = str(experiment_dir) # Default output directory
+            print(f"[INFO] Base directory: {base_dir}")
+            print(f"[INFO] Experiment directory: {experiment_dir}")
+            print(f"[INFO] Checkpoint directory: {checkpoint_dir}")
+            print(f"[INFO] Output directory: {output_dir}")
             # Load configs
             env_config_path = args.env_config  # May be None
             algorithm_config_path = args.algorithm_config  # May be None  
+            print(f"[INFO] Environment config path: {env_config_path}")
+            print(f"[INFO] Algorithm config path: {algorithm_config_path}")
         # Option 2: Explicit path 
         elif args.checkpoint_dir:
             # Use explicit path from --checkpoint-dir for the checkpoint directory
