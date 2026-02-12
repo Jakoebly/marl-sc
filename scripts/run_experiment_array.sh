@@ -127,7 +127,7 @@ fi
 if [ $BLOCK_SIZE -lt $MIN_BLOCK_SIZE ]; then
   echo "ERROR: Array too large to allocate ports safely."
   echo "N_TASKS=${N_TASKS}, AVAILABLE_PORTS=${AVAILABLE}, computed BLOCK_SIZE=${BLOCK_SIZE} (< ${MIN_BLOCK_SIZE})"
-  echo "Fix: reduce array concurrency per node (e.g., use --exclusive) or lower PORT_BASE / change policy."
+  echo "Fix: reduce array concurrency per node (e.g., use --exclusive) or lower BASE_PORT / change policy."
   exit 1
 fi
 
@@ -146,7 +146,7 @@ ARRAY_SLOT=$((SLURM_JOB_ID % ARRAY_SLOTS))
 
 # Compute the first port for the current task
 TASK_ID=${SLURM_ARRAY_TASK_ID}
-P=$((PORT_BASE + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
+P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 
 # Set the ports for the Ray components of the current task
 RAY_GCS_PORT=$((P + 0))
@@ -156,8 +156,8 @@ RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
 RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
 
 # Sanity check if the maximum worker port is within the available port range
-if [ $RAY_MAX_WORKER_PORT -gt $PORT_MAX ]; then
-  echo "ERROR: Port calculation overflowed: ${RAY_MAX_WORKER_PORT} > ${PORT_MAX}"
+if [ $RAY_MAX_WORKER_PORT -gt $MAX_PORT ]; then
+  echo "ERROR: Port calculation overflowed: ${RAY_MAX_WORKER_PORT} > ${MAX_PORT}"
   exit 1
 fi
 
@@ -177,9 +177,9 @@ export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
 # Print the current task's ports and Ray components
 echo "Array tasks:     ${N_TASKS} (max id ${MAX_TASK_ID})"
-echo "Port base/range: ${PORT_BASE}-${PORT_MAX} (available ${AVAILABLE})"
+echo "Port base/range: ${BASE_PORT}-${MAX_PORT} (available ${AVAILABLE})"
 echo "Block size:      ${BLOCK_SIZE} ports per task (workers: $((BLOCK_SIZE - RESERVED_WITHIN_BLOCK)))"
-echo "Job slots:       ${JOB_SLOTS} (using slot ${JOB_SLOT})"
+echo "Job slots:       ${ARRAY_SLOTS} (using slot ${ARRAY_SLOT})"
 echo "Ray head:        ${RAY_ADDRESS}"
 echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
 echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
