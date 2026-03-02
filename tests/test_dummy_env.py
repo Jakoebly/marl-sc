@@ -1,6 +1,6 @@
 import numpy as np
 from src.config.loader import load_environment_config
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 
 def test_basic_functionality():
     """Test basic environment functionality."""

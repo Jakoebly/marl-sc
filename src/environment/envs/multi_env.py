@@ -15,8 +15,7 @@ from src.environment.registry import (
 from src.environment.components.base import StochasticComponent
 from src.environment.components.demand_sampler import Order
 from src.environment.components.demand_allocator import AllocationResult
-from numpy.random import SeedSequence
-from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEED_REGISTRY
+from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEEDS, STOCHASTIC_SEEDS
 
 
 class InventoryEnvironment(ParallelEnv):
@@ -36,7 +35,7 @@ class InventoryEnvironment(ParallelEnv):
         timestep (int): Current timestep in the episode.
     """
     
-    metadata = {"render_modes": ["human"], "name": "inventory_env_v0"}
+    metadata = {"render_modes": ["human"], "name": "multi_env"}
     
     def __init__(
         self, 
@@ -67,9 +66,10 @@ class InventoryEnvironment(ParallelEnv):
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
         self.max_order_quantity = env_config.max_order_quantity
+        self.max_wh_capacities = env_config.max_wh_capacities
         
         # Initialize seed manager
-        self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEEDS)
         
         # Extract data_mode from RLlib's config dict (defaults to "train")
         data_mode = "train"
@@ -129,17 +129,12 @@ class InventoryEnvironment(ParallelEnv):
             self.seed_manager.update_root_seed(seed)
         else:
             self.seed_manager.advance_episode()
-        
-        # Get seeds for stochastic components and initial inventory
-        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
-        stochastic_seeds = self.seed_manager.get_seeds_int_for_components(STOCHASTIC_COMPONENT_REGISTRY)
-        inventory_seed = self.seed_manager.get_seed_int('inventory')
-        
-        # Reset stochastic components
-        self._reset_stochastic_components(seeds=stochastic_seeds)      
+
+        # Reset stochastic components with RNGs from SeedManager
+        self._reset_stochastic_components()
 
         # Reset state
-        self.inventory = self._initialize_inventory(seed=inventory_seed)
+        self.inventory = self._initialize_inventory(rng=self.seed_manager.get_rng('inventory'))
         self.pending_orders = {}
         self.timestep = 0
         
@@ -328,12 +323,12 @@ class InventoryEnvironment(ParallelEnv):
     # Environment Helper Functions
     # ============================================================================
 
-    def _initialize_inventory(self, seed: Optional[int] = None) -> np.ndarray:
+    def _initialize_inventory(self, rng: Optional[np.random.Generator] = None) -> np.ndarray:
         """
         Initializes inventory levels for each warehouse and SKU. 
         
         Args:
-            seed (Optional[int]): Random seed for initialization (used for uniform method).
+            rng (Optional[np.random.Generator]): Generator from SeedManager (used for uniform method).
             
         Returns:
             inventory (np.ndarray): Initial inventory array. Shape: (n_warehouses, n_skus).
@@ -341,9 +336,8 @@ class InventoryEnvironment(ParallelEnv):
        
         # Get the initial inventory method from config
         inv_config = self.initial_inventory_config
-        
-        # Use a temporary RNG for initialization (used for uniform method)
-        rng = np.random.default_rng(seed)
+        if rng is None:
+            rng = np.random.default_rng()
         
         # Initialize inventory based on the initial inventory method
         # Uniform random initialization
@@ -366,41 +360,12 @@ class InventoryEnvironment(ParallelEnv):
         
         return inventory.astype(float)
     
-    def _reset_stochastic_components(self, seeds: Optional[List[SeedSequence]] = None):
-        """
-        Resets all stochastic components using pre-spawned seeds.
-        
-        Args:
-            seeds (Optional[List[SeedSequence]]): List of seeds for stochastic components. If None, components are reset without explicit seeds.
-        """
-
-        # Get stochastic components from the environment
-        from src.environment.components.base import STOCHASTIC_COMPONENT_REGISTRY
-        stochastic_components = [
-            getattr(self, attr_name) 
-            for attr_name in STOCHASTIC_COMPONENT_REGISTRY
-            if isinstance(getattr(self, attr_name), StochasticComponent)
-        ]
-        
-        # If seeds are provided, ensure that they match the number of stochastic components and use them to reset the components
-        if seeds is not None:
-            if len(seeds) != len(stochastic_components):
-                raise ValueError(
-                    f"Number of seeds ({len(seeds)}) must match "
-                    f"number of stochastic components ({len(stochastic_components)})"
-                )
-            
-            for comp, seed_obj in zip(stochastic_components, seeds):
-                if isinstance(seed_obj, SeedSequence):
-                    seed_int = SeedManager.seed_to_int(seed_obj)
-                else:
-                    seed_int = seed_obj  # Already an int
-                comp.reset(seed_int)
-
-        # If no seeds provided, reset all stochastic components without explicit seeds
-        else:
-            for comp in stochastic_components:
-                comp.reset(None)
+    def _reset_stochastic_components(self):
+        """Resets all stochastic components with RNGs from the SeedManager."""
+        for name in STOCHASTIC_SEEDS:
+            comp = getattr(self, name, None)
+            if isinstance(comp, StochasticComponent):
+                comp.reset(rng=self.seed_manager.get_rng(name))
 
     def _get_observations(self) -> Dict[str, Dict[str, np.ndarray]]:
         """
@@ -477,13 +442,13 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Sample lead times for all SKUs
-        lead_times = self.lead_time_sampler.sample() # Shape: (n_skus,)
+        lead_times = self.lead_time_sampler.sample() # Shape: (n_warehouses, n_skus)
 
         # Stack all actions into a matrix
         actions_matrix = np.array([actions[agent_id] for agent_id in self.agents]) # Shape: (n_warehouses, n_skus)
         
         # Calculate arrival timesteps for all (warehouse, sku) pairs      
-        arrival_timesteps = self.timestep + np.broadcast_to(lead_times, (self.n_warehouses, self.n_skus)).astype(int) # Shape: (n_warehouses, n_skus)
+        arrival_timesteps = self.timestep + lead_times.astype(int) # Shape: (n_warehouses, n_skus)
         
         # Define masks to filter only orders with quantity > 0 and that arrive before the episode ends
         ordered_skus = actions_matrix > 0
@@ -516,6 +481,24 @@ class InventoryEnvironment(ParallelEnv):
         
         return ordered_skus
 
+    def enforce_capacity_constraints(self, ordered_skus: np.ndarray) -> np.ndarray:
+        """
+        Enforces capacity constraints on the inventory.
+        
+        Args:
+            warehouse_idx (int): Index of the warehouse.
+        """
+        pass
+
+    def compute_free_capacity(self, warehouse_idx: int) -> np.ndarray:
+        """
+        Computes the free capacity for a given warehouse.
+        
+        Args:
+            warehouse_idx (int): Index of the warehouse.
+        """
+        pass
+
     def _apply_arrivals(self):
         """
         Adds arriving orders to inventory and removes them from pending_orders.
@@ -525,8 +508,3 @@ class InventoryEnvironment(ParallelEnv):
         if self.timestep in self.pending_orders:
             self.inventory += self.pending_orders[self.timestep]
             del self.pending_orders[self.timestep]
-
-
-
-
-

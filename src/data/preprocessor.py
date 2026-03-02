@@ -11,7 +11,6 @@ from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from numpy.random import SeedSequence
 
 if TYPE_CHECKING:
     from src.config.schema import DataSplitConfig
@@ -450,8 +449,8 @@ class DataProcessor:
             shipment_costs (ShipmentCosts): ShipmentCosts dataclass containing:
                 - outbound_fixed_per_order: Shape (n_warehouses, n_regions)
                 - outbound_variable_per_weight: Shape (n_warehouses, n_regions)
-                - inbound_fixed_per_order: Shape (n_suppliers, n_warehouses)
-                - inbound_variable_per_weight: Shape (n_suppliers, n_warehouses)
+                - inbound_fixed_per_order: Shape (n_warehouses, n_suppliers)
+                - inbound_variable_per_weight: Shape (n_warehouses, n_suppliers)
         """
 
         # Import ShipmentCosts dataclass
@@ -503,18 +502,18 @@ class DataProcessor:
                         outbound_fixed[wh_idx, reg_idx] = warehouse_costs['fixed_costs'].mean()
                         outbound_variable[wh_idx, reg_idx] = warehouse_costs['variable_costs_per_weight'].mean()
         
-        # Initialize inbound cost matrices (supplier -> warehouse)
-        inbound_fixed = np.zeros((n_suppliers, n_warehouses), dtype=float)
-        inbound_variable = np.zeros((n_suppliers, n_warehouses), dtype=float)
+        # Initialize inbound cost matrices n_warehouse -> n_suppliers
+        inbound_fixed = np.zeros((n_warehouses, n_suppliers), dtype=float)
+        inbound_variable = np.zeros((n_warehouses, n_suppliers), dtype=float)
 
-        # Extract inbound costs for each supplier-warehouse pair
-        for supp_idx, supplier_id in enumerate(self.selected_supplier_ids):
-            # Convert supplier ID to string for comparison
-            supplier_id_str = str(supplier_id)
-            
-            for wh_idx, warehouse_id in enumerate(self.selected_warehouse_ids):
-                # Convert warehouse ID to string for comparison
-                warehouse_id_str = str(warehouse_id)
+        # Extract inbound costs for each warehouse-supplier pair
+        for wh_idx, warehouse_id in enumerate(self.selected_warehouse_ids):
+            # Convert warehouse ID to string for comparison
+            warehouse_id_str = str(warehouse_id)
+
+            for supp_idx, supplier_id in enumerate(self.selected_supplier_ids):
+                # Convert supplier ID to string for comparison
+                supplier_id_str = str(supplier_id)
                 
                 # Get data for this supplier-warehouse pair
                 pair_data = self.supplier_to_warehouse_df[
@@ -524,9 +523,8 @@ class DataProcessor:
                 
                 # If pair exists, use costs from the data
                 if len(pair_data) > 0:
-                    inbound_fixed[supp_idx, wh_idx] = pair_data['fixed_costs'].iloc[0]
-                    inbound_variable[supp_idx, wh_idx] = pair_data['variable_costs_per_weight'].iloc[0]
-                
+                    inbound_fixed[wh_idx, supp_idx] = pair_data['fixed_costs'].iloc[0]
+                    inbound_variable[wh_idx, supp_idx] = pair_data['variable_costs_per_weight'].iloc[0]
                 # If pair doesn't exist, use fallback method
                 else:
                     # Get all costs for this supplier
@@ -536,13 +534,13 @@ class DataProcessor:
                     
                     # If no costs for this supplier exist, use high default for fixed, zero for variable
                     if len(supplier_costs) == 0:
-                        inbound_fixed[supp_idx, wh_idx] = 10000.0
-                        inbound_variable[supp_idx, wh_idx] = 0.0
+                        inbound_fixed[wh_idx, supp_idx] = 10000.0
+                        inbound_variable[wh_idx, supp_idx] = 0.0  
                     
                     # If other costs for this supplier exist, use mean cost
                     else:
-                        inbound_fixed[supp_idx, wh_idx] = supplier_costs['fixed_costs'].mean()
-                        inbound_variable[supp_idx, wh_idx] = supplier_costs['variable_costs_per_weight'].mean()
+                        inbound_fixed[wh_idx, supp_idx] = supplier_costs['fixed_costs'].mean()
+                        inbound_variable[wh_idx, supp_idx] = supplier_costs['variable_costs_per_weight'].mean()
         
         return ShipmentCosts(
             outbound_fixed=outbound_fixed,

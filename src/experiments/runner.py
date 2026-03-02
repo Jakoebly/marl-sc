@@ -5,11 +5,11 @@ import wandb
 from ray import tune
 from ray.air import session
 
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.utils.wandb import log_wandb_metrics
-from src.utils.seed_manager import split_seed
+from src.utils.seed_manager import SeedManager
 
 
 class ExperimentRunner:
@@ -19,7 +19,7 @@ class ExperimentRunner:
         self,
         env_config: EnvironmentConfig,
         algorithm_config: AlgorithmConfig,
-        root_seed: Optional[int] = None,
+        seed_manager: Optional[SeedManager] = None,
         checkpoint_dir: Optional[str] = None,
         wandb_config: Optional[Dict[str, Any]] = None,
     ):
@@ -29,15 +29,15 @@ class ExperimentRunner:
         Args:
             env_config (EnvironmentConfig): Environment configuration
             algorithm_config (AlgorithmConfig): Algorithm configuration
-            root_seed (Optional[int]): Root seed for reproducibility. If provided, split into
-                independent train_seed and eval_seed via split_seed().
+            seed_manager (Optional[SeedManager]): Experiment-level seed manager.
             checkpoint_dir (Optional[str]): Directory for saving checkpoints
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict (project, name, tags, etc.)
         """
 
-        # Split root seed into independent train and eval seeds
-        self.root_seed = root_seed
-        self.train_seed, self.eval_seed = split_seed(root_seed, num_children=2)
+        # Derive train / eval seeds from the SeedManager
+        self.seed_manager = seed_manager
+        self.train_seed = seed_manager.get_seed_int('train') if seed_manager else None
+        self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
 
         # Store configs
         self.env_config = env_config
@@ -74,8 +74,8 @@ class ExperimentRunner:
         Runs the full training loop.
         
         Args:
-            callback (Callable[[str, Dict[str, Any], int], None]): Ray Tune callback function 
-            to be called after each iteration to report metrics and optionally a checkpoint.
+            tune_callback (Callable): Ray Tune callback function to be called after each
+            iteration to report metrics and optionally a checkpoint. Defaults to None.
         
         Returns:
             result (Dict[str, Any]): Final training metrics
@@ -147,7 +147,7 @@ class EvaluationRunner:
         checkpoint_dir: str,
         output_dir: str,
         eval_episodes: Optional[int] = None,
-        root_seed: Optional[int] = None,
+        seed_manager: Optional[SeedManager] = None,
         visualize: bool = False,
         wandb_config: Optional[Dict[str, Any]] = None,
     ):
@@ -161,15 +161,14 @@ class EvaluationRunner:
             output_dir (str): Directory for saving visualizations.
             eval_episodes (Optional[int]): Number of evaluation episodes.
                 If None, uses num_eval_episodes from algorithm config.
-            root_seed (Optional[int]): Root seed for reproducibility. If provided, split into
-                train_seed and eval_seed via split_seed(). Only eval_seed is used (no training).
-            visualize (bool): If True, run manual rollout and generate visualization plots.
+            seed_manager (Optional[SeedManager]): Experiment-level seed manager.
+             visualize (bool): If True, run manual rollout and generate visualization plots.
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
-        # Split root seed into independent train and eval seeds (only eval_seed is used)
-        self.root_seed = root_seed
-        _, self.eval_seed = split_seed(root_seed, num_children=2)
+        # Derive eval seed from SeedManager
+        self.seed_manager = seed_manager
+        self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
 
         # Store evaluation parameters
         self.eval_episodes = eval_episodes

@@ -1,68 +1,14 @@
-"""Tests for the seeding system: split_seed, SeedManager, and seed flow through the stack."""
+"""Tests for the seeding system: SeedManager and seed flow through the stack."""
 
 import numpy as np
 import pytest
-from numpy.random import SeedSequence
 
-from src.utils.seed_manager import split_seed, SeedManager, ENVIRONMENT_SEED_REGISTRY
-from src.environment.environment import InventoryEnvironment
-
-
-# ============================================================================
-# 1. split_seed unit tests
-# ============================================================================
-
-class TestSplitSeed:
-    """Tests for the split_seed() utility function."""
-
-    def test_returns_correct_number_of_children(self):
-        """split_seed should return exactly num_children seeds."""
-        seeds = split_seed(42, num_children=3)
-        assert len(seeds) == 3
-
-    def test_default_returns_two_children(self):
-        """Default num_children=2 should return two seeds."""
-        seeds = split_seed(42)
-        assert len(seeds) == 2
-
-    def test_none_root_returns_all_nones(self):
-        """When root_seed is None, all children should be None."""
-        seeds = split_seed(None, num_children=3)
-        assert seeds == [None, None, None]
-
-    def test_children_are_integers(self):
-        """All child seeds should be integers (not numpy types)."""
-        seeds = split_seed(42, num_children=2)
-        for s in seeds:
-            assert isinstance(s, int)
-
-    def test_children_are_distinct(self):
-        """Child seeds derived from the same root should differ from each other."""
-        train_seed, eval_seed = split_seed(42)
-        assert train_seed != eval_seed
-
-    def test_deterministic(self):
-        """Calling split_seed twice with the same root should produce identical results."""
-        seeds_a = split_seed(42, num_children=2)
-        seeds_b = split_seed(42, num_children=2)
-        assert seeds_a == seeds_b
-
-    def test_different_roots_produce_different_seeds(self):
-        """Different root seeds should produce different child seeds."""
-        seeds_a = split_seed(42)
-        seeds_b = split_seed(99)
-        assert seeds_a != seeds_b
-
-    def test_same_eval_seed_across_runners(self):
-        """ExperimentRunner and EvaluationRunner use the same split_seed logic,
-        so the eval_seed (child index 1) should be identical for the same root_seed."""
-        _, eval_from_experiment = split_seed(42, num_children=2)
-        _, eval_from_evaluation = split_seed(42, num_children=2)
-        assert eval_from_experiment == eval_from_evaluation
+from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS, ENVIRONMENT_SEEDS
+from src.environment.envs.multi_env import InventoryEnvironment
 
 
 # ============================================================================
-# 2. SeedManager unit tests
+# 1. SeedManager unit tests
 # ============================================================================
 
 class TestSeedManager:
@@ -70,80 +16,110 @@ class TestSeedManager:
 
     def test_init_with_seed_spawns_all_components(self):
         """SeedManager should spawn a seed for every entry in the registry."""
-        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        for name in ENVIRONMENT_SEED_REGISTRY:
-            assert sm.get_seed(name) is not None
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        for name in ENVIRONMENT_SEEDS:
+            assert sm.get_seed_int(name) is not None
 
     def test_init_without_seed_all_none(self):
         """Without a root seed, all component seeds should be None."""
-        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        for name in ENVIRONMENT_SEED_REGISTRY:
-            assert sm.get_seed(name) is None
+        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEEDS)
+        for name in ENVIRONMENT_SEEDS:
+            assert sm.get_seed_int(name) is None
 
     def test_get_seed_int_returns_integer(self):
         """get_seed_int should return a plain int."""
-        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
         seed_int = sm.get_seed_int("inventory")
         assert isinstance(seed_int, int)
 
     def test_get_seed_int_none_when_no_root(self):
         """get_seed_int should return None when root_seed is None."""
-        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEEDS)
         assert sm.get_seed_int("inventory") is None
+
+    def test_get_rng_returns_generator(self):
+        """get_rng should return an np.random.Generator."""
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        rng = sm.get_rng("inventory")
+        assert isinstance(rng, np.random.Generator)
+
+    def test_get_rng_unseeded_returns_generator(self):
+        """get_rng with no root seed should return an unseeded Generator."""
+        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEEDS)
+        rng = sm.get_rng("inventory")
+        assert isinstance(rng, np.random.Generator)
+
+    def test_get_rng_deterministic(self):
+        """Two SeedManagers with the same root should produce identical RNG streams."""
+        sm_a = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        sm_b = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        vals_a = sm_a.get_rng("inventory").random(10)
+        vals_b = sm_b.get_rng("inventory").random(10)
+        np.testing.assert_array_equal(vals_a, vals_b)
 
     def test_unregistered_name_raises(self):
         """Requesting an unregistered seed name should raise ValueError."""
-        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        with pytest.raises(ValueError, match="not registered"):
-            sm.get_seed("nonexistent_component")
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        with pytest.raises(ValueError):
+            sm.get_seed_int("nonexistent_component")
 
     def test_advance_episode_changes_seeds(self):
         """advance_episode should produce different component seeds each call."""
-        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        seeds_ep0 = sm.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        seeds_ep0 = [sm.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
         sm.advance_episode()
-        seeds_ep1 = sm.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
+        seeds_ep1 = [sm.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
         assert seeds_ep0 != seeds_ep1
 
     def test_advance_episode_deterministic(self):
         """Two SeedManagers with the same root should produce the same seed sequence."""
-        sm_a = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        sm_b = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        sm_a = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
+        sm_b = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
 
         for _ in range(5):
             sm_a.advance_episode()
             sm_b.advance_episode()
-            seeds_a = sm_a.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
-            seeds_b = sm_b.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
+            seeds_a = [sm_a.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
+            seeds_b = [sm_b.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
             assert seeds_a == seeds_b
 
     def test_advance_episode_noop_without_seed(self):
         """advance_episode should be a no-op when root_seed is None."""
-        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        sm = SeedManager(root_seed=None, seed_registry=ENVIRONMENT_SEEDS)
         sm.advance_episode()
-        for name in ENVIRONMENT_SEED_REGISTRY:
-            assert sm.get_seed(name) is None
+        for name in ENVIRONMENT_SEEDS:
+            assert sm.get_seed_int(name) is None
 
     def test_update_root_seed_resets_counter(self):
         """update_root_seed should reset the episode counter so the seed
         sequence starts over with the new root."""
-        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEED_REGISTRY)
+        sm = SeedManager(root_seed=42, seed_registry=ENVIRONMENT_SEEDS)
         sm.advance_episode()
         sm.advance_episode()
 
-        # Reset to a different root
         sm.update_root_seed(99)
-        seeds_after_reset = sm.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
+        seeds_after_reset = [sm.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
 
-        # Compare with a fresh manager at root 99
-        sm_fresh = SeedManager(root_seed=99, seed_registry=ENVIRONMENT_SEED_REGISTRY)
-        seeds_fresh = sm_fresh.get_seeds_int_for_components(list(ENVIRONMENT_SEED_REGISTRY))
+        sm_fresh = SeedManager(root_seed=99, seed_registry=ENVIRONMENT_SEEDS)
+        seeds_fresh = [sm_fresh.get_seed_int(n) for n in ENVIRONMENT_SEEDS]
 
         assert seeds_after_reset == seeds_fresh
 
+    def test_experiment_seeds_train_eval_differ(self):
+        """Train and eval seeds from EXPERIMENT_SEEDS should be different."""
+        sm = SeedManager(root_seed=42, seed_registry=EXPERIMENT_SEEDS)
+        assert sm.get_seed_int('train') != sm.get_seed_int('eval')
+
+    def test_experiment_seeds_deterministic(self):
+        """Same root seed should always produce the same train/eval ints."""
+        sm_a = SeedManager(root_seed=42, seed_registry=EXPERIMENT_SEEDS)
+        sm_b = SeedManager(root_seed=42, seed_registry=EXPERIMENT_SEEDS)
+        assert sm_a.get_seed_int('train') == sm_b.get_seed_int('train')
+        assert sm_a.get_seed_int('eval') == sm_b.get_seed_int('eval')
+
 
 # ============================================================================
-# 3. Environment seeding integration tests
+# 2. Environment seeding integration tests
 # ============================================================================
 
 class TestEnvironmentSeeding:
@@ -181,14 +157,12 @@ class TestEnvironmentSeeding:
         env_a.reset()
         env_b.reset()
 
-        # Use the same random actions for both envs
         rng = np.random.default_rng(0)
 
         any_different = False
         for _ in range(5):
             actions_a = {agent: rng.uniform(-1, 1, size=env_a.n_skus).astype(np.float32)
                          for agent in env_a.agents}
-            # Same actions for both environments
             actions_b = {agent: actions_a[agent].copy() for agent in env_b.agents}
 
             obs_a, rew_a, _, _, _ = env_a.step(actions_a)
@@ -207,18 +181,15 @@ class TestEnvironmentSeeding:
         obs_1, _ = env.reset()
         obs_2, _ = env.reset()
 
-        # With no seed and Poisson demand, consecutive episodes should differ
-        # (probabilistically; this could very rarely fail)
         any_different = any(
             not np.array_equal(obs_1[agent]["local"], obs_2[agent]["local"])
             for agent in env.agents
         )
-        # Note: with zero initial inventory and no seed, observations might
-        # actually be the same (all zeros). This test is best-effort.
+        # Note: with zero initial inventory, observations may still be identical.
 
 
 # ============================================================================
-# 4. Algorithm-level seed flow (integration, uses trained_algorithm fixture)
+# 3. Algorithm-level seed flow (integration, uses trained_algorithm fixture)
 # ============================================================================
 
 class TestAlgorithmSeedFlow:

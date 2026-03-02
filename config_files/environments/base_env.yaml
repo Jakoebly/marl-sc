@@ -4,50 +4,54 @@ environment:
   n_regions: 3
   episode_length: 100
   max_order_quantity: 25
+  max_wh_capacities:
+    - 8.6   
+    - 9.5   
+    - 11.5  
   initial_inventory: 
-    type: "zero"
-    #params:
-    #  min: 1
-    #  max: 50
+    type: "uniform"
+    params:
+     min: 0
+     max: 1
   cost_structure:
     holding_cost: 0.08
     penalty_cost:
-      - 8.6   # Light item
-      - 9.5   # Medium-light item 
-      - 11.5  # Medium item
-      - 13.2  # Medium-heavy item
-      - 15.2  # Heavy item
+      - 8.6   
+      - 9.5   
+      - 11.5  
+      - 13.2  
+      - 15.2 
     shipment_cost:
       outbound_fixed:
-        - [25.0, 35.0, 32.0]  # Warehouse 0: Lower for close Region 0, higher for distant regions
-        - [42.0, 22.0, 28.0]  # Warehouse 1: Lower for close Region 1, higher for distant regions
-        - [38.0, 33.0, 18.0]  # Warehouse 2: Lower for close Region 2, higher for distant regions
+        - [25.0, 35.0, 32.0] 
+        - [42.0, 22.0, 28.0] 
+        - [38.0, 33.0, 18.0] 
       outbound_variable:
-        - [0.15, 0.32, 0.28]  # Warehouse 0: Lower for close Region 0, scales with distance
-        - [0.42, 0.18, 0.25]  # Warehouse 1: Lower for close Region 1, scales with distance
-        - [0.38, 0.29, 0.12]  # Warehouse 2: Lower for close Region 2, scales with distance
+        - [0.15, 0.32, 0.28] 
+        - [0.42, 0.18, 0.25] 
+        - [0.38, 0.29, 0.12] 
       inbound_fixed:
-        - [10.0, 11.0, 10.5]  # Supplier 0 (SKU 0 - Light item): Moderate costs, slight variation by warehouse
-        - [ 9.0, 10.0,  9.5]  # Supplier 1 (SKU 1 - Medium-light item): Slightly lower, Supplier 1 has better logistics
-        - [13.0, 12.0, 13.5]  # Supplier 2 (SKU 2 - Medium item): Higher costs, Supplier 2 is more expensive
-        - [15.0, 14.0, 15.5]  # Supplier 3 (SKU 3 - Medium-heavy item): Higher costs due to heavier items
-        - [17.0, 18.0, 16.5]  # Supplier 4 (SKU 4 - Heavy item): Highest costs, heavy items require special handling
+        - [10.0, 11.0, 10.5] 
+        - [ 9.0, 10.0,  9.5] 
+        - [13.0, 12.0, 13.5] 
+        - [15.0, 14.0, 15.5] 
+        - [17.0, 18.0, 16.5] 
       inbound_variable:
-        - [0.12, 0.15, 0.13]  # Supplier 0 (SKU 0 - Light item): Lower variable costs for light items
-        - [0.14, 0.16, 0.15]  # Supplier 1 (SKU 1 - Medium-light item): Slightly higher than Supplier 0
-        - [0.18, 0.20, 0.19]  # Supplier 2 (SKU 2 - Medium item): Higher variable costs for medium items
-        - [0.22, 0.24, 0.23]  # Supplier 3 (SKU 3 - Medium-heavy item): Higher variable costs for heavier items
-        - [0.28, 0.30, 0.26]  # Supplier 4 (SKU 4 - Heavy item): Highest variable costs for heavy items
+        - [0.12, 0.15, 0.13] 
+        - [0.14, 0.16, 0.15] 
+        - [0.18, 0.20, 0.19] 
+        - [0.22, 0.24, 0.23] 
+        - [0.28, 0.30, 0.26] 
     sku_weights: 
-      - 0.45 # Light item
-      - 0.71 # Medium-light item 
-      - 1.41 # Medium item
-      - 2.24 # Medium-heavy item
-      - 3.46 # Heavy item
+      - 0.45 
+      - 0.71 
+      - 1.41 
+      - 2.24 
+      - 3.46 
     distances: 
-      - [150, 320, 280]  # Warehouse 0: close to Region 0, medium to Regions 1 & 2
-      - [420, 180, 250]  # Warehouse 1: close to Region 1, medium to Regions 0 & 2
-      - [380, 290, 120]  # Warehouse 2: close to Region 2, medium to Regions 0 & 1
+      - [150, 320, 280] 
+      - [420, 180, 250] 
+      - [380, 290, 120] 
   components:
     demand_sampler:
       type: "poisson"
@@ -60,10 +64,11 @@ environment:
       params:
         max_splits: 2
     lead_time_sampler:
-      type: "uniform"
+      type: "custom"
       params:
-        min: 1
-        max: 5
+        values:
+          - [1, 2, 3, 4, 5]
+          - [1, 2, 3, 4, 5]
     lost_sales_handler:
       type: "closest"
       params:
@@ -80,7 +85,8 @@ environment:
           - 0.25
   data_source:
     type: "synthetic"
-    #path: "C:/Users/Jakob Ehrenhuber/Desktop/marl-sc/data_files/raw"
+    path: "C:/Users/Jakob Ehrenhuber/Desktop/marl-sc/data_files/raw"
+    models_path: "C:/Users/Jakob Ehrenhuber/Desktop/marl-sc/src/data/notebooks/outputs/generated_models"
     #data_split:
     #  type: "ratio"  
     #  train_ratio: 0.8  

@@ -61,17 +61,14 @@ class BaseDemandSampler(StochasticComponent):
         """
         pass
     
-    def reset(self, seed: Optional[int] = None):
+    def reset(self, rng: Optional[np.random.Generator] = None):
         """
-        Resets the demand sampler's random state with a given seed. If no seed is provided,
-        the component is reset without an explicit seed.
+        Resets the demand sampler's random state.
 
         Args:
-            seed (Optional[int]): Random seed for reproducibility. Defaults to None.
+            rng (Optional[np.random.Generator]): Generator from SeedManager. Defaults to None.
         """
-
-        # Reset RNG
-        self._rng = np.random.default_rng(seed)
+        self._rng = rng if rng is not None else np.random.default_rng()
 
 
 class PoissonDemandSampler(BaseDemandSampler):
@@ -247,18 +244,13 @@ class EmpiricalDemandSampler(BaseDemandSampler):
         
         return orders
     
-    def reset(self, seed: Optional[int] = None):
+    def reset(self, rng: Optional[np.random.Generator] = None):
         """
-        Resets the demand sampler's random state with a given seed. If no seed is provided,
-        the component is reset without an explicit seed.
+        Resets the demand sampler's random state and start timestep.
 
         Args:
-            seed (Optional[int]): Random seed for reproducibility. Defaults to None.
+            rng (Optional[np.random.Generator]): Generator from SeedManager. Defaults to None.
         """
-        
-        # Reset RNG
-        super().reset(seed)
-
-        # Reset start timestep
+        super().reset(rng)
         self._start_timestep = None
 

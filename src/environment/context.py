@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Optional, Union, Tuple, TYPE_CHECKING
 
 import numpy as np
-from numpy.random import SeedSequence
 
 from src.config.schema import EnvironmentConfig, CostStructureConfig
 
@@ -19,13 +18,13 @@ class ShipmentCosts:
     Attributes:
         outbound_fixed (np.ndarray): Fixed cost per outbound shipment order. Shape: (n_warehouses, n_regions).
         outbound_variable (np.ndarray): Variable cost per unit weight for outbound. Shape: (n_warehouses, n_regions).
-        inbound_fixed (np.ndarray): Fixed cost per inbound shipment order. Shape: (n_suppliers, n_warehouses).
-        inbound_variable (np.ndarray): Variable cost per unit weight for inbound. Shape: (n_suppliers, n_warehouses).
+        inbound_fixed (np.ndarray): Fixed cost per inbound shipment order. Shape: (n_warehouses, n_skus).
+        inbound_variable (np.ndarray): Variable cost per unit weight for inbound. Shape: (n_warehouses, n_skus).
     """
     outbound_fixed: np.ndarray  # Shape: (n_warehouses, n_regions)
     outbound_variable: np.ndarray  # Shape: (n_warehouses, n_regions)
-    inbound_fixed: np.ndarray  # Shape: (n_suppliers, n_warehouses)
-    inbound_variable: np.ndarray  # Shape: (n_suppliers, n_warehouses)
+    inbound_fixed: np.ndarray  # Shape: (n_warehouses, n_skus)
+    inbound_variable: np.ndarray  # Shape: (n_warehouses, n_skus)
 
 
 @dataclass
@@ -182,9 +181,8 @@ def create_environment_context(
         distances = np.array(env_config.cost_structure.distances, dtype=float) # Shape: (n_warehouses, n_regions)
         outbound_fixed = np.array(env_config.cost_structure.shipment_cost.outbound_fixed, dtype=float) # Shape: (n_warehouses, n_regions)
         outbound_variable = np.array(env_config.cost_structure.shipment_cost.outbound_variable, dtype=float) # Shape: (n_warehouses, n_regions)
-        inbound_fixed = np.array(env_config.cost_structure.shipment_cost.inbound_fixed, dtype=float) # Shape: (n_suppliers, n_warehouses)
-        inbound_variable = np.array(env_config.cost_structure.shipment_cost.inbound_variable, dtype=float) # Shape: (n_suppliers, n_warehouses)
-        # For synthetic data, assume no inbound costs (zero matrices)
+        inbound_fixed = np.array(env_config.cost_structure.shipment_cost.inbound_fixed, dtype=float) # Shape: (n_warehouses, n_skus)
+        inbound_variable = np.array(env_config.cost_structure.shipment_cost.inbound_variable, dtype=float) # Shape: (n_warehouses, n_skus)
         shipment_cost = ShipmentCosts(
             outbound_fixed=outbound_fixed,
             outbound_variable=outbound_variable,

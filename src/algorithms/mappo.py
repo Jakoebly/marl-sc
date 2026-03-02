@@ -7,7 +7,7 @@ from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 
 from src.algorithms.base import BaseAlgorithmWrapper
 from src.algorithms.models.rlmodules.base import ActorCriticRLModule
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 
 
 class MAPPOWrapper(BaseAlgorithmWrapper):

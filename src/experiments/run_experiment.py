@@ -25,6 +25,7 @@ from src.experiments.utils.ray_tune import (
     merge_tune_params,
     print_and_save_best_results,
 )
+from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
 
 # ============================================================================
@@ -146,8 +147,7 @@ def run_single_experiment(
         output_dir (str): Output directory for results
         wandb_project (Optional[str]): WandB project name
         wandb_name (Optional[str]): WandB run name
-        root_seed (Optional[int]): Root seed for reproducibility. Split into independent
-            train_seed and eval_seed by ExperimentRunner.
+        root_seed (Optional[int]): Root seed for reproducibility.
         resume_from (Optional[str]): Path to checkpoint to resume from
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
     """
@@ -160,9 +160,12 @@ def run_single_experiment(
             mode="single"
         )
 
-    # Load configs
-    env_config = load_environment_config(env_config_path)
-    algorithm_config = load_algorithm_config(algorithm_config_path)  
+    # Create the single top-level SeedManager
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+
+    # Load configs (seed_manager flows into DataGenerator for synthetic data)
+    env_config = load_environment_config(env_config_path, seed_manager=seed_manager)
+    algorithm_config = load_algorithm_config(algorithm_config_path)
 
     # Setup WandB to log metrics to WandB
     wandb_config, _ = setup_wandb(
@@ -181,15 +184,15 @@ def run_single_experiment(
     runner = ExperimentRunner(
         env_config=env_config,
         algorithm_config=algorithm_config,
-        root_seed=root_seed,
+        seed_manager=seed_manager,
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
     )
-    
+
     # Resume from checkpoint if specified
     if resume_from:
         runner.algorithm.load_checkpoint(resume_from)
-    
+
     # Run the experiment and return the result
     result = runner.run()
 
@@ -236,8 +239,11 @@ def run_evaluation(
         algorithm_config_path = str(experiment_dir / "algorithm_config.yaml")
         print(f"[INFO] Loading saved algorithm config from: {algorithm_config_path}")
 
+    # Create the single top-level SeedManager
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+
     # Load configs
-    env_config = load_environment_config(env_config_path)
+    env_config = load_environment_config(env_config_path, seed_manager=seed_manager)
     algorithm_config = load_algorithm_config(algorithm_config_path)
 
     # Setup WandB to log metrics
@@ -254,13 +260,13 @@ def run_evaluation(
         algorithm_config=algorithm_config,
         checkpoint_dir=checkpoint_dir,
         eval_episodes=eval_episodes,
-        root_seed=root_seed,
+        seed_manager=seed_manager,
         visualize=visualize,
         output_dir=output_dir,
         wandb_config=wandb_config,
     )
 
-    # Run evaluation 
+    # Run evaluation
     result = runner.run()
 
     return result
@@ -313,11 +319,15 @@ def run_tune_experiment(
             scheduler_type=scheduler_type,
         )
     
+    # Create the single top-level SeedManager for the tune experiment
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+
     # Prepare configuration (i.e., merge environment, algorithm and tune configs)
     config = prepare_tune_config(
         env_config_path=env_config_path,
         algorithm_config_path=algorithm_config_path,
         tune_config_path=tune_config_path,
+        seed_manager=seed_manager,
     )
 
     # Setup WandB callback to log metrics to WandB
@@ -395,20 +405,21 @@ def trainable(config: Dict[str, Any]):
         config (Dict[str, Any]): Configuration dictionary from Ray Tune
     """
 
-    # Extract root_seed from config
+    # Create the single top-level SeedManager for this trial
     root_seed = config.get("root_seed")
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
 
-    # Get env config from config dict
+    # Get env config from config dict (already validated & serialised by tune prep)
     env_config = validate_config(config["env_config"], EnvironmentConfig)
-    
+
     # Get algorithm config from config dict and merge tune parameters into it
     algorithm_config_dict = config["algorithm_config"].copy()
     algorithm_config_dict = merge_tune_params(algorithm_config_dict, config)
     algorithm_config = validate_config(algorithm_config_dict, AlgorithmConfig)
-    
+
     # Get WandB config (if provided)
     wandb_config = config.get("wandb_config")
-    
+
     # Get trial directory for checkpoints
     checkpoint_dir = None
     try:
@@ -423,7 +434,7 @@ def trainable(config: Dict[str, Any]):
     runner = ExperimentRunner(
         env_config=env_config,
         algorithm_config=algorithm_config,
-        root_seed=root_seed,
+        seed_manager=seed_manager,
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
     )
@@ -629,27 +640,19 @@ def main():
             experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
             checkpoint_dir = str(experiment_dir / "checkpoint_final") # Default checkpoint directory
             output_dir = str(experiment_dir) # Default output directory
-            print(f"[INFO] Base directory: {base_dir}")
-            print(f"[INFO] Experiment directory: {experiment_dir}")
-            print(f"[INFO] Checkpoint directory: {checkpoint_dir}")
-            print(f"[INFO] Output directory: {output_dir}")
-            # Load configs
-            env_config_path = args.env_config  # May be None
-            algorithm_config_path = args.algorithm_config  # May be None  
-            print(f"[INFO] Environment config path: {env_config_path}")
-            print(f"[INFO] Algorithm config path: {algorithm_config_path}")
         # Option 2: Explicit path 
         elif args.checkpoint_dir:
             # Use explicit path from --checkpoint-dir for the checkpoint directory
             checkpoint_dir = args.checkpoint_dir
             output_dir = str(Path(args.checkpoint_dir).parent)
-            # Load configs
-            env_config_path = args.env_config  # May be None
-            algorithm_config_path = args.algorithm_config  # May be None
         else:
             raise ValueError(
                 "Either --experiment-name or --checkpoint-dir is required for evaluate mode"
             )
+
+        # Load configs
+        env_config_path = args.env_config  # May be None
+        algorithm_config_path = args.algorithm_config  # May be None  
 
         # Run evaluation
         run_evaluation(

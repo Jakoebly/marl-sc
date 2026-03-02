@@ -242,8 +242,26 @@ class LeadTimeSamplerUniform(BaseModel):
             raise ValueError("uniform params must satisfy min <= max")
         return self
 
+# Custom sampler
+class LeadTimeSamplerCustom(BaseModel):
+    """Configuration for fixed lead time sampler."""
+
+    type: Literal["custom"]
+    params: Dict[Literal["values"], List[List[PositiveInt]]]
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("params", mode="after")
+    @classmethod
+    def _check_custom_value_is_rectangular(cls, v: Dict[str, Any]):
+        value = v["values"]
+        if not value or any(not row for row in value):
+            raise ValueError("custom params.values must be a non-empty 2D list")
+        if len({len(row) for row in value}) != 1:
+            raise ValueError("custom params.values must be rectangular (all rows same length)")
+        return v
+
 # Union of lead time sampler configurations
-LeadTimeSamplerConfig = Union[LeadTimeSamplerUniform]
+LeadTimeSamplerConfig = Union[LeadTimeSamplerUniform, LeadTimeSamplerCustom]
 
 
 #  ---------- Lost sales handler ---------
@@ -386,8 +404,23 @@ class DataSourceSynthetic(BaseModel):
     """Configuration for synthetic data source."""
 
     type: Literal["synthetic"]
-    path: Optional[str] = None
+    path: Path
+    models_path: Path
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("path")
+    @classmethod
+    def _check_path_exists(cls, p: Path):
+        if not p.exists():
+            raise ValueError(f"synthetic data path does not exist: {p}")
+        return p
+
+    @field_validator("models_path")
+    @classmethod
+    def _check_models_path_exists(cls, p: Path):
+        if not p.exists():
+            raise ValueError(f"synthetic models_path does not exist: {p}")
+        return p
 
 # Real-world data source
 class DataSourceRealWorld(BaseModel):
@@ -421,6 +454,7 @@ class EnvironmentConfig(BaseModel):
     n_regions: PositiveInt
     episode_length: PositiveInt
     max_order_quantity: PositiveInt
+    max_wh_capacities: List[PositiveFloat]
 
     initial_inventory: InitialInventoryConfig = Field(..., discriminator="type")
     cost_structure: CostStructureConfig
@@ -437,6 +471,13 @@ class EnvironmentConfig(BaseModel):
         # n_regions >= n_warehouses
         if nr < nw:
             raise ValueError(f"n_regions ({nr}) must be >= n_warehouses ({nw})")
+
+        # max_wh_capacities: (n_warehouses,)
+        if len(self.max_wh_capacities) != nw:
+            raise ValueError(
+                f"max_wh_capacities must have length n_warehouses={nw}, "
+                f"got {len(self.max_wh_capacities)}"
+            )
 
         # Initial_inventory: custom list shape (n_warehouses, n_skus)
         if isinstance(self.initial_inventory, InitialInventoryCustom):
@@ -481,20 +522,35 @@ class EnvironmentConfig(BaseModel):
             if any(len(row) != nr for row in sc_outbound_variable):
                 raise ValueError(f"shipment_cost.outbound_variable must have {nr} columns (n_regions) in every row")
         
-        # Inbound shipment costs: (n_suppliers, n_warehouses) where n_suppliers = n_skus
+        # Inbound shipment costs: (n_warehouses, n_skus)
         sc_inbound_fixed = self.cost_structure.shipment_cost.inbound_fixed
         if sc_inbound_fixed is not None:
-            if len(sc_inbound_fixed) != ns:
-                raise ValueError(f"shipment_cost.inbound_fixed must have {ns} rows (n_suppliers=n_skus), got {len(sc_inbound_fixed)}")
-            if any(len(row) != nw for row in sc_inbound_fixed):
-                raise ValueError(f"shipment_cost.inbound_fixed must have {nw} columns (n_warehouses) in every row")
+            if len(sc_inbound_fixed) != nw:
+                raise ValueError(f"shipment_cost.inbound_fixed must have {nw} rows (n_warehouses), got {len(sc_inbound_fixed)}")
+            if any(len(row) != ns for row in sc_inbound_fixed):
+                raise ValueError(f"shipment_cost.inbound_fixed must have {ns} columns (n_skus) in every row")
         
         sc_inbound_variable = self.cost_structure.shipment_cost.inbound_variable
         if sc_inbound_variable is not None:
-            if len(sc_inbound_variable) != ns:
-                raise ValueError(f"shipment_cost.inbound_variable must have {ns} rows (n_suppliers=n_skus), got {len(sc_inbound_variable)}")
-            if any(len(row) != nw for row in sc_inbound_variable):
-                raise ValueError(f"shipment_cost.inbound_variable must have {nw} columns (n_warehouses) in every row")
+            if len(sc_inbound_variable) != nw:
+                raise ValueError(f"shipment_cost.inbound_variable must have {nw} rows (n_warehouses), got {len(sc_inbound_variable)}")
+            if any(len(row) != ns for row in sc_inbound_variable):
+                raise ValueError(f"shipment_cost.inbound_variable must have {ns} columns (n_skus) in every row")
+
+        # Lead_time_sampler: custom params.values shape (n_warehouses, n_skus)
+        if isinstance(self.components.lead_time_sampler, LeadTimeSamplerCustom):
+            value = self.components.lead_time_sampler.params["values"]
+            if len(value) != nw:
+                raise ValueError(
+                    f"lead_time_sampler.custom params.values must have {nw} rows (n_warehouses), "
+                    f"got {len(value)}"
+                )
+            for i, row in enumerate(value):
+                if len(row) != ns:
+                    raise ValueError(
+                        f"lead_time_sampler.custom params.values[{i}] must have length n_skus={ns}, "
+                        f"got {len(row)}"
+                    )
 
         # SKU_weights: optional (n_skus,) for synthetic mode
         sw = self.cost_structure.sku_weights
@@ -512,6 +568,7 @@ class EnvironmentConfig(BaseModel):
                 raise ValueError(f"distances must have {nw} rows (n_warehouses), got {len(dist)}")
             if any(len(row) != nr for row in dist):
                 raise ValueError(f"distances must have {nr} columns (n_regions) in every row")
+
 
         return self
 

@@ -145,9 +145,9 @@ class CostRewardCalculator(BaseRewardCalculator):
 
         # Compute inbound shipment costs for each warehouse
         order_counts = (ordered_skus > 0).astype(int) # Shape: (n_warehouses, n_skus)
-        inbound_fixed_costs_total = (order_counts * self.inbound_fixed_cost_per_order.T).sum(axis=1) # Shape: (n_warehouses,)
-        inbound_shipment_weights = (ordered_skus * self.sku_weights[np.newaxis, :])	 # Shape: (n_warehouses, n_skus)
-        inbound_variable_costs_total = (inbound_shipment_weights * self.inbound_variable_cost_per_weight.T).sum(axis=1) # Shape: (n_warehouses,)
+        inbound_fixed_costs_total = (order_counts * self.inbound_fixed_cost_per_order).sum(axis=1) # Shape: (n_warehouses,)
+        inbound_shipment_weights = (ordered_skus * self.sku_weights[np.newaxis, :]) # Shape: (n_warehouses, n_skus)
+        inbound_variable_costs_total = (inbound_shipment_weights * self.inbound_variable_cost_per_weight).sum(axis=1) # Shape: (n_warehouses,)
         
         # Total shipment costs
         outbound_shipment_costs_total = outbound_fixed_costs_total + outbound_variable_costs_total # Shape: (n_warehouses,)

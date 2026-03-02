@@ -2,11 +2,13 @@
 
 import yaml
 from pathlib import Path
-from typing import Type, Dict, Any, Union, Annotated, get_origin
+from typing import Type, Dict, Any, Union, Annotated, get_origin, Optional, TYPE_CHECKING
 from pydantic import BaseModel, ValidationError, TypeAdapter
 
 from .schema import EnvironmentConfig, IPPOConfig, MAPPOConfig, AlgorithmConfig, TuneConfig
 
+if TYPE_CHECKING:
+    from src.utils.seed_manager import SeedManager
 
 class ConfigError(Exception):
     """Base exception for configuration errors."""
@@ -84,17 +86,19 @@ def validate_config(config_dict: Dict[str, Any], schema: Union[Type[BaseModel], 
         )
 
 
-def load_environment_config(path: str) -> EnvironmentConfig:
+def load_environment_config(path: str, seed_manager: Optional['SeedManager'] = None) -> EnvironmentConfig:
     """
     Loads and validates environment configuration from a YAML file.
-    
-    When data_source.type is "synthetic", cost structures (penalty_cost, sku_weights,
-    distances, shipment costs) are automatically generated to match the environment
-    dimensions (n_warehouses, n_skus, n_regions) before validation.
-    
+
+    When data_source.type is "synthetic", weights, distances, and cost structures
+    are automatically generated via ``DataGenerator`` (seeded through
+    ``seed_manager``) to match the environment dimensions before validation.
+
     Args:
-        path (str): Path to environment config YAML file
-        
+        path (str): Path to environment config YAML file.
+        seed_manager (Optional[SeedManager]): Optional experiment-level ``SeedManager``.  Passed through
+            to ``DataGenerator`` for reproducible synthetic data generation.
+
     Returns:
         validated_config (EnvironmentConfig): Validated EnvironmentConfig instance.
     """
@@ -106,8 +110,9 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     if 'environment' in config_dict:
         config_dict = config_dict['environment']
     
-    # Auto-generate costs for synthetic data mode
-    config_dict = _apply_synthetic_costs(config_dict)
+    # Auto-generate synthetic data if data_source.type is "synthetic"
+    if config_dict.get("data_source", {}).get("type") == "synthetic":
+        config_dict = _apply_synthetic_data(config_dict, seed_manager=seed_manager)
 
     # Validate the configuration dictionary against the EnvironmentConfig schema
     validated_config = validate_config(config_dict, EnvironmentConfig)
@@ -115,44 +120,57 @@ def load_environment_config(path: str) -> EnvironmentConfig:
     return validated_config
 
 
-def _apply_synthetic_costs(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_synthetic_data(config_dict: Dict[str, Any], seed_manager: Optional['SeedManager'] = None) -> Dict[str, Any]:
     """
-    Generates cost structures matching the environment dimensions and 
-    injects them into the config dictionary if data_source.type is "synthetic".
-    
+    Generates weights, distances, and costs matching the environment dimensions
+    and injects them into the config dictionary.
+
     Args:
         config_dict (Dict[str, Any]): Raw environment config dictionary.
-        
-    Returns:
-        config_dict (Dict[str, Any]): Config dictionary with generated costs applied.
-    """
-    from src.utils.cost_generator import generate_synthetic_costs
+        seed_manager (Optional['SeedManager']): Optional experiment-level ``SeedManager``.
 
-    # Check if data source is synthetic
+    Returns:
+        config_dict (Dict[str, Any]): Config dictionary with generated data applied.
+    """
+    from src.data.data_generator import DataGenerator
+
+    # Get data source configuration
     data_source = config_dict.get("data_source", {})
-    if not isinstance(data_source, dict) or data_source.get("type") != "synthetic":
-        return config_dict
+
+    # Get raw data path and models path
+    raw_data_path = Path(data_source["path"])
+    models_path = Path(data_source["models_path"])
 
     # Get environment dimensions
     n_warehouses = config_dict.get("n_warehouses", 3)
     n_skus = config_dict.get("n_skus", 5)
     n_regions = config_dict.get("n_regions", n_warehouses)
 
-    # Generate costs matching dimensions
-    costs = generate_synthetic_costs(n_warehouses, n_skus, n_regions)
+    # Create DataGenerator instance and generate synthetic data
+    gen = DataGenerator(
+        raw_data_path=str(raw_data_path),
+        models_path=str(models_path),
+        seed_manager=seed_manager,
+    )
+    data = gen.generate(n_warehouses, n_skus, n_regions)
 
     # Ensure cost_structure and shipment_cost dicts exist
     config_dict.setdefault("cost_structure", {})
     config_dict["cost_structure"].setdefault("shipment_cost", {})
 
-    # Apply generated costs
-    config_dict["cost_structure"]["penalty_cost"] = costs["penalty_cost"]
-    config_dict["cost_structure"]["sku_weights"] = costs["sku_weights"]
-    config_dict["cost_structure"]["distances"] = costs["distances"]
-    config_dict["cost_structure"]["shipment_cost"]["outbound_fixed"] = costs["outbound_fixed"]
-    config_dict["cost_structure"]["shipment_cost"]["outbound_variable"] = costs["outbound_variable"]
-    config_dict["cost_structure"]["shipment_cost"]["inbound_fixed"] = costs["inbound_fixed"]
-    config_dict["cost_structure"]["shipment_cost"]["inbound_variable"] = costs["inbound_variable"]
+    # Update relevant fields in the config dictionary
+    config_dict["max_wh_capacities"] = data["max_wh_capacities"]
+    config_dict["cost_structure"]["penalty_cost"] = data["penalty_cost"]
+    config_dict["cost_structure"]["sku_weights"] = data["sku_weights"]
+    config_dict["cost_structure"]["distances"] = data["distances"]
+    config_dict["cost_structure"]["shipment_cost"]["outbound_fixed"] = data["outbound_fixed"]
+    config_dict["cost_structure"]["shipment_cost"]["outbound_variable"] = data["outbound_variable"]
+    config_dict["cost_structure"]["shipment_cost"]["inbound_fixed"] = data["inbound_fixed"]
+    config_dict["cost_structure"]["shipment_cost"]["inbound_variable"] = data["inbound_variable"]
+    config_dict["components"]["lead_time_sampler"] = {
+        "type": "custom",
+        "params": {"values": data["lead_times"]},
+    }
 
     return config_dict
 

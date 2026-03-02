@@ -6,7 +6,7 @@ from gymnasium.spaces import Box
 
 from src.config.loader import load_environment_config, load_algorithm_config
 from src.config.schema import IPPOConfig, MAPPOConfig
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 from src.algorithms.base import BaseAlgorithmWrapper
 
