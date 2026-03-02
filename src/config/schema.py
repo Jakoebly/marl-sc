@@ -439,8 +439,15 @@ class DataSourceRealWorld(BaseModel):
             raise ValueError(f"real_world path does not exist: {p}")
         return p
 
+# Custom data source
+class DataSourceCustom(BaseModel):
+    """Configuration for custom data source."""
+
+    type: Literal["custom"]
+    model_config = ConfigDict(extra="forbid")
+
 # Union of data source configurations
-DataSourceConfig = Union[DataSourceSynthetic, DataSourceRealWorld]
+DataSourceConfig = Union[DataSourceSynthetic, DataSourceRealWorld, DataSourceCustom]
 
 # ============================================================================
 # Top-level Environment Config Schemas
@@ -596,41 +603,35 @@ class EnvironmentConfig(BaseModel):
                 )
         
         # Shipment costs validation
-        if self.data_source.type == "synthetic":
+        if self.data_source.type == "custom":
             if self.cost_structure.shipment_cost.outbound_fixed is None:
                 raise ValueError(
-                    "shipment_cost.fixed_per_order must be specified when using synthetic data source. "
-                    "For real_world data source, fixed_per_order is extracted from the data."
+                    "shipment_cost.fixed_per_order must be specified when using custom data source. "
                 )
             if self.cost_structure.shipment_cost.outbound_variable is None:
                 raise ValueError(
-                    "shipment_cost.variable_per_weight must be specified when using synthetic data source. "
-                    "For real_world data source, variable_per_weight is extracted from the data."
+                    "shipment_cost.variable_per_weight must be specified when using custom data source. "
                 )
             if self.cost_structure.shipment_cost.inbound_fixed is None:
                 raise ValueError(
-                    "shipment_cost.inbound_fixed must be specified when using synthetic data source. "
-                    "For real_world data source, inbound_fixed is extracted from the data."
+                    "shipment_cost.inbound_fixed must be specified when using custom data source. "
                 )
             if self.cost_structure.shipment_cost.inbound_variable is None:
                 raise ValueError(
-                    "shipment_cost.inbound_variable must be specified when using synthetic data source. "
-                    "For real_world data source, inbound_variable is extracted from the data."
+                    "shipment_cost.inbound_variable must be specified when using custom data source. "
                 )
         
         # SKU weights validation
-        if self.data_source.type == "synthetic":
+        if self.data_source.type == "custom":
             if self.cost_structure.sku_weights is None:
                 raise ValueError(
-                    "sku_weights must be specified when using synthetic data source. "
-                    "For real_world data source, sku_weights are extracted from the data."
+                    "sku_weights must be specified when using custom data source. "
                 )
         # Distances validation
-        if self.data_source.type == "synthetic":
+        if self.data_source.type == "custom":
             if self.cost_structure.distances is None:
                 raise ValueError(
-                    "distances must be specified when using synthetic data source. "
-                    "For real_world data source, distances are extracted from the data."
+                    "distances must be specified when using custom data source. "
                 )
         
         return self
