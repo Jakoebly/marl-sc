@@ -174,7 +174,7 @@ def create_environment_context(
     if env_config.data_source.type == "real_world":
         shipment_cost, preprocessed_data, sku_weights, distances = preprocess_real_world_data(env_config, seed=preprocessing_seed)
     
-    # Handle synthetic data
+    # Handle synthetic and custom data (both read values directly from config)
     else:
         preprocessed_data = None
         sku_weights = np.array(env_config.cost_structure.sku_weights, dtype=float) # Shape: (n_skus,)
