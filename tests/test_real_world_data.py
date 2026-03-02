@@ -12,7 +12,7 @@ This script tests:
 import numpy as np
 from pathlib import Path
 from src.config.loader import load_environment_config
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.data.preprocessor import DataPreprocessor, RawDataLoader
 from src.environment.components.demand_sampler import EmpiricalDemandSampler
 

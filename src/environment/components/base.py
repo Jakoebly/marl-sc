@@ -1,28 +1,23 @@
-"""Base classes for environment components."""
-
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Optional
 
-STOCHASTIC_COMPONENT_REGISTRY: Tuple[str, ...] = (
-    'demand_sampler',
-    'lead_time_sampler'
-)
+import numpy as np
+
 
 class StochasticComponent(ABC):
     """
     Implements a base class for components that use randomness. All stochastic 
     components should inherit from this class and implement a reset() method to 
-    manage their random number generators.
+    to accept a ``np.random.Generator`` provided by the ``SeedManager``.
     """
-    
+
     @abstractmethod
-    def reset(self, seed: Optional[int] = None):
+    def reset(self, rng: Optional[np.random.Generator] = None):
         """
-        Abstract method to reset the stochastic component's random state with a given seed.
+        Resets the component's random state.
 
         Args:
-            seed (Optional[int]): Random seed for reproducibility. If None, component 
-                is reset without an explicit seed. Defaults to None.
+            rng (Optional[np.random.Generator]): Generator provided by the SeedManager. If ``None``,
+                the component creates an unseeded generator.
         """
         pass
-

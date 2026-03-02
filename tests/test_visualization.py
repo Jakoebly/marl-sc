@@ -6,7 +6,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.experiments.visualization import (
     generate_visualizations,
     plot_inventory,

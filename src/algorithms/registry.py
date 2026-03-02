@@ -2,7 +2,7 @@ from typing import Dict, Type, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.algorithms.base import BaseAlgorithmWrapper
-    from src.environment.environment import InventoryEnvironment
+    from src.environment.envs.multi_env import InventoryEnvironment
     from src.config.schema import AlgorithmConfig
 
 
@@ -47,6 +47,7 @@ def get_algorithm(
     
     # Get the algorithm class from the registry and instantiate it
     algorithm_class = ALGORITHM_REGISTRY[name]
+    
     return algorithm_class(env, config, train_seed=train_seed, eval_seed=eval_seed)
 
 

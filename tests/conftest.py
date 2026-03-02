@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 
 from src.config.loader import load_environment_config, load_algorithm_config
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 
 
@@ -73,8 +73,10 @@ def trained_algorithm():
     algo_config.shared.num_eval_episodes = 2
 
     root_seed = 42
-    from src.utils.seed_manager import split_seed
-    train_seed, eval_seed = split_seed(root_seed, num_children=2)
+    from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    train_seed = seed_manager.get_seed_int('train')
+    eval_seed = seed_manager.get_seed_int('eval')
 
     template_env = InventoryEnvironment(env_config)
     algorithm = get_algorithm(

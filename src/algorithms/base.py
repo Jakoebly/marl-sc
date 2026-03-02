@@ -7,7 +7,7 @@ import torch
 import yaml
 
 if TYPE_CHECKING:
-    from src.environment.environment import InventoryEnvironment
+    from src.environment.envs.multi_env import InventoryEnvironment
     from src.config.schema import AlgorithmConfig, EnvironmentConfig
     from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 
@@ -279,7 +279,7 @@ class BaseAlgorithmWrapper(ABC):
         Returns:
             env_factory (Callable): Factory function that RLlib calls to create environment instances.
         """
-        from src.environment.environment import InventoryEnvironment
+        from src.environment.envs.multi_env import InventoryEnvironment
         from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
         from typing import Dict, Any
         

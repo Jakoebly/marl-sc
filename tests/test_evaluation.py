@@ -6,10 +6,10 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from src.environment.environment import InventoryEnvironment
+from src.environment.envs.multi_env import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 from src.experiments.runner import EvaluationRunner
-from src.utils.seed_manager import split_seed
+from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
 
 # ============================================================================
@@ -106,6 +106,7 @@ class TestEvaluationRunner:
     def test_runner_without_visualize(self, trained_algorithm):
         """EvaluationRunner with visualize=False should return standard RLlib metrics."""
         ctx = trained_algorithm
+        sm = SeedManager(root_seed=ctx["root_seed"], seed_registry=EXPERIMENT_SEEDS)
         tmp_dir = tempfile.mkdtemp(prefix="eval_test_")
         try:
             runner = EvaluationRunner(
@@ -114,7 +115,7 @@ class TestEvaluationRunner:
                 checkpoint_dir=ctx["checkpoint_path"],
                 output_dir=tmp_dir,
                 eval_episodes=1,
-                root_seed=ctx["root_seed"],
+                seed_manager=sm,
                 visualize=False,
             )
             result = runner.run()
@@ -126,6 +127,7 @@ class TestEvaluationRunner:
     def test_runner_with_visualize(self, trained_algorithm):
         """EvaluationRunner with visualize=True should create visualization files."""
         ctx = trained_algorithm
+        sm = SeedManager(root_seed=ctx["root_seed"], seed_registry=EXPERIMENT_SEEDS)
         tmp_dir = tempfile.mkdtemp(prefix="eval_viz_test_")
         try:
             runner = EvaluationRunner(
@@ -134,7 +136,7 @@ class TestEvaluationRunner:
                 checkpoint_dir=ctx["checkpoint_path"],
                 output_dir=tmp_dir,
                 eval_episodes=2,
-                root_seed=ctx["root_seed"],
+                seed_manager=sm,
                 visualize=True,
             )
             result = runner.run()
@@ -163,9 +165,10 @@ class TestEvaluationRunner:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    def test_runner_eval_seed_matches_split(self, trained_algorithm):
-        """EvaluationRunner.eval_seed should match split_seed(root_seed)[1]."""
+    def test_runner_eval_seed_matches_seed_manager(self, trained_algorithm):
+        """EvaluationRunner.eval_seed should match SeedManager.get_seed_int('eval')."""
         ctx = trained_algorithm
+        sm = SeedManager(root_seed=ctx["root_seed"], seed_registry=EXPERIMENT_SEEDS)
         tmp_dir = tempfile.mkdtemp(prefix="eval_seed_test_")
         try:
             runner = EvaluationRunner(
@@ -173,16 +176,16 @@ class TestEvaluationRunner:
                 algorithm_config=ctx["algo_config"],
                 checkpoint_dir=ctx["checkpoint_path"],
                 output_dir=tmp_dir,
-                root_seed=ctx["root_seed"],
+                seed_manager=sm,
             )
-            _, expected_eval_seed = split_seed(ctx["root_seed"], num_children=2)
+            expected_eval_seed = sm.get_seed_int('eval')
             assert runner.eval_seed == expected_eval_seed
             runner.algorithm.trainer.stop()
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def test_runner_none_seed(self, trained_algorithm):
-        """EvaluationRunner with root_seed=None should have eval_seed=None."""
+        """EvaluationRunner with seed_manager=None should have eval_seed=None."""
         ctx = trained_algorithm
         tmp_dir = tempfile.mkdtemp(prefix="eval_none_test_")
         try:
@@ -191,7 +194,7 @@ class TestEvaluationRunner:
                 algorithm_config=ctx["algo_config"],
                 checkpoint_dir=ctx["checkpoint_path"],
                 output_dir=tmp_dir,
-                root_seed=None,
+                seed_manager=None,
             )
             assert runner.eval_seed is None
             runner.algorithm.trainer.stop()

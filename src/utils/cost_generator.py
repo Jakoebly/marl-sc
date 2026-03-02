@@ -155,3 +155,12 @@ def generate_synthetic_costs(n_warehouses: int, n_skus: int, n_regions: int) -> 
         "inbound_fixed": inbound_fixed.round(3).tolist(),
         "inbound_variable": inbound_var.round(5).tolist(),
     }
+
+
+
+
+
+
+
+
+

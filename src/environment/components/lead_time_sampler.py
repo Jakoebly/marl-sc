@@ -41,17 +41,14 @@ class BaseLeadTimeSampler(StochasticComponent):
         """
         pass
     
-    def reset(self, seed: Optional[int] = None):
+    def reset(self, rng: Optional[np.random.Generator] = None):
         """
-        Resets the lead time sampler's random state with a given seed. If no seed is provided,
-        the component is reset without an explicit seed.
+        Resets the lead time sampler's random state.
 
         Args:
-            seed (Optional[int]): Random seed for reproducibility. Defaults to None.
+            rng (Optional[np.random.Generator]): Generator from SeedManager. Defaults to None.
         """
-
-        # Reset RNG
-        self._rng = np.random.default_rng(seed)
+        self._rng = rng if rng is not None else np.random.default_rng()
 
 
 class UniformLeadTimeSampler(BaseLeadTimeSampler):
@@ -89,3 +86,34 @@ class UniformLeadTimeSampler(BaseLeadTimeSampler):
         
         return lead_times
 
+
+class CustomLeadTimeSampler(BaseLeadTimeSampler):
+    """
+    Implements a custom lead time sampler that samples lead times deterministically for each SKU 
+    from a fixed list of lead time per (warehouse, sku) pair.
+    """
+    
+    def __init__(self, context: EnvironmentContext, component_config: LeadTimeSamplerConfig):
+        """
+        Initializes the custom lead time sampler.
+        
+        Args:
+            context (EnvironmentContext): Shared environment context.
+            component_config (LeadTimeSamplerConfig): Lead time sampler configuration.
+        """
+
+        # Initialize base class
+        super().__init__(context, component_config)
+        
+        # Extract uniform distribution parameters
+        self.lead_time_matrix = component_config.params["values"]
+    
+    def sample(self) -> np.ndarray:
+        """
+        Samples deterministic lead times for all SKUs from a fixed list of lead time per
+        (warehouse, sku) pair.
+        
+        Returns:
+            lead_times (np.ndarray): Lead times for all SKUs. Shape: (n_warehouses, n_skus).
+        """
+        return self.lead_time_matrix 

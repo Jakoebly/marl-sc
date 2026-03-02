@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Dict, Any, Tuple, Optional, List, TYPE_CHECKING
 from pathlib import Path
 import yaml
 from ray.tune.schedulers import ASHAScheduler, MedianStoppingRule, HyperBandScheduler, FIFOScheduler
@@ -12,6 +12,9 @@ from ray import tune
 import ray
 import nevergrad as ng
 
+if TYPE_CHECKING:
+    from src.utils.seed_manager import SeedManager
+
 from src.config.loader import load_environment_config, load_algorithm_config
 from src.config.loader import load_tune_config
 
@@ -19,6 +22,7 @@ def create_tune_config(
     base_env_config_path: str,
     base_algorithm_config_path: str,
     search_space: Dict[str, Any],
+    seed_manager: Optional['SeedManager'] = None,
 ) -> Dict[str, Any]:
     """
     Creates a Ray Tune configuration from base configs and search space.
@@ -27,13 +31,14 @@ def create_tune_config(
         base_env_config_path (str): Path to base environment config
         base_algorithm_config_path (str): Path to base algorithm config
         search_space (Dict[str, Any]): Dictionary defining hyperparameter search space
+        seed_manager (Optional['SeedManager']): Optional experiment-level ``SeedManager``.
         
     Returns:
         tune_config (Dict[str, Any]): Tune config dictionary
     """
 
     # Load base configs
-    env_config = load_environment_config(base_env_config_path)
+    env_config = load_environment_config(base_env_config_path, seed_manager=seed_manager)
     algorithm_config = load_algorithm_config(base_algorithm_config_path)
     
     # Convert base configs from Pydantic models to dicts
@@ -140,6 +145,7 @@ def prepare_tune_config(
     env_config_path: str,
     algorithm_config_path: str,
     tune_config_path: str,
+    seed_manager: Optional['SeedManager'] = None,
 ) -> Dict[str, Any]:
     """
     Prepares the tune configuration by loading configs and building search spaces.
@@ -148,6 +154,7 @@ def prepare_tune_config(
         env_config_path (str): Path to environment config
         algorithm_config_path (str): Path to algorithm config
         tune_config_path (str): Path to tune config (defines search space)
+        seed_manager (Optional['SeedManager']): Optional experiment-level ``SeedManager``.
         
     Returns:
         config (Dict[str, Any]): Complete tune configuration dictionary
@@ -171,7 +178,8 @@ def prepare_tune_config(
     config = create_tune_config(
         env_config_path,
         algorithm_config_path,
-        tune_search_space
+        tune_search_space,
+        seed_manager=seed_manager,
     )
 
     return config
