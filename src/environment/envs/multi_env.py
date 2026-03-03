@@ -2,7 +2,7 @@ from collections import deque
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
-from gymnasium.spaces import Box, Dict as GymDict
+from gymnasium.spaces import Box
 from pettingzoo import ParallelEnv
 
 from src.config.schema import EnvironmentConfig, InitialInventoryUniform, InitialInventoryCustom, InitialInventoryZero
@@ -280,7 +280,7 @@ class InventoryEnvironment(ParallelEnv):
         
         return observations, rewards, terminations, truncations, infos
     
-    def observation_space(self, agent: str) -> GymDict:
+    def observation_space(self, agent: str) -> Box:
         """
         Returns the observation space for a warehouse consisting of 8 feature groups per SKU:
         - inventory
@@ -292,23 +292,27 @@ class InventoryEnvironment(ParallelEnv):
         - rolling demand mean (home)
         - demand forecast (home)
         
+        The observation is a flat vector that concatenates the local observation (this warehouse's
+        features) followed by the global observation (all warehouses' features concatenated).
+        The RLModule splits this flat vector using local_obs_dim passed via model_config.
+        
         Args:
             agent (str): Warehouse ID (unused, all warehouses have same observation space).
             
         Returns:
-            observation_space (GymDict): GymDict that contains the observation space for a warehouse. 
-                Shape: {"local": (8 * n_skus,), "global": (n_warehouses * 8 * n_skus,)}.
+            observation_space (Box): Flat observation space for a warehouse.
+                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus
+                and global_obs_dim = n_warehouses * 8 * n_skus.
         """
 
         # Compute dimensions of local and global observation spaces
         local_obs_dim = 8 * self.n_skus
         global_obs_dim = self.n_warehouses * local_obs_dim
 
-        # Create the observation space
-        observation_space = GymDict({
-            "local": Box(low=0.0, high=np.inf, shape=(local_obs_dim,), dtype=np.float32),
-            "global": Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
-        })
+        # Create the flat observation space (local + global concatenated)
+        observation_space = Box(
+            low=0.0, high=np.inf, shape=(local_obs_dim + global_obs_dim,), dtype=np.float32
+        )
 
         return observation_space
     
@@ -405,7 +409,7 @@ class InventoryEnvironment(ParallelEnv):
             if isinstance(comp, StochasticComponent):
                 comp.reset(rng=self.seed_manager.get_rng(name))
 
-    def _get_observations(self) -> Dict[str, Dict[str, np.ndarray]]:
+    def _get_observations(self) -> Dict[str, np.ndarray]:
         """
         Builds per-warehouse local and global observations consisting of the following features:        
         - Current inventory level per SKU
@@ -418,9 +422,9 @@ class InventoryEnvironment(ParallelEnv):
         - Exponential smoothing demand forecast for home region per SKU
         
         Returns:
-            observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to 
-                dictionary containing local and global observations.
-                Shape: {warehouse_id: {"local": (8 * n_skus,), "global": (n_warehouses * 8 * n_skus,)}}.
+            observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to flat 
+                observation vector (local obs concatenated with global obs).
+                Shape: {warehouse_id: (local_obs_dim + global_obs_dim,)}.
         """
 
         # Initialize dictionary to store local observations
@@ -449,12 +453,9 @@ class InventoryEnvironment(ParallelEnv):
         # Build global observations
         global_obs = np.concatenate([local_obs[agent_id] for agent_id in self.agents])
 
-        # Build observations dictionary
+        # Build flat observations dictionary (local + global concatenated per agent)
         obs = {
-            agent_id: {
-                "local": local_obs[agent_id],
-                "global": global_obs,
-            }
+            agent_id: np.concatenate([local_obs[agent_id], global_obs])
             for agent_id in self.agents
         }
         

@@ -293,6 +293,7 @@ def get_reward_calculator(env_config: EnvironmentConfig, context: Optional[Envir
 from .components.demand_sampler import PoissonDemandSampler, EmpiricalDemandSampler
 from .components.demand_allocator import GreedyDemandAllocator
 from .components.lead_time_sampler import UniformLeadTimeSampler
+from .components.lead_time_sampler import CustomLeadTimeSampler
 from .components.lost_sales_handler import ClosestLostSalesHandler, ShipmentLostSalesHandler, CostLostSalesHandler
 from .components.reward_calculator import CostRewardCalculator
 
@@ -300,6 +301,7 @@ register_demand_sampler("poisson", PoissonDemandSampler)
 register_demand_sampler("empirical", EmpiricalDemandSampler)
 register_demand_allocator("greedy", GreedyDemandAllocator)
 register_lead_time_sampler("uniform", UniformLeadTimeSampler)
+register_lead_time_sampler("custom", CustomLeadTimeSampler)
 register_lost_sales_handler("closest", ClosestLostSalesHandler)
 register_lost_sales_handler("shipment", ShipmentLostSalesHandler)
 register_lost_sales_handler("cost", CostLostSalesHandler)
