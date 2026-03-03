@@ -7,7 +7,10 @@ environment:
     - 2490
     - 2489
     - 3244
-  max_wh_capacities: null
+  max_wh_capacities:
+   - 10000000
+   - 10000000
+   - 10000000
   initial_inventory: 
     type: "custom"
     params:
@@ -61,7 +64,7 @@ environment:
         lambda_quantity:
           - [156, 119, 267]
           - [185, 175, 375]
-          - [135,   0, 440]
+          - [135, 0.001, 440]
     demand_allocator:
       type: "greedy"
       params:
