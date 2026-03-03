@@ -18,7 +18,14 @@ class BaseRLModule(TorchRLModule):
     """
 
     @staticmethod
-    def build_network(architecture_type: str, input_dim: int, output_dim: int, architecture_config: Dict[str, Any], name: str = "") -> nn.Module:
+    def build_network(
+        architecture_type: str,
+        input_dim: int,
+        output_dim: int,
+        architecture_config: Dict[str, Any],
+        action_space: Optional[Space] = None,
+        name: str = "",
+    ) -> nn.Module:
         """
         Builds a network module from architecture config.
         
@@ -27,7 +34,8 @@ class BaseRLModule(TorchRLModule):
             input_dim (int): Input dimension
             output_dim (int): Output dimension
             architecture_config (Dict[str, Any]): Architecture-specific config dict
-            name (str): Optional name prefix
+            action_space (Optional[Space]): Action space for the network.
+            name (str): Optional name prefix for layers (for debugging)
             
         Returns:
             nn.Module: PyTorch module (Sequential for MLP/CNN, ModuleDict for GRU)
@@ -38,7 +46,11 @@ class BaseRLModule(TorchRLModule):
         arch_instance = arch_class()
 
         # Build the network
-        network = arch_instance.build(input_dim, output_dim, architecture_config, name)
+        network = arch_instance.build(
+            input_dim, output_dim, architecture_config,
+            action_space=action_space,
+            name=name,
+        )
 
         return network
 
@@ -192,6 +204,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             input_dim=actor_input_dim,
             output_dim=actor_output_dim,
             architecture_config=self.actor_config,
+            action_space=action_space,
             name="actor"
         )
 
@@ -262,7 +275,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         Gets dimensions of the output of the actor network that are expected by RLlib.
         
         Args:
-            action_space (Space): Action space for the actor network.
+            action_space (Space): Action space.
                 
         Returns:
             int: Dimensions of the output of the actor network.
@@ -270,7 +283,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
         # Get dimensions of the output of the actor network
         if isinstance(action_space, Box):
-            return 2 * self._get_action_dim(action_space)  # Mean + log_std
+            return self._get_action_dim(action_space)  # Mean + log_std
         elif isinstance(action_space, Discrete):
             return self._get_action_dim(action_space)  # Logits
         elif isinstance(action_space, MultiDiscrete):

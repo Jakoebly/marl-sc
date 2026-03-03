@@ -185,7 +185,6 @@ def test_environment_with_real_world_data():
                     'params': {
                         'scope': 'team',
                         'scale_factor': 1.0,
-                        'normalize': False,
                         'cost_weights': [0.34, 0.33, 0.33]
                     }
                 }
@@ -286,7 +285,6 @@ def test_demand_sampler_data_flow():
                     'params': {
                         'scope': 'team',
                         'scale_factor': 1.0,
-                        'normalize': False,
                         'cost_weights': [0.34, 0.33, 0.33]
                     }
                 }
@@ -387,7 +385,6 @@ def test_environment_data_flow():
                     'params': {
                         'scope': 'team',
                         'scale_factor': 1.0,
-                        'normalize': False,
                         'cost_weights': [0.34, 0.33, 0.33]
                     }
                 }
@@ -509,7 +506,6 @@ def test_data_consistency():
                     'params': {
                         'scope': 'team',
                         'scale_factor': 1.0,
-                        'normalize': False,
                         'cost_weights': [0.34, 0.33, 0.33]
                     }
                 }

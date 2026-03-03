@@ -45,7 +45,8 @@ def generate_visualizations(
 
 def plot_inventory(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
-    Plots inventory levels and pending orders over time for each warehouse.
+    Plots inventory levels, pending orders, and actual order quantities over time for
+    each warehouse-SKU pair (one subplot per pair).
     
     Args:
         episode (Dict[str, np.ndarray]): Episode data dict.
@@ -53,30 +54,36 @@ def plot_inventory(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
 
     # Get inventory and pending orders
-    inventory = episode["inventory"]               # Shape: (T, num_warehouses, num_skus)
+    inventory = episode["inventory"]               # Shape: (T, n_warehouses, n_skus)
     pending = episode["pending_total"]              # Shape: (T, n_warehouses, n_skus)
+    order_qty = episode["order_quantities"]         # Shape: (T, n_warehouses, n_skus)
 
     # Get number of timesteps, warehouses, and SKUs
     T, n_warehouses, n_skus = inventory.shape
     timesteps = np.arange(T)
+    n_plots = n_warehouses * n_skus
 
     # Create figure and axes
-    fig, axes = plt.subplots(n_warehouses, 1, figsize=(14, 4 * n_warehouses), sharex=True)
-    if n_warehouses == 1:
+    fig, axes = plt.subplots(n_plots, 1, figsize=(14, 4 * n_plots), sharex=True)
+    if n_plots == 1:
         axes = [axes]
 
     # Plot inventory and pending orders for each warehouse
+    plot_idx = 0
     for wh in range(n_warehouses):
-        ax = axes[wh]
         for sku in range(n_skus):
-            ax.plot(timesteps, inventory[:, wh, sku], label=f"SKU {sku}", linewidth=1.5)
-            ax.plot(timesteps, pending[:, wh, sku], label=f"SKU {sku} (pending)",
-                    linestyle="--", alpha=0.5, linewidth=1.0)
-
-        ax.set_ylabel("Quantity")
-        ax.set_title(f"Warehouse {wh} — Inventory & Pending Orders")
-        ax.legend(loc="upper right", fontsize=7, ncol=min(n_skus, 5))
-        ax.grid(True, alpha=0.3)
+            ax = axes[plot_idx]
+            ax.plot(timesteps, inventory[:, wh, sku], label="Inventory",
+                    linewidth=1.5, color="#4c72b0")
+            ax.plot(timesteps, pending[:, wh, sku], label="Pending Orders",
+                    linestyle="--", alpha=0.6, linewidth=1.0, color="#55a868")
+            ax.bar(timesteps, order_qty[:, wh, sku], alpha=0.3, color="#dd8452",
+                   label="Order Quantity", width=0.9)
+            ax.set_ylabel("Quantity")
+            ax.set_title(f"Warehouse {wh}, SKU {sku} — Inventory & Pending Orders")
+            ax.legend(loc="upper right", fontsize=7)
+            ax.grid(True, alpha=0.3)
+            plot_idx += 1
 
     # Set x label and save figure
     axes[-1].set_xlabel("Timestep")
@@ -87,7 +94,9 @@ def plot_inventory(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
 
 def plot_orders(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
-    Plots replenishment order quantities over time for each warehouse.
+    Plots all types of replenishment order quantities over time for each warehouse-SKU
+    pair (one subplot per pair). Shows actual order quantities (rescaled), raw sampled
+    actions, and optionally the actor's mu/sigma distribution parameters.
     
     Args:
         episode (Dict[str, np.ndarray]): Episode data dict.
@@ -102,22 +111,60 @@ def plot_orders(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     timesteps = np.arange(T)
 
     # Create figure and axes
-    fig, axes = plt.subplots(n_warehouses, 1, figsize=(14, 4 * n_warehouses), sharex=True)
-    if n_warehouses == 1:
+    actions_raw = episode.get("actions_raw")        # Shape: (T, n_warehouses, n_skus) or None
+    actor_mu = episode.get("actor_mu")              # Shape: (T, n_warehouses, n_skus) or None
+    actor_sigma = episode.get("actor_sigma")        # Shape: (T, n_warehouses, n_skus) or None
+
+    n_plots = n_warehouses * n_skus
+    fig, axes = plt.subplots(n_plots, 1, figsize=(14, 5 * n_plots), sharex=True)
+    if n_plots == 1:
         axes = [axes]
 
     # Plot order quantities for each warehouse
+    has_twin = actions_raw is not None or (actor_mu is not None and actor_sigma is not None)
+
+    plot_idx = 0
     for wh in range(n_warehouses):
-        ax = axes[wh]
         for sku in range(n_skus):
-            ax.step(timesteps, orders[:, wh, sku], label=f"SKU {sku}", where="mid", linewidth=1.2)
+            ax = axes[plot_idx]
 
-        ax.set_ylabel("Order Quantity")
-        ax.set_title(f"Warehouse {wh} — Replenishment Orders")
-        ax.legend(loc="upper right", fontsize=7, ncol=min(n_skus, 5))
-        ax.grid(True, alpha=0.3)
+            # Actual order quantities (after rescaling and rounding)
+            ax.step(timesteps, orders[:, wh, sku], label="Actual Order Qty",
+                    where="mid", linewidth=1.5, color="#4c72b0")
 
-    # Set x label and save figure
+            if has_twin:
+                ax2 = ax.twinx()
+                ax2.set_ylabel("Raw Action [-1, 1]", color="#c44e52", fontsize=8)
+                ax2.tick_params(axis="y", labelcolor="#c44e52")
+                ax2.set_ylim(-1.5, 1.5)
+
+                # Raw sampled actions (normalized [-1, 1])
+                if actions_raw is not None:
+                    ax2.step(timesteps, actions_raw[:, wh, sku], label="Raw Action",
+                             where="mid", linewidth=1.0, linestyle="--",
+                             color="#c44e52", alpha=0.7)
+
+                # Actor mu and sigma (on the raw action scale)
+                if actor_mu is not None and actor_sigma is not None:
+                    mu = actor_mu[:, wh, sku]
+                    sigma = actor_sigma[:, wh, sku]
+                    ax2.plot(timesteps, mu, label="Actor mu", linewidth=1.0,
+                             color="#55a868", alpha=0.8)
+                    ax2.fill_between(timesteps, mu - sigma, mu + sigma,
+                                     alpha=0.15, color="#55a868", label="Actor +/- sigma")
+
+                lines1, labels1 = ax.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax.legend(lines1 + lines2, labels1 + labels2,
+                          loc="upper right", fontsize=7)
+            else:
+                ax.legend(loc="upper right", fontsize=7)
+
+            ax.set_ylabel("Order Quantity")
+            ax.set_title(f"Warehouse {wh}, SKU {sku} — Replenishment Orders")
+            ax.grid(True, alpha=0.3)
+            plot_idx += 1
+
     axes[-1].set_xlabel("Timestep")
     plt.tight_layout()
     plt.savefig(output_dir / "02_orders.png", dpi=150, bbox_inches="tight")

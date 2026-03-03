@@ -1,5 +1,6 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import torch.nn as nn
+from gymnasium.spaces import Space
 
 from .base import NetworkArchitecture
 
@@ -16,6 +17,7 @@ class CNNArchitecture(NetworkArchitecture):
         input_dim: int,
         output_dim: int,
         config: Dict[str, Any],
+        action_space: Optional[Space] = None,
         name: str = "",
     ) -> nn.Module:
         """Builds a CNN network.
@@ -27,6 +29,7 @@ class CNNArchitecture(NetworkArchitecture):
                 - channels (List[int]): Number of channels per layer (default: [32, 64, 128])
                 - kernel_sizes (List[int]): Kernel sizes per layer (default: [3, 3, 3])
                 - activation (str): Activation function (default: "relu")
+            action_space (Optional[Space]): Action space (e.g. Box, Discrete).
             name (str): Optional name prefix
             
         Returns:

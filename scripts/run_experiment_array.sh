@@ -8,13 +8,13 @@
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=5                       # CPU cores per task
+#SBATCH --cpus-per-task=8                       # CPU cores per task
 #SBATCH --mem=32G                               # Memory allocation
 #SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-24%10                         # Array for 25 jobs (indices 0-24) with 1 job at once per node
+#SBATCH --array=0-4%5                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
 
 
 ##############################
@@ -38,31 +38,23 @@ export PYTHONUNBUFFERED=1
 
 
 ##############################
-# Map SLURM_ARRAY_TASK_ID -> (n_warehouses, n_skus)
+# Map SLURM_ARRAY_TASK_ID -> holding_cost
 ##############################
 
-# Define possible values for warehouses and SKUs
-WAREHOUSE_VALUES=(3 5 10 15)
-SKU_VALUES=(3 5 10 20 50 100)
+# Define possible values for holding cost
+HOLDING_COSTS=(0.60 1.00 0.3 2 0.1)
+N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
 
-# Compute the number of possible tasks
-N_WHVALS=${#WAREHOUSE_VALUES[@]}
-N_SKUVALS=${#SKU_VALUES[@]}
-N_TASKS=$((N_WHVALS * N_SKUVALS))
-
-# Get the warehouse and SKU values for this task
+# Get the holding cost for this task
 ID=${SLURM_ARRAY_TASK_ID}
-SKU_IDX=$(( ID / N_WHVALS ))
-WH_IDX=$(( ID % N_WHVALS ))
-N_SKUS=${SKU_VALUES[$SKU_IDX]}
-N_WAREHOUSES=${WAREHOUSE_VALUES[$WH_IDX]}
-N_REGIONS=$N_WAREHOUSES
+HOLDING_COST_IDX=$(( ID % N_HOLDING_COSTS ))
+HOLDING_COST=${HOLDING_COSTS[$HOLDING_COST_IDX]}
 
-echo "Task $ID -> n_warehouses=$N_WAREHOUSES, n_skus=$N_SKUS (n_regions=$N_REGIONS)"
+echo "Task $ID -> holding_cost=$HOLDING_COST (index $HOLDING_COST_IDX of ${N_HOLDING_COSTS})"
 
 
 ##############################
-# Create temporary config with dimension overrides
+# Create temporary config with holding_cost override
 ##############################
 
 TEMP_CONFIG=$(mktemp --suffix=.yaml)
@@ -70,18 +62,16 @@ TEMP_CONFIG=$(mktemp --suffix=.yaml)
 python - <<PY
 import yaml
 
-N_WAREHOUSES = $N_WAREHOUSES
-N_SKUS       = $N_SKUS
-N_REGIONS    = $N_REGIONS
+HOLDING_COST = $HOLDING_COST
 TEMP_CONFIG  = "$TEMP_CONFIG"
 
 with open("config_files/environments/base_env.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 env = config["environment"]
-env["n_warehouses"] = N_WAREHOUSES
-env["n_skus"]       = N_SKUS
-env["n_regions"]    = N_REGIONS
+if "cost_structure" not in env:
+    env["cost_structure"] = {}
+env["cost_structure"]["holding_cost"] = HOLDING_COST
 
 with open(TEMP_CONFIG, "w") as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)

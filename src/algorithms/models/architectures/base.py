@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from gymnasium.spaces import Space
+from typing import Dict, Any, Optional
 import torch.nn as nn
 
 
@@ -15,6 +16,7 @@ class NetworkArchitecture(ABC):
         input_dim: int,
         output_dim: int,
         config: Dict[str, Any],
+        action_space: Optional[Space] = None,
         name: str = "",
     ) -> nn.Module:
         """Builds a network module.
@@ -23,6 +25,7 @@ class NetworkArchitecture(ABC):
             input_dim (int): Input dimension for the network
             output_dim (int): Output dimension for the network
             config (Dict[str, Any]): Architecture-specific configuration dictionary
+            action_space (Optional[Space]): Action space for the network.
             name (str): Optional name prefix for layers (for debugging)
             
         Returns:
