@@ -59,13 +59,18 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         obs_space = env.observation_space(env.agents[0])
         action_space = env.action_space(env.agents[0])
         
+        # Compute local observation dimension for splitting flat obs in the RLModule
+        local_obs_dim = obs_space.shape[0] // (1 + env.n_warehouses)
+        global_obs_dim = obs_space.shape[0] - local_obs_dim
+
         # Create model config
         model_config = {
             "networks": networks_params,
             "observation_space": obs_space,
             "action_space": action_space,
-            "use_centralized_critic": False
-
+            "use_centralized_critic": False,
+            "local_obs_dim": local_obs_dim,
+            "global_obs_dim": global_obs_dim,
         }
         if max_seq_len is not None:
             model_config["max_seq_len"] = max_seq_len

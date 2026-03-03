@@ -154,11 +154,10 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
         # Get the observation and action spaces
         obs_space = self.observation_space
-        local_obs_dim = self._get_obs_dim(obs_space, key="local")
-        global_obs_dim = self._get_obs_dim(obs_space, key="global")
-        action_space = self.action_space
-        action_dim = self._get_action_dim(action_space)
-        actor_output_dim = self._get_actor_output_dim(action_space)
+        self.local_obs_dim = self.model_config["local_obs_dim"]
+        self.global_obs_dim = self.model_config["global_obs_dim"]
+        action_dim = self._get_action_dim(self.action_space)
+        actor_output_dim = self._get_actor_output_dim(self.action_space)
 
         # Extract network configurations from model config
         network_configs = self.model_config.get("networks", {})
@@ -187,16 +186,16 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             shared_layers_output_dim = self.shared_layers_config.get("output_dim", 128)
             self.shared_layers = self.build_network(
                 architecture_type=self.shared_layers_type,
-                input_dim=local_obs_dim,
+                input_dim=self.local_obs_dim,
                 output_dim=shared_layers_output_dim,
                 architecture_config=self.shared_layers_config,
                 name="shared"
             )
             actor_input_dim = shared_layers_output_dim
-            critic_input_dim = global_obs_dim if self.use_centralized_critic else shared_layers_output_dim
+            critic_input_dim = self.global_obs_dim if self.use_centralized_critic else shared_layers_output_dim
         else:
-            actor_input_dim = local_obs_dim
-            critic_input_dim = global_obs_dim if self.use_centralized_critic else local_obs_dim
+            actor_input_dim = self.local_obs_dim
+            critic_input_dim = self.global_obs_dim if self.use_centralized_critic else self.local_obs_dim
         
         # Build actor network
         self.actor = self.build_network(
@@ -204,7 +203,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             input_dim=actor_input_dim,
             output_dim=actor_output_dim,
             architecture_config=self.actor_config,
-            action_space=action_space,
+            action_space=self.action_space,
             name="actor"
         )
 
@@ -420,14 +419,12 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                     Shape: Dict or single of (num_layers*num_directions, B, hidden_size)
         """
 
-        # Extract observation
-        obs = batch.get(Columns.OBS) # Shape: (B, obs_dim) or (B, seq_len, obs_dim)
+        # Extract observation and split flat vector into local and global parts
+        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
         if obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs.get("local")
-        global_obs = obs.get("global")
-        if local_obs is None or global_obs is None:
-            raise ValueError("Expected 'local' and 'global' keys in observation dict")
+        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
+        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
 
         # Extract hidden states from batch 
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
@@ -520,14 +517,12 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                     Shape: Dict or single of (num_layers*num_directions, B, hidden_size)
         """
 
-         # Extract observation
-        obs = batch.get(Columns.OBS) # Shape: (B, obs_dim) or (B, seq_len, obs_dim)
+        # Extract observation and split flat vector into local and global parts
+        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
         if obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs.get("local")
-        global_obs = obs.get("global")
-        if local_obs is None or global_obs is None:
-            raise ValueError("Expected 'local' and 'global' keys in observation dict")
+        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
+        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
 
         # Extract hidden states from batch
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
@@ -591,14 +586,12 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                 Shape: (B) or (B, seq_len) (squeezed from (B, 1) or (B, seq_len, 1))
         """
 
-         # Extract observation
-        obs = batch.get(Columns.OBS) # Shape: (B, obs_dim) or (B, seq_len, obs_dim)
+        # Extract observation and split flat vector into local and global parts
+        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
         if obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs.get("local")
-        global_obs = obs.get("global")
-        if local_obs is None or global_obs is None:
-            raise ValueError("Expected 'local' and 'global' keys in observation dict")
+        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
+        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
 
         # Extract hidden states from batch
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: Dict or single of (B, num_layers*num_directions, hidden_size)

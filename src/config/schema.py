@@ -876,6 +876,7 @@ class PPOConfig(BaseModel):
     """Configuration for PPO-specific parameters."""
 
     vf_loss_coeff: NonNegativeFloat = 0.5
+    vf_clip_param: NonNegativeFloat = 10
     entropy_coeff: NonNegativeFloat = 0.01
     clip_param: PositiveFloat = 0.2
     use_gae: bool = True

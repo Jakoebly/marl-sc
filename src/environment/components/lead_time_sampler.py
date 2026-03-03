@@ -106,7 +106,7 @@ class CustomLeadTimeSampler(BaseLeadTimeSampler):
         super().__init__(context, component_config)
         
         # Extract uniform distribution parameters
-        self.lead_time_matrix = component_config.params["values"]
+        self.lead_time_matrix = np.array(component_config.params["values"])
     
     def sample(self) -> np.ndarray:
         """
