@@ -199,6 +199,7 @@ python src/experiments/run_experiment.py \
     --env-config "$TEMP_CONFIG" \
     --algorithm-config config_files/algorithms/ippo.yaml \
     --output-dir "./experiment_outputs/${ARRAY_NAME}" \
+    --experiment-name "IPPO_single_3WH_3SKUS_holding_cost_${HOLDING_COST}" \
     --wandb-project marl-sc \
     --root-seed 42
 
