@@ -135,10 +135,9 @@ class BaseAlgorithmWrapper(ABC):
 
                     with torch.no_grad():
                         # Convert observations to tensors with batch dimension
-                        obs_tensor = {
-                            k: torch.tensor(np.array(v), dtype=torch.float32).unsqueeze(0)
-                            for k, v in obs[agent_id].items()
-                        }
+                        obs_tensor = torch.tensor(
+                            np.array(obs[agent_id]), dtype=torch.float32
+                        ).unsqueeze(0)
                         batch = {Columns.OBS: obs_tensor}
 
                         # Add hidden states for recurrent policies
