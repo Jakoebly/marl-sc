@@ -105,12 +105,13 @@ def generate_experiment_name(
     env_config = load_environment_config(env_config_path)
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
+    holding_cost = env_config.holding_cost
     
     # Get current timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     
     # Build name components
-    name_parts = [algo_name, mode, f"{n_warehouses}WH", f"{n_skus}SKU"]
+    name_parts = [algo_name, mode, f"{n_warehouses}WH", f"{n_skus}SKU", f"{holding_cost}HC"]
     if mode == "tune":	
         if search_type and search_type != "none":
             name_parts.append(search_type)
