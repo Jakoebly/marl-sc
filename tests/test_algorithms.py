@@ -31,7 +31,7 @@ class TestEnvironmentActionRescaling:
         print(f"[OK] Action space shape: {action_space.shape}")
     
     def test_rescale_actions_to_quantities(self):
-        """Test that actions are correctly rescaled from [-1, 1] to [0, max_order_quantity]."""
+        """Test that actions are correctly rescaled from [-1, 1] to [0, max_order_quantities]."""
         config = load_environment_config("config_files/environments/base_env.yaml")
         env = InventoryEnvironment(config, seed=42)
         
@@ -54,14 +54,14 @@ class TestEnvironmentActionRescaling:
         
         # -1.0 should map to 0
         assert rescaled_action[0] == pytest.approx(0.0)
-        # 0.0 should map to max_order_quantity / 2
-        assert rescaled_action[1] == pytest.approx(config.max_order_quantity / 2.0)
-        # 1.0 should map to max_order_quantity
-        assert rescaled_action[2] == pytest.approx(float(config.max_order_quantity))
+        # 0.0 should map to max_order_quantities[i] / 2
+        assert rescaled_action[1] == pytest.approx(config.max_order_quantities[1] / 2.0)
+        # 1.0 should map to max_order_quantities[i]
+        assert rescaled_action[2] == pytest.approx(float(config.max_order_quantities[2]))
         
         # Check that values are integers (as float)
         assert all(isinstance(x, (int, float)) for x in rescaled_action)
-        assert all(0 <= x <= config.max_order_quantity for x in rescaled_action)
+        assert all(0 <= x <= config.max_order_quantities[i] for i, x in enumerate(rescaled_action))
     
     def test_rescale_actions_clipping(self):
         """Test that actions outside [-1, 1] are clipped correctly."""
@@ -81,8 +81,8 @@ class TestEnvironmentActionRescaling:
         first_agent = env.agents[0]
         rescaled_action = rescaled[first_agent]
         
-        # Should be clipped to [0, max_order_quantity]
-        assert all(0 <= x <= config.max_order_quantity for x in rescaled_action)
+        # Should be clipped to [0, max_order_quantities]
+        assert all(0 <= x <= config.max_order_quantities[i] for i, x in enumerate(rescaled_action))
 
 
 class TestEnvironmentGlobalState:

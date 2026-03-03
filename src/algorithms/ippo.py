@@ -4,6 +4,7 @@ from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.tune.registry import register_env
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
+from ray.rllib.connectors.env_to_module import MeanStdFilter
 
 from src.algorithms.base import BaseAlgorithmWrapper
 from src.algorithms.models.rlmodules.base import ActorCriticRLModule
@@ -120,6 +121,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 minibatch_size=shared_params.batch_size // shared_params.num_minibatches, 
                 shuffle_batch_per_epoch=True,
                 vf_loss_coeff=ippo_params.vf_loss_coeff,
+                vf_clip_param=ippo_params.vf_clip_param,
                 entropy_coeff=ippo_params.entropy_coeff,
                 clip_param=ippo_params.clip_param,
                 use_gae=ippo_params.use_gae,
@@ -128,7 +130,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             )
             .env_runners(
                 num_env_runners=num_env_runners,
-                num_envs_per_env_runner=num_envs_per_env_runner
+                num_envs_per_env_runner=num_envs_per_env_runner,
+                env_to_module_connector=lambda env, spaces, device: MeanStdFilter(multi_agent=True)
             )
             .evaluation(
                 evaluation_interval=shared_params.eval_interval,
@@ -137,6 +140,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 evaluation_config={
                     "env": self.env_name, 
                     "clip_actions": True,
+                    "use_worker_filter_stats": False,
                     "env_config": {
                         "seed": self.eval_seed,
                         "data_mode": "val" 

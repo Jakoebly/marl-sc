@@ -61,7 +61,7 @@ def env_config_file(temp_dir):
             "n_skus": 3,
             "n_regions": 2,
             "episode_length": 10,
-            "max_order_quantity": 5,
+            "max_order_quantities": [5, 5, 5],
             "initial_inventory": {
                 "type": "uniform",
                 "params": {"min": 0, "max": 10}
@@ -97,7 +97,6 @@ def env_config_file(temp_dir):
                     "params": {
                         "scope": "team",
                         "scale_factor": 1.0,
-                        "normalize": False,
                         "cost_weights": [0.33, 0.33, 0.34]
                     }
                 }

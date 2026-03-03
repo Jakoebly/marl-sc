@@ -35,26 +35,26 @@ class InitialInventoryCustom(BaseModel):
     """Configuration for custom initial inventory setup."""    
 
     type: Literal["custom"]
-    params: Dict[Literal["value"], Union[NonNegativeInt, List[List[NonNegativeInt]]]]
+    params: Dict[Literal["values"], Union[NonNegativeInt, List[List[NonNegativeInt]]]]
     model_config = ConfigDict(extra="forbid")
 
-    # Type and shape of value parameter
+    # Type and shape of values parameter
     @field_validator("params", mode="after")
     @classmethod
     def _check_custom_value_shape(cls, v: Dict[str, Any]):
-        value = v["value"]
+        value = v["values"]
         # If value is a bool, raise an error (bool is a subclass of int)
         if isinstance(value, bool):
-            raise ValueError("custom params.value must be an int, not a bool")
+            raise ValueError("custom params.values must be an int, not a bool")
         # If value is an integer, return the value
         if isinstance(value, int):
             return v
         # If value is a list, check that it is a non-empty 2D list
         if not value or any(not row for row in value):
-            raise ValueError("custom params.value must be a non-empty 2D list")
+            raise ValueError("custom params.values must be a non-empty 2D list")
         # Check that all rows have the same length
         if len({len(row) for row in value}) != 1:
-            raise ValueError("custom params.value must be a rectangular 2D list")
+            raise ValueError("custom params.values must be a rectangular 2D list")
 
         return v
 
@@ -185,8 +185,64 @@ class DemandSamplerPoisson(BaseModel):
     """Configuration for Poisson demand sampler."""
 
     type: Literal["poisson"]
-    params: Dict[Literal["lambda_orders", "lambda_skus", "lambda_quantity"], PositiveFloat]
+    params: Dict[Literal["lambda_orders", "lambda_skus", "lambda_quantity"],
+        Union[PositiveFloat, List[PositiveFloat], List[List[PositiveFloat]]]]
     model_config = ConfigDict(extra="forbid")
+
+    # Type and shape of poisson parameters
+    @field_validator("params", mode="after")
+    @classmethod
+    def _check_poisson_param_shapes(cls, v: Dict[str, Any]):
+        for key in ("lambda_orders", "lambda_skus", "lambda_quantity"):
+            if key not in v:
+                raise ValueError(f"poisson params must contain '{key}'")
+
+        lo, ls, lq = v["lambda_orders"], v["lambda_skus"], v["lambda_quantity"]
+
+        lo_scalar = isinstance(lo, (int, float)) and not isinstance(lo, bool)
+        ls_scalar = isinstance(ls, (int, float)) and not isinstance(ls, bool)
+        lq_scalar = isinstance(lq, (int, float)) and not isinstance(lq, bool)
+
+        # All scalars — nothing more to check
+        if lo_scalar and ls_scalar and lq_scalar:
+            return v
+
+        # Mixed scalar/array — reject
+        if lo_scalar or ls_scalar or lq_scalar:
+            raise ValueError(
+                "poisson params must be either all scalars or all arrays; "
+                "cannot mix scalar and array parameters"
+            )
+
+        # lambda_orders must be 1D
+        if isinstance(lo[0], list):
+            raise ValueError("poisson params.lambda_orders must be a 1D list when using array mode")
+        # lambda_skus must be 1D
+        if isinstance(ls[0], list):
+            raise ValueError("poisson params.lambda_skus must be a 1D list when using array mode")
+        # lambda_quantity must be 2D
+        if not isinstance(lq[0], list):
+            raise ValueError("poisson params.lambda_quantity must be a 2D list when using array mode")
+
+        # lambda_orders and lambda_skus must have the same length
+        if len(lo) != len(ls):
+            raise ValueError(
+                f"poisson params.lambda_orders and lambda_skus must have the same length, "
+                f"got {len(lo)} and {len(ls)}"
+            )
+        # lambda_quantity must be a non-empty rectangular 2D list
+        if any(not row for row in lq):
+            raise ValueError("poisson params.lambda_quantity must be a non-empty 2D list")
+        if len({len(row) for row in lq}) != 1:
+            raise ValueError("poisson params.lambda_quantity must be rectangular (all rows same length)")
+        # lambda_quantity rows must match lambda_orders/lambda_skus length
+        if len(lq) != len(lo):
+            raise ValueError(
+                f"poisson params.lambda_quantity must have {len(lo)} rows "
+                f"(matching lambda_orders/lambda_skus length), got {len(lq)}"
+            )
+
+        return v
 
 # Empirical sampler
 class DemandSamplerEmpirical(BaseModel):
@@ -301,7 +357,6 @@ COST_TYPES = ["holding_cost", "penalty_cost", "outbound_shipment_cost", "inbound
 class RewardCostParams(BaseModel):
     scope: Scope
     scale_factor: PositiveFloat
-    normalize: bool
     cost_weights: List[NonNegativeFloat] = Field(min_length=1)
 
     model_config = ConfigDict(extra="forbid")
@@ -460,7 +515,7 @@ class EnvironmentConfig(BaseModel):
     n_skus: PositiveInt
     n_regions: PositiveInt
     episode_length: PositiveInt
-    max_order_quantity: PositiveInt
+    max_order_quantities: List[PositiveInt]
     max_wh_capacities: List[PositiveFloat]
 
     initial_inventory: InitialInventoryConfig = Field(..., discriminator="type")
@@ -475,9 +530,19 @@ class EnvironmentConfig(BaseModel):
     def _shape_checks(self):
         nw, ns, nr = self.n_warehouses, self.n_skus, self.n_regions
 
-        # n_regions >= n_warehouses
-        if nr < nw:
-            raise ValueError(f"n_regions ({nr}) must be >= n_warehouses ({nw})")
+        # Home region assumption: n_regions must equal n_warehouses
+        if nr != nw:
+            raise ValueError(
+                f"n_regions ({nr}) must equal n_warehouses ({nw}) "
+                f"(home region assumption: each warehouse is assigned to exactly one region)"
+            )
+
+        # max_order_quantities: (n_skus,)
+        if len(self.max_order_quantities) != ns:
+            raise ValueError(
+                f"max_order_quantities must have length n_skus={ns}, "
+                f"got {len(self.max_order_quantities)}"
+            )
 
         # max_wh_capacities: (n_warehouses,)
         if len(self.max_wh_capacities) != nw:
@@ -488,19 +553,19 @@ class EnvironmentConfig(BaseModel):
 
         # Initial_inventory: custom list shape (n_warehouses, n_skus)
         if isinstance(self.initial_inventory, InitialInventoryCustom):
-            value = self.initial_inventory.params["value"]
+            value = self.initial_inventory.params["values"]
             if isinstance(value, list):
                 if len(value) != nw:
                     raise ValueError(
-                        f"initial_inventory.custom params.value must have {nw} rows (n_warehouses), "
+                        f"initial_inventory.custom params.values must have {nw} rows (n_warehouses), "
                         f"got {len(value)}"
                     )
                 for i, row in enumerate(value):
                     if not isinstance(row, list):
-                        raise ValueError(f"initial_inventory.custom params.value[{i}] must be a list")
+                        raise ValueError(f"initial_inventory.custom params.values[{i}] must be a list")
                     if len(row) != ns:
                         raise ValueError(
-                            f"initial_inventory.custom params.value[{i}] must have length n_skus={ns}, "
+                            f"initial_inventory.custom params.values[{i}] must have length n_skus={ns}, "
                             f"got {len(row)}"
                         )
 
@@ -543,6 +608,35 @@ class EnvironmentConfig(BaseModel):
                 raise ValueError(f"shipment_cost.inbound_variable must have {nw} rows (n_warehouses), got {len(sc_inbound_variable)}")
             if any(len(row) != ns for row in sc_inbound_variable):
                 raise ValueError(f"shipment_cost.inbound_variable must have {ns} columns (n_skus) in every row")
+
+        # Demand_sampler: poisson array params shape (n_regions,) / (n_regions, n_skus)
+        if isinstance(self.components.demand_sampler, DemandSamplerPoisson):
+            ds_params = self.components.demand_sampler.params
+            lo = ds_params["lambda_orders"]
+            if isinstance(lo, list):
+                if len(lo) != nr:
+                    raise ValueError(
+                        f"demand_sampler.poisson params.lambda_orders must have length "
+                        f"n_regions={nr}, got {len(lo)}"
+                    )
+                ls = ds_params["lambda_skus"]
+                if len(ls) != nr:
+                    raise ValueError(
+                        f"demand_sampler.poisson params.lambda_skus must have length "
+                        f"n_regions={nr}, got {len(ls)}"
+                    )
+                lq = ds_params["lambda_quantity"]
+                if len(lq) != nr:
+                    raise ValueError(
+                        f"demand_sampler.poisson params.lambda_quantity must have "
+                        f"{nr} rows (n_regions), got {len(lq)}"
+                    )
+                for i, row in enumerate(lq):
+                    if len(row) != ns:
+                        raise ValueError(
+                            f"demand_sampler.poisson params.lambda_quantity[{i}] must have "
+                            f"length n_skus={ns}, got {len(row)}"
+                        )
 
         # Lead_time_sampler: custom params.values shape (n_warehouses, n_skus)
         if isinstance(self.components.lead_time_sampler, LeadTimeSamplerCustom):

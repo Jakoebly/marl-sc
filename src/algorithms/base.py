@@ -127,6 +127,7 @@ class BaseAlgorithmWrapper(ABC):
             while not done:
                 # Query trained policy for actions (deterministic / no exploration)
                 actions = {}
+                mu_sigma_per_agent = {}
                 for agent_id in env.agents:
                     # Get policy ID and module
                     policy_id = self.policy_mapping_fn(agent_id)
@@ -149,6 +150,7 @@ class BaseAlgorithmWrapper(ABC):
 
                         # Sample deterministic action from distribution
                         action_logits = output[Columns.ACTION_DIST_INPUTS]
+                        
                         # GRU models return (B, seq_len=1, dim) — squeeze seq_len
                         if action_logits.dim() == 3:
                             action_logits = action_logits.squeeze(1)
@@ -156,6 +158,14 @@ class BaseAlgorithmWrapper(ABC):
                         det_dist = dist.to_deterministic()
                         action_tensor = det_dist.sample()
                         action = action_tensor.squeeze(0).cpu().numpy()
+
+                        # Extract mu and sigma from action distribution inputs
+                        logits_np = action_logits.squeeze(0).cpu().numpy()
+                        action_dim = action.shape[-1]
+                        mu_sigma_per_agent[agent_id] = {
+                            "mu": logits_np[:action_dim],
+                            "sigma": logits_np[action_dim:],
+                        }
 
                         # Update hidden states for recurrent policies
                         if is_recurrent:
@@ -166,6 +176,12 @@ class BaseAlgorithmWrapper(ABC):
                 # Record raw actions as (n_warehouses, n_skus) array
                 actions_array = np.array([actions[a] for a in env.agents])
                 episode_data["actions_raw"].append(actions_array)
+
+                # Record mu and sigma from actor output
+                mu_array = np.array([mu_sigma_per_agent[a]["mu"] for a in env.agents])
+                sigma_array = np.array([mu_sigma_per_agent[a]["sigma"] for a in env.agents])
+                episode_data["actor_mu"].append(mu_array)
+                episode_data["actor_sigma"].append(sigma_array)
 
                 # Step environment and record step info 
                 # Infos contain detailed step data when collect_step_info=True

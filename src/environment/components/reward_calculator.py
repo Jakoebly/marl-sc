@@ -62,7 +62,7 @@ class BaseRewardCalculator(ABC):
 class CostRewardCalculator(BaseRewardCalculator):
     """
     Implements a cost-based reward calculator that calculates rewards as the sum of negative weighted 
-    supply chain costs. Supports team/agent scope and optional normalization/scaling.
+    supply chain costs. Supports team/agent scope and optional scaling.
     """
     
     def __init__(self, context: EnvironmentContext, component_config: RewardCalculatorConfig):
@@ -87,12 +87,10 @@ class CostRewardCalculator(BaseRewardCalculator):
         if hasattr(params, "scope"):
             self.scope = params.scope
             self.scale_factor = params.scale_factor
-            self.normalize = params.normalize
             self.cost_weights = np.array(params.cost_weights, dtype=float)
         else:
             self.scope = params["scope"]
             self.scale_factor = params["scale_factor"]
-            self.normalize = params["normalize"]
             self.cost_weights = np.array(params["cost_weights"], dtype=float)
     
     def calculate(
@@ -109,7 +107,7 @@ class CostRewardCalculator(BaseRewardCalculator):
 
             1. Compute total holding, penalty, and shipment costs for each warehouse.
             2. Compute the weighted sum of the costs for each warehouse.
-            3. If enabled, normalize and/or scale weighted total costs (both not implemented yet).
+            3. If enabled, scale weighted total costs (not implemented yet).
             4. Convert weighted total costs to rewards (negative costs). 
             5. If shared reward is enabled, sum rewards across all warehouses and broadcast to all warehouses.
         
@@ -168,10 +166,6 @@ class CostRewardCalculator(BaseRewardCalculator):
             outbound_shipment_costs_total +
             inbound_shipment_costs_total
         ) # Shape: (n_warehouses,)
-
-        # Normalize if enabled
-        if self.normalize:
-            pass # TODO: Implement normalization
 
         # Apply scale factor if enabled
         if self.scale_factor:

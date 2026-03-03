@@ -1,3 +1,4 @@
+from collections import deque
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -65,7 +66,7 @@ class InventoryEnvironment(ParallelEnv):
         self.n_skus = env_config.n_skus
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
-        self.max_order_quantity = env_config.max_order_quantity
+        self.max_order_quantities = np.asarray(env_config.max_order_quantities, dtype=float)
         self.max_wh_capacities = env_config.max_wh_capacities
         
         # Initialize seed manager
@@ -95,6 +96,16 @@ class InventoryEnvironment(ParallelEnv):
         self.cost_structure = env_config.cost_structure
         self.initial_inventory_config = env_config.initial_inventory
         
+        # Compute home region mapping as each warehouse's closest region (by distance)
+        self.distances = context.distances  # Shape: (n_warehouses, n_regions)
+        self.home_regions = np.argmin(self.distances, axis=1)  # Shape: (n_warehouses,)
+
+        # Exponential smoothing parameter for demand forecast
+        self.ema_alpha = 0.3
+
+        # Number of timesteps for rolling demand mean
+        self.rolling_window = 5
+
         # Set agent IDs
         self.agents = [f"warehouse_{i}" for i in range(self.n_warehouses)]
         self.possible_agents = self.agents.copy()
@@ -103,6 +114,15 @@ class InventoryEnvironment(ParallelEnv):
         self.inventory = None  # Shape: (n_warehouses, n_skus)
         self.pending_orders = {}  # Shape: {arrival_timestep: (n_warehouses, n_skus)}
         self.timestep = 0
+
+        # Observation feature buffers (initialized in reset)
+        self._incoming_demand_home = None   # Shape: (n_warehouses, n_skus)
+        self._units_shipped_home = None     # Shape: (n_warehouses, n_skus)
+        self._units_shipped_away = None     # Shape: (n_warehouses, n_skus)
+        self._stockout = None               # Shape: (n_warehouses, n_skus)
+        self._rolling_demand_mean_home = None  # Shape: (n_warehouses, n_skus)
+        self._demand_forecast_home = None   # Shape: (n_warehouses, n_skus)
+        self._demand_history_home = None    # deque of (n_warehouses, n_skus) arrays
 
         # Visualization flag: when True, step() populates infos with detailed per-step data.
         # Default False to avoid overhead during training. Set to True for manual rollout.
@@ -133,13 +153,20 @@ class InventoryEnvironment(ParallelEnv):
         # Reset stochastic components with RNGs from SeedManager
         self._reset_stochastic_components()
 
-        # Reset state
+        # Reset state and observation feature buffers
         self.inventory = self._initialize_inventory(rng=self.seed_manager.get_rng('inventory'))
         self.pending_orders = {}
+        self._incoming_demand_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._units_shipped_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._units_shipped_away = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._stockout = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._rolling_demand_mean_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._demand_forecast_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        self._demand_history_home = deque(maxlen=self.rolling_window)
         self.timestep = 0
         
         # Get initial observations
-        observations = self._get_observations() # Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}
+        observations = self._get_observations()
         
         # Add any additional information to infos
         infos = {agent: {} for agent in self.agents}
@@ -155,10 +182,11 @@ class InventoryEnvironment(ParallelEnv):
             3. Sample new customer demand
             4. Allocate and ship demand across warehouses
             5. Update inventory levels
-            6. Assign lost sales from regions to warehouses
-            7. Calculate rewards
-            8. Update observations
-            9. Increment timestep and check terminations/truncations
+            6. Compute observation features (demand, shipment, stockout, forecast)
+            7. Assign lost sales from regions to warehouses
+            8. Calculate rewards
+            9. Update observations
+            10. Increment timestep and check terminations/truncations
         
         Args:
             actions (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to action array.
@@ -203,19 +231,22 @@ class InventoryEnvironment(ParallelEnv):
         # 5. Update inventories
         self.inventory = np.maximum(self.inventory - fulfillment_matrix.sum(axis=0), 0.0)
         
-        # 6. Assign lost sales
+        # 6. Compute observation features from allocation result
+        self._update_observations(orders, shipment_quantities_by_sku)
+
+        # 7. Assign lost sales
         lost_sales = self.lost_sales_handler.calculate_lost_sales(lost_order_counts, unfulfilled_demands, shipment_quantities) # Shape: (n_warehouses, n_skus)
         
-        # 7. Calculate rewards 
+        # 8. Calculate rewards 
         rewards_array = self.reward_calculator.calculate(self.inventory, ordered_skus, lost_sales, shipment_counts, shipment_quantities_by_sku)  # Shape: (n_warehouses,)
         
         # Convert rewards array to dictionary keyed by warehouse IDs
         rewards = {agent_id: float(rewards_array[i]) for i, agent_id in enumerate(self.agents)}
         
-        # 8. Update observations
+        # 9. Update observations
         observations = self._get_observations()
         
-        # 9. Increment timestep and check terminations and truncations
+        # 10. Increment timestep and check terminations and truncations
         self.timestep += 1
         terminations = {agent: False for agent in self.agents}  # No early termination
         truncations = {agent: (self.timestep >= self.episode_length) for agent in self.agents}
@@ -251,20 +282,26 @@ class InventoryEnvironment(ParallelEnv):
     
     def observation_space(self, agent: str) -> GymDict:
         """
-        Returns the observation space for a warehouse consisting of the following features:        
-        - Current inventory level
-        - Sum of all pending orders
+        Returns the observation space for a warehouse consisting of 8 feature groups per SKU:
+        - inventory
+        - pending orders
+        - incoming demand (home)
+        - units shipped (home)
+        - units shipped (away)
+        - stockout
+        - rolling demand mean (home)
+        - demand forecast (home)
         
         Args:
             agent (str): Warehouse ID (unused, all warehouses have same observation space).
             
         Returns:
             observation_space (GymDict): GymDict that contains the observation space for a warehouse. 
-                Shape: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}.
+                Shape: {"local": (8 * n_skus,), "global": (n_warehouses * 8 * n_skus,)}.
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 2 * self.n_skus
+        local_obs_dim = 8 * self.n_skus
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the observation space
@@ -280,11 +317,12 @@ class InventoryEnvironment(ParallelEnv):
         Returns the global observation space (concatenation of all local observations).
         
         Returns:
-            global_observation_space (Box): Box space for global observation space. Shape: (n_warehouses * 2 * n_skus,).
+            global_observation_space (Box): Box space for global observation space. 
+                Shape: (n_warehouses * 8 * n_skus,).
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 2 * self.n_skus
+        local_obs_dim = 8 * self.n_skus
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the global observation space
@@ -295,7 +333,7 @@ class InventoryEnvironment(ParallelEnv):
     def action_space(self, agent: str) -> Box:
         """
         Returns the action space (normalized replenishment order quantities) for a warehouse. Actions are in the
-        range [-1, 1] and will be rescaled to [0, max_order_quantity] internally.
+        range [-1, 1] and will be rescaled to [0, max_order_quantities] internally.
 
         Args:
             agent (str): Warehouse ID (unused, all warehouses have the same action space).
@@ -348,7 +386,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # Custom initialization
         elif isinstance(inv_config, InitialInventoryCustom):
-            value = inv_config.params["value"]
+            value = inv_config.params["values"]
             if isinstance(value, int): # Scalar
                 inventory = np.full((self.n_warehouses, self.n_skus), value, dtype=int)
             else: # 2D list
@@ -370,12 +408,19 @@ class InventoryEnvironment(ParallelEnv):
     def _get_observations(self) -> Dict[str, Dict[str, np.ndarray]]:
         """
         Builds per-warehouse local and global observations consisting of the following features:        
-        - Current inventory level
-        - Sum of all pending orders
+        - Current inventory level per SKU
+        - Sum of all pending orders per SKU
+        - Incoming demand from home region per SKU
+        - Units shipped to home region per SKU
+        - Units shipped to non-home regions per SKU
+        - Stockout (unmet demand at home warehouse) per SKU
+        - Rolling mean of home region demand over last 5 timesteps per SKU
+        - Exponential smoothing demand forecast for home region per SKU
         
         Returns:
-            observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to dictionary containing local and global observations.
-                Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
+            observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping warehouse_id to 
+                dictionary containing local and global observations.
+                Shape: {warehouse_id: {"local": (8 * n_skus,), "global": (n_warehouses * 8 * n_skus,)}}.
         """
 
         # Initialize dictionary to store local observations
@@ -389,7 +434,16 @@ class InventoryEnvironment(ParallelEnv):
                 pending_total += orders_array[warehouse_idx, :]
             
             # Concatenate features and store them in the observations dictionary
-            local = np.concatenate([obs_inventory, pending_total]).astype(np.float32)
+            local = np.concatenate([
+                obs_inventory,
+                pending_total,
+                self._incoming_demand_home[warehouse_idx, :],
+                self._units_shipped_home[warehouse_idx, :],
+                self._units_shipped_away[warehouse_idx, :],
+                self._stockout[warehouse_idx, :],
+                self._rolling_demand_mean_home[warehouse_idx, :],
+                self._demand_forecast_home[warehouse_idx, :],
+            ]).astype(np.float32)
             local_obs[warehouse_id] = local
         
         # Build global observations
@@ -406,9 +460,57 @@ class InventoryEnvironment(ParallelEnv):
         
         return obs
 
+    def _update_observations(
+        self, 
+        orders: List[Order], 
+        shipment_quantities_by_sku: np.ndarray,
+    ) -> None:
+        """
+        Computes and stores observation features derived from the current timestep's 
+        demand and allocation results.
+        
+        Args:
+            orders (List[Order]): Customer orders sampled this timestep.
+            shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU.
+                Shape: (n_warehouses, n_regions, n_skus).
+        """
+
+        # Aggregate demand from orders into per-region totals
+        demand_per_region = np.zeros((self.n_regions, self.n_skus), dtype=np.float32)
+        for order in orders:
+            demand_per_region[order.region_id] += order.sku_demands
+
+        # Compute incoming demand from each warehouse's home region
+        self._incoming_demand_home = demand_per_region[self.home_regions, :]  # Shape: (n_warehouses, n_skus)
+
+        # Compute units shipped to each warehouse's home region
+        self._units_shipped_home = shipment_quantities_by_sku[
+            np.arange(self.n_warehouses), self.home_regions, :
+        ]  # Shape: (n_warehouses, n_skus)
+
+        # Compute units shipped to non-home regions
+        total_shipped = shipment_quantities_by_sku.sum(axis=1)  # Shape: (n_warehouses, n_skus)
+        self._units_shipped_away = total_shipped - self._units_shipped_home  # Shape: (n_warehouses, n_skus)
+
+        # Compute stockout for each warehouse
+        self._stockout = np.maximum(
+            self._incoming_demand_home - self._units_shipped_home, 0.0
+        ).astype(np.float32)  # Shape: (n_warehouses, n_skus)
+
+        # Update rolling demand history and compute rolling mean
+        self._demand_history_home.append(self._incoming_demand_home.copy())
+        history_stack = np.array(self._demand_history_home)  # Shape: (min(t+1, window), n_warehouses, n_skus)
+        self._rolling_demand_mean_home = history_stack.mean(axis=0).astype(np.float32)
+
+        # Update demand forecast via exponential smoothing:
+        alpha = self.ema_alpha
+        self._demand_forecast_home = (
+            alpha * self._incoming_demand_home + (1 - alpha) * self._demand_forecast_home
+        ).astype(np.float32)
+
     def _rescale_actions_to_quantities(self, actions: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Rescales normalized actions from a [-1, 1] range to integer order quantities in the range [0, max_order_quantity].
+        Rescales normalized actions from a [-1, 1] range to integer order quantities in the range [0, max_order_quantities].
         
         Args:
             actions (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to normalized action array. 
@@ -423,12 +525,13 @@ class InventoryEnvironment(ParallelEnv):
         quantities = {}
         
         # Rescale actions to quantities for each warehouse
-        for agent_id, action in actions.items():
-            scaled = (action + 1.0) / 2.0 * self.max_order_quantity 
+        for i, (agent_id, action) in enumerate(actions.items()):
+            max_order_quantity = self.max_order_quantities[i]
+            scaled = (action + 1.0) / 2.0 * max_order_quantity
             integer_action = np.round(scaled).astype(int)
-            integer_action = np.clip(integer_action, 0, self.max_order_quantity) # Clip to ensure [0, max_order_quantity] range
-            quantities[agent_id] = integer_action.astype(float) # Convert to float for compatibility with _apply_orders
-        
+            integer_action = np.clip(integer_action, 0, max_order_quantity) # Clip to ensure [0, max_order_quantity] range
+            quantities[agent_id] = integer_action.astype(float) # Convert to float for compatibility with _apply_orders        
+
         return quantities
 
     def _apply_orders(self, actions: Dict[str, np.ndarray]):
