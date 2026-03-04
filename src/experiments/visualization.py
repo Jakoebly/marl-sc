@@ -32,6 +32,7 @@ def generate_visualizations(
     # Generate individual plots
     plot_inventory(episode, viz_dir)
     plot_orders(episode, viz_dir)
+    plot_orders_summary(episode, viz_dir)
     plot_cost_breakdown(episode, viz_dir)
     plot_demand_fulfillment(episode, viz_dir)
     plot_shipment_heatmap(episode, viz_dir)
@@ -168,6 +169,108 @@ def plot_orders(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     axes[-1].set_xlabel("Timestep")
     plt.tight_layout()
     plt.savefig(output_dir / "02_orders.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_orders_summary(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
+    """
+    Plots orders overview: replenishment order quantities, number of customer orders,
+    mean unique SKUs per customer order, and SKU quantities per SKU and region.
+    
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict.
+        output_dir (Path): Directory to save the plot.
+    """
+    order_quantities = episode["order_quantities"]  # Shape: (T, n_warehouses, n_skus)
+    demand_per_region = episode["demand_per_region"]  # Shape: (T, n_regions, n_skus)
+
+    T, n_warehouses, n_skus = order_quantities.shape
+    n_regions = demand_per_region.shape[1]
+    timesteps = np.arange(T)
+
+    # Replenishment orders: total quantity per timestep (sum over warehouses and SKUs)
+    total_replenishment_orders = order_quantities.sum(axis=(1, 2))
+
+    # Unique SKUs per replenishment order: per warehouse, count SKUs with qty > 0
+    unique_skus_per_replenishment = (order_quantities > 0).sum(axis=2)  # (T, n_warehouses)
+
+    # Customer orders and unique SKUs (if available from step_info)
+    n_orders = episode.get("n_orders", np.zeros(T, dtype=int))
+    mean_unique_skus = episode.get("mean_unique_skus_per_order", np.zeros(T, dtype=float))
+    if isinstance(n_orders, (int, float)):
+        n_orders = np.full(T, n_orders)
+    if isinstance(mean_unique_skus, (int, float)):
+        mean_unique_skus = np.full(T, mean_unique_skus)
+
+    # SKU quantities per SKU and region: use shipment if available, else demand
+    shipment_by_sku = episode.get("shipment_quantities_by_sku")  # (T, n_warehouses, n_regions, n_skus)
+    if shipment_by_sku is not None:
+        # Aggregate over warehouses: (T, n_regions, n_skus) -> (n_regions, n_skus) averaged
+        sku_qty_per_region = shipment_by_sku.sum(axis=1).mean(axis=0)  # (n_regions, n_skus)
+    else:
+        # Fallback: use demand per region averaged over time
+        sku_qty_per_region = demand_per_region.mean(axis=0)  # (n_regions, n_skus)
+
+    # Create figure with 4 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=False)
+
+    # 1. Replenishment order quantities over time
+    ax1 = axes[0, 0]
+    ax1.bar(timesteps, total_replenishment_orders, alpha=0.7, color="#4c72b0", width=0.9)
+    ax1.set_ylabel("Total Order Quantity")
+    ax1.set_xlabel("Timestep")
+    ax1.set_title("Replenishment Orders (Total per Timestep)")
+    ax1.grid(True, alpha=0.3)
+
+    # 2. Number of customer orders and mean unique SKUs per order
+    ax2 = axes[0, 1]
+    ax2_twin = ax2.twinx()
+    ax2.bar(timesteps, n_orders, alpha=0.6, color="#55a868", width=0.9, label="Number of Orders")
+    ax2_twin.plot(timesteps, mean_unique_skus, color="#c44e52", linewidth=1.5, label="Mean Unique SKUs/Order")
+    ax2.set_ylabel("Number of Customer Orders", color="#55a868")
+    ax2_twin.set_ylabel("Mean Unique SKUs per Order", color="#c44e52")
+    ax2.tick_params(axis="y", labelcolor="#55a868")
+    ax2_twin.tick_params(axis="y", labelcolor="#c44e52")
+    ax2.set_xlabel("Timestep")
+    ax2.set_title("Customer Orders & Unique SKUs per Order")
+    ax2.grid(True, alpha=0.3)
+    lines1, labels1 = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2_twin.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
+
+    # 3. Unique SKUs per replenishment order (per warehouse)
+    ax3 = axes[1, 0]
+    for wh in range(n_warehouses):
+        ax3.plot(timesteps, unique_skus_per_replenishment[:, wh], label=f"Warehouse {wh}", linewidth=1.2)
+    ax3.set_ylabel("Unique SKUs in Order")
+    ax3.set_xlabel("Timestep")
+    ax3.set_title("Unique SKUs per Replenishment Order (by Warehouse)")
+    ax3.legend(loc="upper right", fontsize=8)
+    ax3.grid(True, alpha=0.3)
+
+    # 4. SKU quantities per SKU and region (heatmap)
+    ax4 = axes[1, 1]
+    sku_region_data = sku_qty_per_region.T  # (n_skus, n_regions) for imshow
+    im = ax4.imshow(sku_region_data, cmap="YlOrRd", aspect="auto")
+    cbar = fig.colorbar(im, ax=ax4)
+    cbar.set_label("Avg. Quantity")
+    ax4.set_xticks(range(n_regions))
+    ax4.set_xticklabels([f"Region {r}" for r in range(n_regions)])
+    ax4.set_yticks(range(n_skus))
+    ax4.set_yticklabels([f"SKU {s}" for s in range(n_skus)])
+    ax4.set_xlabel("Region")
+    ax4.set_ylabel("SKU")
+    ax4.set_title("SKU Quantities per SKU and Region")
+    vmax = sku_region_data.max()
+    for sku in range(n_skus):
+        for r in range(n_regions):
+            val = sku_region_data[sku, r]
+            ax4.text(r, sku, f"{val:.1f}", ha="center", va="center",
+                    color="white" if val > vmax * 0.6 else "black",
+                    fontsize=8, fontweight="bold")
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "02b_orders_summary.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 

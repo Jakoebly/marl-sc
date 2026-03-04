@@ -255,8 +255,15 @@ class InventoryEnvironment(ParallelEnv):
         if self.collect_step_info:
             # Aggregate demand from orders into a (n_regions, n_skus) matrix
             demand_per_region = np.zeros((self.n_regions, self.n_skus))
+            unique_skus_per_order = []
             for order in orders:
                 demand_per_region[order.region_id] += order.sku_demands
+                unique_skus_per_order.append(np.sum(order.sku_demands > 0))
+
+            n_orders = len(orders)
+            mean_unique_skus_per_order = (
+                np.mean(unique_skus_per_order) if unique_skus_per_order else 0.0
+            )
 
             # Read cost breakdown stored by reward calculator
             cost_breakdown = getattr(self.reward_calculator, '_cost_breakdown', {})
@@ -270,8 +277,11 @@ class InventoryEnvironment(ParallelEnv):
                 "unfulfilled_demands": unfulfilled_demands.copy(),
                 "shipment_counts": shipment_counts.copy(),
                 "shipment_quantities": shipment_quantities.copy(),
+                "shipment_quantities_by_sku": shipment_quantities_by_sku.copy(),
                 "lost_order_counts": lost_order_counts.copy(),
                 "lost_sales": lost_sales.copy(),
+                "n_orders": n_orders,
+                "mean_unique_skus_per_order": mean_unique_skus_per_order,
                 **cost_breakdown,
             }
             infos = {agent: step_info for agent in self.agents}
