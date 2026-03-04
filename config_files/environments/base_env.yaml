@@ -64,7 +64,7 @@ environment:
         lambda_quantity:
           - [156, 119, 267]
           - [185, 175, 375]
-          - [135, 153, 440]
+          - [135, 0.001, 440]
     demand_allocator:
       type: "greedy"
       params:
@@ -74,7 +74,7 @@ environment:
       params:
         values:
           - [1, 1, 1]
-          - [1, 1, 1]
+          - [2, 11, 10]
           - [1, 1, 1]
     lost_sales_handler:
       type: "shipment"
