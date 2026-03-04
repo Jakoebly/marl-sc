@@ -74,7 +74,7 @@ if "cost_structure" not in env:
 env["cost_structure"]["holding_cost"] = HOLDING_COST
 
 with open(TEMP_CONFIG, "w") as f:
-    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
 PY
 
 
@@ -199,7 +199,7 @@ python src/experiments/run_experiment.py \
     --env-config "$TEMP_CONFIG" \
     --algorithm-config config_files/algorithms/ippo.yaml \
     --output-dir "./experiment_outputs/${ARRAY_NAME}" \
-    --experiment-name "IPPO_Single_3WH_3SKUS_Agent_PSFalse_HC${HOLDING_COST}" \
+    --experiment-name "IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}" \
     --wandb-project marl-sc \
     --root-seed 42
 
