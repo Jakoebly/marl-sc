@@ -335,14 +335,38 @@ class BaseAlgorithmWrapper(ABC):
             MeanStdFilter as MeanStdFilterConnector,
         )
 
+        # Try local env runner first, then fall back to remote workers
+        env_runners_to_try = []
         try:
-            for connector in self.trainer.env_runner.env_to_module:
-                if isinstance(connector, MeanStdFilterConnector):
-                    if connector._filters is None:
-                        return None
-                    return connector._filters
-        except (AttributeError, TypeError):
-            pass
+            env_runners_to_try.append(("local", self.trainer.env_runner))
+        except (AttributeError, TypeError) as e:
+            print(f"[FILTER DEBUG] Could not access trainer.env_runner: {e}")
+
+        try:
+            remote_runners = self.trainer.env_runner_group.remote_env_runners()
+            if remote_runners:
+                env_runners_to_try.append(("remote[0]", remote_runners[0]))
+        except (AttributeError, TypeError, IndexError) as e:
+            print(f"[FILTER DEBUG] Could not access remote env runners: {e}")
+
+        for runner_name, runner in env_runners_to_try:
+            try:
+                pipeline = runner.env_to_module
+                connectors_found = [type(c).__name__ for c in pipeline]
+                print(f"[FILTER DEBUG] {runner_name} env_to_module pipeline: {connectors_found}")
+
+                for connector in pipeline:
+                    if isinstance(connector, MeanStdFilterConnector):
+                        if connector._filters is None:
+                            print(f"[FILTER DEBUG] Found MeanStdFilter on {runner_name} but _filters is None")
+                            return None
+                        print(f"[FILTER DEBUG] Found MeanStdFilter on {runner_name} with keys: "
+                              f"{list(connector._filters.keys())}")
+                        return connector._filters
+
+                print(f"[FILTER DEBUG] No MeanStdFilter in {runner_name} pipeline")
+            except Exception as e:
+                print(f"[FILTER DEBUG] Error accessing {runner_name} pipeline: {type(e).__name__}: {e}")
 
         return None
 
