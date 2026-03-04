@@ -1,9 +1,8 @@
 from typing import Dict, Any, Optional
 import torch.nn as nn
-from gymnasium.spaces import Space, Box
+from gymnasium.spaces import Space
 
 from .base import NetworkArchitecture
-from .mu_sigma_head import MuSigmaHead
 
 
 class MLPArchitecture(NetworkArchitecture):
@@ -50,43 +49,6 @@ class MLPArchitecture(NetworkArchitecture):
             layers.append(nn.Linear(current_dim, hidden_size))
             layers.append(self._get_activation(activation))
             current_dim = hidden_size
-        
-        # If action space is a Box, build mu and sigma branches
-        if isinstance(action_space, Box):
-            # Set mu and sigma hidden sizes
-            MU_HIDDEN_SIZES = [256]
-            SIGMA_HIDDEN_SIZES = [30]
-
-            # Build mu branch
-            current_mu_dim = current_dim
-            mu_layers = []
-            for hidden_size in MU_HIDDEN_SIZES:
-                mu_layers.append(nn.Linear(current_mu_dim, hidden_size))
-                mu_layers.append(self._get_activation(activation))
-                current_mu_dim = hidden_size
-            mu_layers.append(nn.Linear(current_mu_dim, output_dim))
-            mu_layers.append(self._get_activation("tanh"))
-
-            # Build sigma branch
-            sigma_layers = []
-            current_sigma_dim = current_dim
-            for hidden_size in SIGMA_HIDDEN_SIZES:
-                sigma_layers.append(nn.Linear(current_sigma_dim, hidden_size))
-                sigma_layers.append(self._get_activation(activation))
-                current_sigma_dim = hidden_size
-            sigma_layers.append(nn.Linear(current_sigma_dim, output_dim))
-            sigma_layers.append(self._get_activation("relu"))
-
-            # Build mu sigma head
-            mu_sigma_head = MuSigmaHead(
-                shared_layers=nn.Sequential(*layers),
-                mu_branch=nn.Sequential(*mu_layers),
-                sigma_branch=nn.Sequential(*sigma_layers),
-                action_low=action_space.low,
-                action_high=action_space.high,
-            )
-
-            return mu_sigma_head
 
         # Output layer
         layers.append(nn.Linear(current_dim, output_dim))
