@@ -185,7 +185,7 @@ class DemandSamplerPoisson(BaseModel):
     """Configuration for Poisson demand sampler."""
 
     type: Literal["poisson"]
-    params: Dict[Literal["lambda_orders", "lambda_skus", "lambda_quantity"],
+    params: Dict[Literal["lambda_orders", "probability_skus", "lambda_quantity"],
         Union[PositiveFloat, List[PositiveFloat], List[List[PositiveFloat]]]]
     model_config = ConfigDict(extra="forbid")
 
@@ -193,22 +193,34 @@ class DemandSamplerPoisson(BaseModel):
     @field_validator("params", mode="after")
     @classmethod
     def _check_poisson_param_shapes(cls, v: Dict[str, Any]):
-        for key in ("lambda_orders", "lambda_skus", "lambda_quantity"):
+        for key in ("lambda_orders", "probability_skus", "lambda_quantity"):
             if key not in v:
                 raise ValueError(f"poisson params must contain '{key}'")
 
-        lo, ls, lq = v["lambda_orders"], v["lambda_skus"], v["lambda_quantity"]
+        lo, ps, lq = v["lambda_orders"], v["probability_skus"], v["lambda_quantity"]
+
+        # Validate probability_skus bounds (must be in (0, 1])
+        def _check_prob_bounds(val, label="probability_skus"):
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                if val > 1:
+                    raise ValueError(f"{label} must be <= 1.0, got {val}")
+            elif isinstance(val, list):
+                for i, elem in enumerate(val):
+                    if isinstance(elem, (int, float)) and elem > 1:
+                        raise ValueError(f"{label}[{i}] must be <= 1.0, got {elem}")
+
+        _check_prob_bounds(ps)
 
         lo_scalar = isinstance(lo, (int, float)) and not isinstance(lo, bool)
-        ls_scalar = isinstance(ls, (int, float)) and not isinstance(ls, bool)
+        ps_scalar = isinstance(ps, (int, float)) and not isinstance(ps, bool)
         lq_scalar = isinstance(lq, (int, float)) and not isinstance(lq, bool)
 
         # All scalars — nothing more to check
-        if lo_scalar and ls_scalar and lq_scalar:
+        if lo_scalar and ps_scalar and lq_scalar:
             return v
 
         # Mixed scalar/array — reject
-        if lo_scalar or ls_scalar or lq_scalar:
+        if lo_scalar or ps_scalar or lq_scalar:
             raise ValueError(
                 "poisson params must be either all scalars or all arrays; "
                 "cannot mix scalar and array parameters"
@@ -218,17 +230,17 @@ class DemandSamplerPoisson(BaseModel):
         if isinstance(lo[0], list):
             raise ValueError("poisson params.lambda_orders must be a 1D list when using array mode")
         # lambda_skus must be 1D
-        if isinstance(ls[0], list):
-            raise ValueError("poisson params.lambda_skus must be a 1D list when using array mode")
+        if isinstance(ps[0], list):
+            raise ValueError("poisson params.probability_skus must be a 1D list when using array mode")
         # lambda_quantity must be 2D
         if not isinstance(lq[0], list):
             raise ValueError("poisson params.lambda_quantity must be a 2D list when using array mode")
 
         # lambda_orders and lambda_skus must have the same length
-        if len(lo) != len(ls):
+        if len(lo) != len(ps):
             raise ValueError(
-                f"poisson params.lambda_orders and lambda_skus must have the same length, "
-                f"got {len(lo)} and {len(ls)}"
+                f"poisson params.lambda_orders and probability_skus must have the same length, "
+                f"got {len(lo)} and {len(ps)}"
             )
         # lambda_quantity must be a non-empty rectangular 2D list
         if any(not row for row in lq):
@@ -239,7 +251,7 @@ class DemandSamplerPoisson(BaseModel):
         if len(lq) != len(lo):
             raise ValueError(
                 f"poisson params.lambda_quantity must have {len(lo)} rows "
-                f"(matching lambda_orders/lambda_skus length), got {len(lq)}"
+                f"(matching lambda_orders/probability_skus length), got {len(lq)}"
             )
 
         return v
@@ -619,11 +631,11 @@ class EnvironmentConfig(BaseModel):
                         f"demand_sampler.poisson params.lambda_orders must have length "
                         f"n_regions={nr}, got {len(lo)}"
                     )
-                ls = ds_params["lambda_skus"]
-                if len(ls) != nr:
+                ps = ds_params["probability_skus"]
+                if len(ps) != nr:
                     raise ValueError(
-                        f"demand_sampler.poisson params.lambda_skus must have length "
-                        f"n_regions={nr}, got {len(ls)}"
+                        f"demand_sampler.poisson params.probability_skus must have length "
+                        f"n_regions={nr}, got {len(ps)}"
                     )
                 lq = ds_params["lambda_quantity"]
                 if len(lq) != nr:

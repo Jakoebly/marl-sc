@@ -57,10 +57,10 @@ environment:
           - 19
           - 15
           - 2
-        lambda_skus: 
-          - 2
-          - 2
-          - 2
+        probability_skus: 
+          - 0.667
+          - 0.667
+          - 0.667
         lambda_quantity:
           - [156, 119, 267]
           - [185, 175, 375]

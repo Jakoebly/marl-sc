@@ -76,7 +76,7 @@ def env_config_file(temp_dir):
                     "type": "poisson",
                     "params": {
                         "lambda_orders": 2.0,
-                        "lambda_skus": 1.0,
+                        "probability_skus": 0.5,
                         "lambda_quantity": 1.0
                     }
                 },

@@ -36,6 +36,7 @@ def generate_visualizations(
     plot_cost_breakdown(episode, viz_dir)
     plot_demand_fulfillment(episode, viz_dir)
     plot_shipment_heatmap(episode, viz_dir)
+    plot_observations(episode, viz_dir)
     plot_obs_normalization(episode, viz_dir)
 
     # Generate episode summary across all episodes
@@ -175,27 +176,20 @@ def plot_orders(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
 
 def plot_orders_summary(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
-    Plots orders overview: replenishment order quantities, number of customer orders,
-    mean unique SKUs per customer order, and SKU quantities per SKU and region.
-    
+    Plots orders overview: per-warehouse replenishment totals, customer order statistics,
+    and average demand per region-SKU pair.
+
     Args:
         episode (Dict[str, np.ndarray]): Episode data dict.
         output_dir (Path): Directory to save the plot.
     """
-    order_quantities = episode["order_quantities"]  # Shape: (T, n_warehouses, n_skus)
-    demand_per_region = episode["demand_per_region"]  # Shape: (T, n_regions, n_skus)
+    order_quantities = episode["order_quantities"]      # (T, n_warehouses, n_skus)
+    demand_per_region = episode["demand_per_region"]    # (T, n_regions, n_skus)
 
     T, n_warehouses, n_skus = order_quantities.shape
     n_regions = demand_per_region.shape[1]
     timesteps = np.arange(T)
 
-    # Replenishment orders: total quantity per timestep (sum over warehouses and SKUs)
-    total_replenishment_orders = order_quantities.sum(axis=(1, 2))
-
-    # Unique SKUs per replenishment order: per warehouse, count SKUs with qty > 0
-    unique_skus_per_replenishment = (order_quantities > 0).sum(axis=2)  # (T, n_warehouses)
-
-    # Customer orders and unique SKUs (if available from step_info)
     n_orders = episode.get("n_orders", np.zeros(T, dtype=int))
     mean_unique_skus = episode.get("mean_unique_skus_per_order", np.zeros(T, dtype=float))
     if isinstance(n_orders, (int, float)):
@@ -203,75 +197,76 @@ def plot_orders_summary(episode: Dict[str, np.ndarray], output_dir: Path) -> Non
     if isinstance(mean_unique_skus, (int, float)):
         mean_unique_skus = np.full(T, mean_unique_skus)
 
-    # SKU quantities per SKU and region: use shipment if available, else demand
-    shipment_by_sku = episode.get("shipment_quantities_by_sku")  # (T, n_warehouses, n_regions, n_skus)
-    if shipment_by_sku is not None:
-        # Aggregate over warehouses: (T, n_regions, n_skus) -> (n_regions, n_skus) averaged
-        sku_qty_per_region = shipment_by_sku.sum(axis=1).mean(axis=0)  # (n_regions, n_skus)
-    else:
-        # Fallback: use demand per region averaged over time
-        sku_qty_per_region = demand_per_region.mean(axis=0)  # (n_regions, n_skus)
+    wh_colors = plt.cm.Set2.colors
+    sku_colors = plt.cm.tab10.colors
 
-    # Create figure with 4 subplots
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=False)
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
-    # 1. Replenishment order quantities over time
+    # 1. Replenishment orders per warehouse (stacked area)
     ax1 = axes[0, 0]
-    ax1.plot(timesteps, total_replenishment_orders, linewidth=1.5, color="#4c72b0")
-    ax1.set_ylabel("Total Order Quantity")
+    wh_totals = [order_quantities[:, wh, :].sum(axis=1) for wh in range(n_warehouses)]
+    ax1.stackplot(timesteps, wh_totals,
+                  labels=[f"WH {w}" for w in range(n_warehouses)],
+                  colors=[wh_colors[w % len(wh_colors)] for w in range(n_warehouses)],
+                  alpha=0.75)
+    ax1.set_ylabel("Total Order Qty")
     ax1.set_xlabel("Timestep")
-    ax1.set_title("Replenishment Orders (Total per Timestep)")
-    ax1.grid(True, alpha=0.3)
+    ax1.set_title("Replenishment Orders by Warehouse")
+    ax1.legend(fontsize=7, loc="upper right")
+    ax1.grid(True, alpha=0.2)
 
-    # 2. Number of customer orders and mean unique SKUs per order
+    # 2. Customer orders and mean unique SKUs
     ax2 = axes[0, 1]
-    ax2_twin = ax2.twinx()
-    ax2.plot(timesteps, n_orders, linewidth=1.5, color="#55a868", label="Number of Orders")
-    ax2_twin.plot(timesteps, mean_unique_skus, color="#c44e52", linewidth=1.5, label="Mean Unique SKUs/Order")
-    ax2.set_ylabel("Number of Customer Orders", color="#55a868")
-    ax2_twin.set_ylabel("Mean Unique SKUs per Order", color="#c44e52")
+    ax2.fill_between(timesteps, n_orders, alpha=0.3, color="#55a868")
+    ln1 = ax2.plot(timesteps, n_orders, linewidth=1.2, color="#55a868", label="Num. Orders")
+    ax2.set_ylabel("Customer Orders", color="#55a868")
     ax2.tick_params(axis="y", labelcolor="#55a868")
+    ax2_twin = ax2.twinx()
+    ln2 = ax2_twin.plot(timesteps, mean_unique_skus, linewidth=1.2, color="#c44e52",
+                        linestyle="--", label="Mean Unique SKUs")
+    ax2_twin.set_ylabel("Mean Unique SKUs / Order", color="#c44e52")
     ax2_twin.tick_params(axis="y", labelcolor="#c44e52")
     ax2.set_xlabel("Timestep")
-    ax2.set_title("Customer Orders & Unique SKUs per Order")
-    ax2.grid(True, alpha=0.3)
-    lines1, labels1 = ax2.get_legend_handles_labels()
-    lines2, labels2 = ax2_twin.get_legend_handles_labels()
-    ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
+    ax2.set_title("Customer Order Statistics")
+    ax2.legend(handles=ln1 + ln2, fontsize=7, loc="upper right")
+    ax2.grid(True, alpha=0.2)
 
-    # 3. Unique SKUs per replenishment order (per warehouse)
+    # 3. Total demand per SKU over time
     ax3 = axes[1, 0]
-    for wh in range(n_warehouses):
-        ax3.plot(timesteps, unique_skus_per_replenishment[:, wh], label=f"Warehouse {wh}", linewidth=1.2)
-    ax3.set_ylabel("Unique SKUs in Order")
-    ax3.set_xlabel("Timestep")
-    ax3.set_title("Unique SKUs per Replenishment Order (by Warehouse)")
-    ax3.legend(loc="upper right", fontsize=8)
-    ax3.grid(True, alpha=0.3)
-
-    # 4. SKU quantities per SKU and region (heatmap)
-    ax4 = axes[1, 1]
-    sku_region_data = sku_qty_per_region.T  # (n_skus, n_regions) for imshow
-    im = ax4.imshow(sku_region_data, cmap="YlOrRd", aspect="auto")
-    cbar = fig.colorbar(im, ax=ax4)
-    cbar.set_label("Avg. Quantity")
-    ax4.set_xticks(range(n_regions))
-    ax4.set_xticklabels([f"Region {r}" for r in range(n_regions)])
-    ax4.set_yticks(range(n_skus))
-    ax4.set_yticklabels([f"SKU {s}" for s in range(n_skus)])
-    ax4.set_xlabel("Region")
-    ax4.set_ylabel("SKU")
-    ax4.set_title("SKU Quantities per SKU and Region")
-    vmax = sku_region_data.max()
+    total_demand_per_sku = demand_per_region.sum(axis=1)  # (T, n_skus)
     for sku in range(n_skus):
-        for r in range(n_regions):
-            val = sku_region_data[sku, r]
-            ax4.text(r, sku, f"{val:.1f}", ha="center", va="center",
-                    color="white" if val > vmax * 0.6 else "black",
-                    fontsize=8, fontweight="bold")
+        ax3.plot(timesteps, total_demand_per_sku[:, sku], linewidth=1.2,
+                 color=sku_colors[sku % len(sku_colors)], label=f"SKU {sku}")
+    ax3.set_ylabel("Total Demand Qty")
+    ax3.set_xlabel("Timestep")
+    ax3.set_title("Total Customer Demand per SKU")
+    ax3.legend(fontsize=7, loc="upper right")
+    ax3.grid(True, alpha=0.2)
 
+    # 4. Average demand per region-SKU pair (heatmap)
+    ax4 = axes[1, 1]
+    avg_demand = demand_per_region.mean(axis=0)  # (n_regions, n_skus)
+    im = ax4.imshow(avg_demand, cmap="YlOrRd", aspect="auto", interpolation="nearest")
+    cbar = fig.colorbar(im, ax=ax4, shrink=0.85)
+    cbar.set_label("Avg. Demand / Timestep", fontsize=8)
+    ax4.set_xticks(range(n_skus))
+    ax4.set_xticklabels([f"SKU {s}" for s in range(n_skus)], fontsize=8)
+    ax4.set_yticks(range(n_regions))
+    ax4.set_yticklabels([f"Region {r}" for r in range(n_regions)], fontsize=8)
+    ax4.set_xlabel("SKU")
+    ax4.set_ylabel("Region")
+    ax4.set_title("Avg. Demand per Region × SKU")
+    vmax = avg_demand.max() if avg_demand.max() > 0 else 1
+    for r in range(n_regions):
+        for s in range(n_skus):
+            val = avg_demand[r, s]
+            ax4.text(s, r, f"{val:.0f}", ha="center", va="center",
+                     color="white" if val > vmax * 0.55 else "black",
+                     fontsize=9, fontweight="bold")
+
+    fig.suptitle("Orders Summary", fontsize=13, y=1.01)
     plt.tight_layout()
-    plt.savefig(output_dir / "02b_orders_summary.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "03_orders_summary.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -316,7 +311,7 @@ def plot_cost_breakdown(episode: Dict[str, np.ndarray], output_dir: Path) -> Non
     # Set x label and save figure
     axes[-1].set_xlabel("Timestep")
     plt.tight_layout()
-    plt.savefig(output_dir / "03_cost_breakdown.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "04_cost_breakdown.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -372,7 +367,7 @@ def plot_demand_fulfillment(episode: Dict[str, np.ndarray], output_dir: Path) ->
 
     # Set x label and save figure
     plt.tight_layout()
-    plt.savefig(output_dir / "04_demand_fulfillment.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "05_demand_fulfillment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -417,8 +412,69 @@ def plot_shipment_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> N
 
     # Set x label and save figure
     plt.tight_layout()
-    plt.savefig(output_dir / "05_shipment_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "06_shipment_heatmap.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
+    """
+    Plots the normalized local observation features over time for each warehouse.
+    Creates one figure per warehouse with a subplot for each of the 8 feature groups,
+    each showing one line per SKU.
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict.
+        output_dir (Path): Directory to save the plot.
+    """
+    obs_norm = episode.get("obs_normalized")  # (T, n_warehouses, obs_dim)
+    if obs_norm is None:
+        return
+
+    T, n_warehouses, obs_dim = obs_norm.shape
+    timesteps = np.arange(T)
+
+    feature_names = [
+        "Inventory",
+        "Pending Orders",
+        "Incoming Demand (Home)",
+        "Shipped (Home)",
+        "Shipped (Away)",
+        "Stockout",
+        "Rolling Demand Mean",
+        "Demand Forecast",
+    ]
+    n_features = len(feature_names)
+    n_skus = obs_dim // (n_features * (1 + n_warehouses))  # local_dim = 8 * n_skus
+    local_dim = n_features * n_skus
+
+    if local_dim > obs_dim:
+        return
+
+    sku_colors = plt.cm.tab10.colors
+
+    for wh in range(n_warehouses):
+        fig, axes = plt.subplots(n_features, 1, figsize=(14, 2.5 * n_features), sharex=True)
+
+        local_obs = obs_norm[:, wh, :local_dim]  # (T, local_dim)
+
+        for feat_idx in range(n_features):
+            ax = axes[feat_idx]
+            start = feat_idx * n_skus
+            end = start + n_skus
+            for sku in range(n_skus):
+                ax.plot(timesteps, local_obs[:, start + sku],
+                        label=f"SKU {sku}", linewidth=1.0,
+                        color=sku_colors[sku % len(sku_colors)], alpha=0.85)
+            ax.set_ylabel("Norm. Value", fontsize=7)
+            ax.set_title(f"{feature_names[feat_idx]}", fontsize=9, loc="left")
+            ax.legend(fontsize=6, ncol=n_skus, loc="upper right")
+            ax.grid(True, alpha=0.2)
+
+        axes[-1].set_xlabel("Timestep")
+        fig.suptitle(f"Warehouse {wh} — Normalized Local Observations", fontsize=12, y=1.0)
+        plt.tight_layout()
+        plt.savefig(output_dir / f"10_observations_wh{wh}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
 
 
 def plot_obs_normalization(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
@@ -457,7 +513,7 @@ def plot_obs_normalization(episode: Dict[str, np.ndarray], output_dir: Path) -> 
 
     axes[1].set_xlabel("Timestep")
     plt.tight_layout()
-    plt.savefig(output_dir / "07_obs_normalization_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "08_obs_normalization_heatmap.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     # --- Plot 2: Per-dimension mean/std summary for each warehouse ---
@@ -483,7 +539,7 @@ def plot_obs_normalization(episode: Dict[str, np.ndarray], output_dir: Path) -> 
 
     axes[-1, 0].set_xlabel("Observation Dimension Index")
     plt.tight_layout()
-    plt.savefig(output_dir / "08_obs_normalization_stats.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "09_obs_normalization_stats.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -555,5 +611,5 @@ def plot_episode_summary(episodes_data: List[Dict[str, np.ndarray]], output_dir:
 
     # Set x label and save figure
     plt.tight_layout()
-    plt.savefig(output_dir / "06_episode_summary.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / "07_episode_summary.png", dpi=150, bbox_inches="tight")
     plt.close(fig)

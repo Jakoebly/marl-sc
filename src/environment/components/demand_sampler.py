@@ -94,34 +94,34 @@ class PoissonDemandSampler(BaseDemandSampler):
         self.per_region = isinstance(component_config.params["lambda_orders"], list)
 
         if self.per_region:
-            self.lambda_orders = np.array(component_config.params["lambda_orders"], dtype=float)      # Shape: (n_regions,)
-            self.lambda_skus = np.array(component_config.params["lambda_skus"], dtype=float)        # Shape: (n_regions,)
-            self.lambda_quantity = np.array(component_config.params["lambda_quantity"], dtype=float)    # Shape: (n_regions, n_skus)
+            self.lambda_orders = np.array(component_config.params["lambda_orders"], dtype=float)          # Shape: (n_regions,)
+            self.probability_skus = np.array(component_config.params["probability_skus"], dtype=float)    # Shape: (n_regions,)
+            self.lambda_quantity = np.array(component_config.params["lambda_quantity"], dtype=float)       # Shape: (n_regions, n_skus)
         else:
             self.lambda_orders = float(component_config.params["lambda_orders"])
-            self.lambda_skus = float(component_config.params["lambda_skus"])
+            self.probability_skus = float(component_config.params["probability_skus"])
             self.lambda_quantity = float(component_config.params["lambda_quantity"])
     
     def sample(self, timestep: int) -> List[Order]:
         """
-        Samples orders using Poisson processes by performing the following steps:
-        
+        Samples orders using a Poisson process for the number of orders and Bernoulli trials
+        for SKU inclusion:
+
         For each region r:
             1. Sample the number of orders for the region (~Poisson(lambda_orders[r]))
             2. For each order:
-                2.1 Sample the number of SKUs in the order (~Poisson(lambda_skus[r]), capped at n_skus)
-                2.2 Sample which SKUs are in the order (equal probability, without replacement)
-                2.3 Sample quantities for each selected SKU s (~Poisson(lambda_quantity[r, s]), minimum 1 unit)
+                2.1 Include each SKU independently via a Bernoulli trial with probability_skus[r]
+                2.2 Sample quantities for each selected SKU s (~Poisson(lambda_quantity[r, s]), min 1)
 
-        If lambda parameters are scalar instead of arrays, the same lambda value is used for all regions/SKUs.
+        If parameters are scalar instead of arrays, the same value is used for all regions/SKUs.
 
         Args:
             timestep (int): Current timestep in the episode (unused for the Poisson sampler).
-            
+
         Returns:
-            orders (List[Order]): List of Order objects for this timestep. Shape: (n_regions, n_orders).
+            orders (List[Order]): List of Order objects for this timestep.
         """
-        
+
         orders = []
         
         # Generate orders for each region independently
@@ -129,41 +129,37 @@ class PoissonDemandSampler(BaseDemandSampler):
             # Get region-specific or global lambda values
             if self.per_region:
                 lambda_orders_r = self.lambda_orders[region_id]
-                lambda_skus_r = self.lambda_skus[region_id]
+                prob_skus_r = self.probability_skus[region_id]
             else:
                 lambda_orders_r = self.lambda_orders
-                lambda_skus_r = self.lambda_skus
+                prob_skus_r = self.probability_skus
 
             # Sample number of orders
             n_orders = self._rng.poisson(lambda_orders_r)
             
             # Fill each order with SKUs and quantities
             for _ in range(n_orders):
-                # Sample number of SKUs and cap at n_skus
-                n_skus_in_order = self._rng.poisson(lambda_skus_r)
-                n_skus_in_order = min(n_skus_in_order, self.n_skus) 
-                
-                # Initialize SKU demands array
-                sku_demands = np.zeros(self.n_skus, dtype=float) # Shape: (n_skus,)
-                
-                # Sample SKUs and quantities for this order
-                if n_skus_in_order > 0:
-                    # Sample SKU types (without replacement)
-                    sku_indices = self._rng.choice(self.n_skus, size=n_skus_in_order, replace=False)
-                    
-                    # Sample SKU quantities using per-region/SKU or global lambda
+                # Sample unique SKUS for the order
+                sku_mask = self._rng.random(self.n_skus) < prob_skus_r
+                sku_indices = np.where(sku_mask)[0]
+
+                 # Initialize SKU demands array
+                sku_demands = np.zeros(self.n_skus, dtype=float)
+
+                # Sample SKU quantities using per-region/SKU or global lambda
+                if len(sku_indices) > 0:
                     if self.per_region:
                         lambda_quantity_rs = self.lambda_quantity[region_id, sku_indices]
                         quantities = np.maximum(1, self._rng.poisson(lambda_quantity_rs))
                     else:
-                        quantities = np.maximum(1, self._rng.poisson(self.lambda_quantity, size=n_skus_in_order))
-                    
-                    # Assign quantities to selected SKUs
+                        # Assign quantities to selected SKUs
+                        quantities = np.maximum(1, self._rng.poisson(self.lambda_quantity, size=len(sku_indices)))
+
                     sku_demands[sku_indices] = quantities
                 
                 # Create Order object and add to list
                 orders.append(Order(region_id=region_id, sku_demands=sku_demands))
-        
+
         return orders
 
 
