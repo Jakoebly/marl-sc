@@ -36,6 +36,7 @@ def generate_visualizations(
     plot_cost_breakdown(episode, viz_dir)
     plot_demand_fulfillment(episode, viz_dir)
     plot_shipment_heatmap(episode, viz_dir)
+    plot_obs_normalization(episode, viz_dir)
 
     # Generate episode summary across all episodes
     if len(episodes_data) > 1:
@@ -216,7 +217,7 @@ def plot_orders_summary(episode: Dict[str, np.ndarray], output_dir: Path) -> Non
 
     # 1. Replenishment order quantities over time
     ax1 = axes[0, 0]
-    ax1.bar(timesteps, total_replenishment_orders, alpha=0.7, color="#4c72b0", width=0.9)
+    ax1.plot(timesteps, total_replenishment_orders, linewidth=1.5, color="#4c72b0")
     ax1.set_ylabel("Total Order Quantity")
     ax1.set_xlabel("Timestep")
     ax1.set_title("Replenishment Orders (Total per Timestep)")
@@ -225,7 +226,7 @@ def plot_orders_summary(episode: Dict[str, np.ndarray], output_dir: Path) -> Non
     # 2. Number of customer orders and mean unique SKUs per order
     ax2 = axes[0, 1]
     ax2_twin = ax2.twinx()
-    ax2.bar(timesteps, n_orders, alpha=0.6, color="#55a868", width=0.9, label="Number of Orders")
+    ax2.plot(timesteps, n_orders, linewidth=1.5, color="#55a868", label="Number of Orders")
     ax2_twin.plot(timesteps, mean_unique_skus, color="#c44e52", linewidth=1.5, label="Mean Unique SKUs/Order")
     ax2.set_ylabel("Number of Customer Orders", color="#55a868")
     ax2_twin.set_ylabel("Mean Unique SKUs per Order", color="#c44e52")
@@ -417,6 +418,72 @@ def plot_shipment_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> N
     # Set x label and save figure
     plt.tight_layout()
     plt.savefig(output_dir / "05_shipment_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_obs_normalization(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
+    """
+    Diagnostic plot comparing raw vs. normalized observations to verify that
+    the MeanStdFilter is correctly applied during evaluation rollouts.
+
+    Generates two visualizations:
+    1. Heatmaps of raw vs. normalized obs over time for warehouse 0.
+    2. Per-dimension mean/std summary across the episode for all warehouses,
+       showing whether normalized values are centered around 0 with unit variance.
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict.
+        output_dir (Path): Directory to save the plot.
+    """
+    obs_raw = episode.get("obs_raw")              # (T, n_warehouses, obs_dim)
+    obs_norm = episode.get("obs_normalized")      # (T, n_warehouses, obs_dim)
+
+    if obs_raw is None or obs_norm is None:
+        return
+
+    T, n_warehouses, obs_dim = obs_raw.shape
+
+    # --- Plot 1: Heatmap for warehouse 0 (raw vs normalized) ---
+    fig, axes = plt.subplots(2, 1, figsize=(16, 8))
+
+    for ax, data, title in [
+        (axes[0], obs_raw[:, 0, :], "Warehouse 0 — Raw Observations"),
+        (axes[1], obs_norm[:, 0, :], "Warehouse 0 — Normalized Observations"),
+    ]:
+        im = ax.imshow(data.T, aspect="auto", interpolation="nearest", cmap="RdBu_r")
+        fig.colorbar(im, ax=ax, shrink=0.8)
+        ax.set_ylabel("Obs Dimension")
+        ax.set_title(title)
+
+    axes[1].set_xlabel("Timestep")
+    plt.tight_layout()
+    plt.savefig(output_dir / "07_obs_normalization_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # --- Plot 2: Per-dimension mean/std summary for each warehouse ---
+    fig, axes = plt.subplots(n_warehouses, 1, figsize=(16, 4 * n_warehouses), squeeze=False)
+    dims = np.arange(obs_dim)
+
+    for wh in range(n_warehouses):
+        ax = axes[wh, 0]
+        raw_mean = obs_raw[:, wh, :].mean(axis=0)
+        raw_std = obs_raw[:, wh, :].std(axis=0)
+        norm_mean = obs_norm[:, wh, :].mean(axis=0)
+        norm_std = obs_norm[:, wh, :].std(axis=0)
+
+        ax.bar(dims - 0.2, raw_mean, width=0.4, color="#c44e52", alpha=0.7, label="Raw mean")
+        ax.errorbar(dims - 0.2, raw_mean, yerr=raw_std, fmt="none", ecolor="#c44e52", alpha=0.4, capsize=2)
+        ax.bar(dims + 0.2, norm_mean, width=0.4, color="#4c72b0", alpha=0.7, label="Norm mean")
+        ax.errorbar(dims + 0.2, norm_mean, yerr=norm_std, fmt="none", ecolor="#4c72b0", alpha=0.4, capsize=2)
+        ax.axhline(0, color="black", linewidth=0.5, linestyle="--")
+        ax.set_ylabel("Value")
+        ax.set_title(f"Warehouse {wh} — Per-Dimension Obs Statistics (episode avg ± std)")
+        ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.2)
+
+    axes[-1, 0].set_xlabel("Observation Dimension Index")
+    plt.tight_layout()
+    plt.savefig(output_dir / "08_obs_normalization_stats.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 

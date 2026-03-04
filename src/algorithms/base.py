@@ -110,6 +110,17 @@ class BaseAlgorithmWrapper(ABC):
         # by the MeanStdFilter env-to-module connector during training
         obs_filters = self._get_obs_filters()
 
+        # Diagnostic: print filter status so we can verify normalization is active
+        if obs_filters is not None:
+            print(f"[ROLLOUT] MeanStdFilter found with keys: {list(obs_filters.keys())}")
+            for fid, filt in obs_filters.items():
+                stats = filt.running_stats
+                if hasattr(stats, 'mean') and hasattr(stats, 'var'):
+                    print(f"  Filter '{fid}': mean range [{stats.mean.min():.2f}, {stats.mean.max():.2f}], "
+                          f"std range [{np.sqrt(stats.var).min():.4f}, {np.sqrt(stats.var).max():.2f}]")
+        else:
+            print("[ROLLOUT] WARNING: No MeanStdFilter found — observations will NOT be normalized")
+
         # Run manual rollout
         for ep in range(num_episodes):
             # Initialize episode data and reset environment
@@ -132,16 +143,23 @@ class BaseAlgorithmWrapper(ABC):
                 # Query trained policy for actions (deterministic / no exploration)
                 actions = {}
                 mu_sigma_per_agent = {}
+                obs_raw_per_agent = {}
+                obs_norm_per_agent = {}
                 for agent_id in env.agents:
                     # Get policy ID and module
                     policy_id = self.policy_mapping_fn(agent_id)
                     module = self.trainer.get_module(module_id=policy_id)
 
                     with torch.no_grad():
+                        # Store raw observation before normalization
+                        agent_obs_raw = np.array(obs[agent_id], dtype=np.float32)
+                        obs_raw_per_agent[agent_id] = agent_obs_raw.copy()
+
                         # Normalize observations using training filter stats
-                        agent_obs = obs[agent_id]
+                        agent_obs = agent_obs_raw
                         if obs_filters is not None and agent_id in obs_filters:
                             agent_obs = obs_filters[agent_id](agent_obs, update=False)
+                        obs_norm_per_agent[agent_id] = np.array(agent_obs, dtype=np.float32)
 
                         # Convert observations to tensors with batch dimension
                         obs_tensor = torch.tensor(
@@ -190,6 +208,12 @@ class BaseAlgorithmWrapper(ABC):
                 sigma_array = np.array([mu_sigma_per_agent[a]["sigma"] for a in env.agents])
                 episode_data["actor_mu"].append(mu_array)
                 episode_data["actor_sigma"].append(sigma_array)
+
+                # Record raw and normalized observations per agent
+                obs_raw_array = np.array([obs_raw_per_agent[a] for a in env.agents])
+                obs_norm_array = np.array([obs_norm_per_agent[a] for a in env.agents])
+                episode_data["obs_raw"].append(obs_raw_array)
+                episode_data["obs_normalized"].append(obs_norm_array)
 
                 # Step environment and record step info 
                 # Infos contain detailed step data when collect_step_info=True
