@@ -207,6 +207,13 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             name="actor"
         )
 
+        # For continuous action spaces, add a free (state-independent) log_std
+        # parameter. RLlib's TorchDiagGaussian.from_logits() expects the second
+        # half of ACTION_DIST_INPUTS to be log(std), so we concatenate this
+        # learnable parameter to the actor's mean output in the forward methods.
+        if isinstance(self.action_space, Box):
+            self.log_std = nn.Parameter(torch.zeros(actor_output_dim))
+
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
             architecture_type=self.critic_type,
@@ -396,6 +403,24 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
         return critic_out, critic_states_out
 
+    def _append_log_std(self, actor_out: torch.Tensor) -> torch.Tensor:
+        """Concatenates the free log_std parameter to the actor mean output.
+
+        Handles both non-recurrent (B, action_dim) and recurrent
+        (B, seq_len, action_dim) shapes.
+
+        Args:
+            actor_out: Actor network output (means).
+
+        Returns:
+            Concatenated [means, log_std] with the last dim doubled.
+        """
+        log_std = self.log_std
+        while log_std.dim() < actor_out.dim():
+            log_std = log_std.unsqueeze(0)
+        log_std = log_std.expand_as(actor_out)
+        return torch.cat([actor_out, log_std], dim=-1)
+
     @override(TorchRLModule)
     def _forward_inference(self, batch: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -439,6 +464,10 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # Forward through actor network
         actor_hidden = states_in.get("actor_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
         actor_out, actor_states_out = self._forward_actor(local_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+
+        # Append free log_std for continuous action spaces
+        if hasattr(self, "log_std"):
+            actor_out = self._append_log_std(actor_out)
 
         # Forward through critic network if it is a GRU to obtain hidden states for next step
         critic_states_out = None
@@ -539,6 +568,10 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # Forward through actor network
         actor_hidden = states_in.get("actor_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
         actor_out, actor_states_out = self._forward_actor(local_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+
+        # Append free log_std for continuous action spaces
+        if hasattr(self, "log_std"):
+            actor_out = self._append_log_std(actor_out)
 
         # Forward through critic network
         critic_obs = global_obs if self.use_centralized_critic else local_obs
