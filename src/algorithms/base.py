@@ -114,10 +114,13 @@ class BaseAlgorithmWrapper(ABC):
         if obs_filters is not None:
             print(f"[ROLLOUT] MeanStdFilter found with keys: {list(obs_filters.keys())}")
             for fid, filt in obs_filters.items():
-                stats = filt.running_stats
-                if hasattr(stats, 'mean') and hasattr(stats, 'var'):
-                    print(f"  Filter '{fid}': mean range [{stats.mean.min():.2f}, {stats.mean.max():.2f}], "
-                          f"std range [{np.sqrt(stats.var).min():.4f}, {np.sqrt(stats.var).max():.2f}]")
+                rs = filt.running_stats
+                if hasattr(rs, 'mean') and hasattr(rs, 'std'):
+                    print(f"  Filter '{fid}': n_samples={rs.n}, "
+                          f"mean=[{rs.mean.min():.2f} .. {rs.mean.max():.2f}], "
+                          f"std=[{rs.std.min():.4f} .. {rs.std.max():.2f}]")
+                else:
+                    print(f"  Filter '{fid}': (could not read stats, type={type(rs).__name__})")
         else:
             print("[ROLLOUT] WARNING: No MeanStdFilter found — observations will NOT be normalized")
 
