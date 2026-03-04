@@ -82,7 +82,7 @@ environment:
     reward_calculator:
       type: "cost"
       params:
-        scope: "team"
+        scope: "agent"
         scale_factor: 1.0
         cost_weights:
           - 0.25
