@@ -145,6 +145,6 @@ python src/experiments/run_experiment.py \
     --env-config ./config_files/environments/base_env.yaml \
     --algorithm-config ./config_files/algorithms/mappo.yaml \
     --output-dir ./experiment_outputs \
-    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda" \
+    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_AgentRew" \
     --wandb-project marl-sc \
     --root-seed 42
