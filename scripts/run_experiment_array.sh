@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-0%1                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
+#SBATCH --array=0-5%5                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
 
 
 ##############################
@@ -42,7 +42,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Define possible values for holding cost
-HOLDING_COSTS=(0.1)
+HOLDING_COSTS=(0.1, 0.3, 0.6, 1.0, 2.0)
 N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
 
 # Get the holding cost for this task
@@ -65,7 +65,7 @@ import yaml
 HOLDING_COST = $HOLDING_COST
 TEMP_CONFIG  = "$TEMP_CONFIG"
 
-with open("config_files/environments/base_env.yaml", "r") as f:
+with open("config_files/environments/env_2EU_1US.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 env = config["environment"]
@@ -199,11 +199,11 @@ python src/experiments/run_experiment.py \
     --env-config "$TEMP_CONFIG" \
     --algorithm-config config_files/algorithms/ippo.yaml \
     --output-dir "./experiment_outputs/${ARRAY_NAME}" \
-    --experiment-name "IPPO_single_3WH_3SKUS_holding_cost_${HOLDING_COST}" \
+    --experiment-name "IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 
-##############################
+##############################f
 # Cleanup
 ##############################

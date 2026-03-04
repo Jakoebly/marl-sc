@@ -30,9 +30,9 @@ environment:
         - [0, 0, 0] 
         - [0, 0, 0] 
       outbound_variable:
-        - [0.35, 0.28, 0.88]
-        - [1.40, 1.43, 1.26]
-        - [0.42, 0.48, 0.65]
+        - [0.50, 0.44, 0.77]  
+        - [1.17, 1.60, 0.36]  
+        - [0.05, 0.45, 1.01]  
       inbound_fixed:
         - [0, 0, 0] 
         - [0, 0, 0] 
@@ -46,25 +46,25 @@ environment:
       - 1.17 
       - 1.33 
     distances:
-      - [660, 2149, 1306]
-      - [6476, 8162, 6998]
-      - [1277, 2234, 1833]
+      - [806, 441, 5818]  
+      - [6248, 6407, 460] 
+      - [40, 1014, 6081]  
   components:
     demand_sampler:
       type: "poisson"
       params:
         lambda_orders:
-          - 19
-          - 15
+          - 18
           - 14
+          - 1
         probability_skus: 
           - 0.667
           - 0.667
           - 0.667
         lambda_quantity:
-          - [156, 119, 267]
-          - [185, 175, 375]
-          - [153, 137, 440]
+          - [154, 118, 264]
+          - [183, 175, 371]
+          - [135, 0.001, 440]
     demand_allocator:
       type: "greedy"
       params:
@@ -74,7 +74,7 @@ environment:
       params:
         values:
           - [1, 1, 1]
-          - [1, 1, 1]
+          - [2, 11, 10]
           - [1, 1, 1]
     lost_sales_handler:
       type: "shipment"
