@@ -143,8 +143,8 @@ ray start --head \
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config ./config_files/environments/env_custom_FixedLambda.yaml \
-    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --algorithm-config ./config_files/algorithms/mappo.yaml \
     --output-dir ./experiment_outputs \
-    --experiment-name "IPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
+    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
     --wandb-project marl-sc \
     --root-seed 42
