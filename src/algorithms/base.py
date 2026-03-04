@@ -106,6 +106,10 @@ class BaseAlgorithmWrapper(ABC):
         # Get action distribution class for deterministic action sampling
         dist_cls = sample_module.get_inference_action_dist_cls()
 
+        # Extract observation filters to replicate the normalization applied
+        # by the MeanStdFilter env-to-module connector during training
+        obs_filters = self._get_obs_filters()
+
         # Run manual rollout
         for ep in range(num_episodes):
             # Initialize episode data and reset environment
@@ -134,9 +138,14 @@ class BaseAlgorithmWrapper(ABC):
                     module = self.trainer.get_module(module_id=policy_id)
 
                     with torch.no_grad():
+                        # Normalize observations using training filter stats
+                        agent_obs = obs[agent_id]
+                        if obs_filters is not None and agent_id in obs_filters:
+                            agent_obs = obs_filters[agent_id](agent_obs, update=False)
+
                         # Convert observations to tensors with batch dimension
                         obs_tensor = torch.tensor(
-                            np.array(obs[agent_id]), dtype=torch.float32
+                            np.array(agent_obs), dtype=torch.float32
                         ).unsqueeze(0)
                         batch = {Columns.OBS: obs_tensor}
 
@@ -282,6 +291,33 @@ class BaseAlgorithmWrapper(ABC):
         # Return the first policy (or shared policy if parameter sharing)
         policy_id = list(self.trainer.config.multi_agent.policies.keys())[0]
         return self.trainer.get_policy(policy_id)
+
+    def _get_obs_filters(self) -> Optional[Dict]:
+        """
+        Extracts per-agent observation normalization filters from the MeanStdFilter
+        connector in the trainer's env-to-module pipeline. These filters contain
+        running mean/std statistics accumulated during training and can be called
+        with ``filter(obs, update=False)`` to apply the same normalization that
+        RLlib applies during training.
+
+        Returns:
+            Optional[Dict[str, MeanStdFilter]]: Dict mapping agent_id to filter
+                objects, or None if no MeanStdFilter connector is found.
+        """
+        from ray.rllib.connectors.env_to_module.mean_std_filter import (
+            MeanStdFilter as MeanStdFilterConnector,
+        )
+
+        try:
+            for connector in self.trainer.env_runner.env_to_module:
+                if isinstance(connector, MeanStdFilterConnector):
+                    if connector._filters is None:
+                        return None
+                    return connector._filters
+        except (AttributeError, TypeError):
+            pass
+
+        return None
 
     @staticmethod
     def create_env_factory(env_config: 'EnvironmentConfig') -> Callable[[Dict[str, Any]], 'ParallelPettingZooEnv']:
