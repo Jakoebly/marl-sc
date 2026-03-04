@@ -109,7 +109,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Force the current task's driver to connect to the current task's head
+# Force the current task's driver to coDefaultModelConfigect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
 # Print the current task's ports and Ray components
