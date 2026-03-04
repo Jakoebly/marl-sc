@@ -203,6 +203,13 @@ python src/experiments/run_experiment.py \
     --wandb-project marl-sc \
     --root-seed 42
 
+python src/experiments/run_experiment.py \
+  --mode evaluate \
+  --output-dir "./experiment_outputs/${ARRAY_NAME}" \
+  --experiment-name "IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}" \
+  --visualize \
+  --root-seed 42
+
 
 ##############################f
 # Cleanup
