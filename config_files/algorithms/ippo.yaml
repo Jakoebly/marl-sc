@@ -22,7 +22,7 @@ algorithm:
     use_gae: true
     lam: 0.95
     gamma: 0.99
-    parameter_sharing: true
+    parameter_sharing: false
     networks:
       shared_layers: null
         #type: "gru"
