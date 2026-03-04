@@ -148,3 +148,10 @@ python src/experiments/run_experiment.py \
     --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
     --wandb-project marl-sc \
     --root-seed 42
+
+python src/experiments/run_experiment.py \
+    --mode evaluate \
+    --output-dir ./experiment_outputs \
+    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
+    --visualize \
+    --root-seed 42
