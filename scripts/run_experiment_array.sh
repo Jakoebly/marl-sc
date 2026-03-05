@@ -194,7 +194,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}"
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSFalse_HC${HOLDING_COST}"
 
 python src/experiments/run_experiment.py \
     --mode single \
