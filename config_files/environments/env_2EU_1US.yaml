@@ -21,9 +21,9 @@ environment:
   cost_structure:
     holding_cost: 0.1
     penalty_cost:
-      - 7.0  
-      - 7.5    
-      - 8.5
+      - 3  
+      - 3.25    
+      - 4.25
     shipment_cost:
       outbound_fixed:
         - [0, 0, 0] 
@@ -82,7 +82,7 @@ environment:
     reward_calculator:
       type: "cost"
       params:
-        scope: "agent"
+        scope: "team"
         scale_factor: 1.0
         cost_weights:
           - 0.25
