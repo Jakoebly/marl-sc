@@ -57,7 +57,7 @@ environment:
         lambda_orders:
           - 18
           - 14
-          - 1
+          - 12
         probability_skus: 
           - 0.667
           - 0.667
@@ -74,10 +74,10 @@ environment:
       type: "custom"
       params:
         values:
-          - [1, 1, 1]
-          - [1, 1, 1]
-          - [1, 1, 1]
-    lost_sales_handler:
+          - [3, 3, 3]
+          - [3, 3, 3]
+          - [3, 3, 3]
+        lost_sales_handler:
       type: "shipment"
       params: null
     reward_calculator:
