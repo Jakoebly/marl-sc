@@ -146,14 +146,14 @@ python src/experiments/run_experiment.py \
     --mode single \
     --env-config ./config_files/environments/env_2EU_1US.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
-    --output-dir ./experiment_outputs \
+    --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir ./experiment_outputs \
+    --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
