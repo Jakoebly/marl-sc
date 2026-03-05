@@ -140,7 +140,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_ObsNorm_TEST"
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_NoObsNorm_TEST"
 
 python src/experiments/run_experiment.py \
     --mode single \
