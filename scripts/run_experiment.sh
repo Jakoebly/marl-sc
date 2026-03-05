@@ -140,7 +140,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_LowerPC"
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_RatioNorm"
 
 python src/experiments/run_experiment.py \
     --mode single \
