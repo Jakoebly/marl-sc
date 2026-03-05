@@ -33,7 +33,6 @@ environment:
         - [0.05, 0.45, 1.01]  
         - [0.50, 0.44, 0.77]  
         - [1.17, 1.60, 0.36]  
-
       inbound_fixed:
         - [0, 0, 0] 
         - [0, 0, 0] 
@@ -83,7 +82,7 @@ environment:
     reward_calculator:
       type: "cost"
       params:
-        scope: "team"
+        scope: "agent"
         scale_factor: 1.0
         cost_weights:
           - 0.25
