@@ -140,7 +140,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="MAPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_RatioNorm_TESTSTSTS"
+EXPERIMENT_NAME="MAPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_RatioNorm_NoAggFeat"
 
 python src/experiments/run_experiment.py \
     --mode single \
