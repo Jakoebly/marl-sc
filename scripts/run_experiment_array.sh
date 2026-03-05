@@ -42,7 +42,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Define possible values for holding cost
-HOLDING_COSTS=(0.6)
+HOLDING_COSTS=(0.1)
 N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
 
 # Get the holding cost for this task
@@ -194,7 +194,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSFalse_HC${HOLDING_COST}"
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}_CORRECTED"
 
 python src/experiments/run_experiment.py \
     --mode single \
