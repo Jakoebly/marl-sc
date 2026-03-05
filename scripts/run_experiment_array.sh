@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-0%1                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
+#SBATCH --array=0-4%5                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
 
 
 ##############################
@@ -42,7 +42,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Define possible values for holding cost
-HOLDING_COSTS=(0.3)
+HOLDING_COSTS=(0.1 0.3 0.6 1.0 2.0)
 N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
 
 # Get the holding cost for this task
@@ -194,19 +194,21 @@ ray start --head \
 # Run training
 ##############################
 
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSFalse_HC${HOLDING_COST}"
+
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config "$TEMP_CONFIG" \
     --algorithm-config config_files/algorithms/ippo.yaml \
     --output-dir "./experiment_outputs/${ARRAY_NAME}" \
-    --experiment-name "IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
     --output-dir "./experiment_outputs/${ARRAY_NAME}" \
-    --experiment-name "IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
 
