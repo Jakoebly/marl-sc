@@ -477,8 +477,9 @@ class InventoryEnvironment(ParallelEnv):
             demand_forecast_total = demand_forecast.sum()
 
             # If ratio normalization is enabled, normalize the per-SKU features
+            eps = 1e-8
             if use_ratio_norm:
-                eps = 1e-8
+                print(f"Using ratio normalization")
                 obs_inventory = sku_inventory / (inventory_total + eps)
                 obs_pending = sku_pending / (pending_total + eps)
                 obs_demand_home = demand_home / (demand_home_total + eps)

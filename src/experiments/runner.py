@@ -227,7 +227,10 @@ class EvaluationRunner:
             rollout_env = InventoryEnvironment(
                 self.env_config, 
                 seed=self.eval_seed,
-                env_meta={"data_mode": "val"},
+                env_meta={
+                    "data_mode": "val",
+                    "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
+                },
             )
 
             # Run manual rollout for detailed per-step data collection
