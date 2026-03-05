@@ -32,6 +32,39 @@ from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 # Helpers
 # ============================================================================
 
+def _save_run_metadata(
+    output_dir: str,
+    runner: 'ExperimentRunner',
+    ray_trial_id: Optional[str] = None,
+):
+    """
+    Writes a one-time metadata file at the start of a run or trial.
+    The file is written only if it does not already exist, so it is safe to
+    call multiple times without overwriting.
+
+    Args:
+        output_dir (str): Directory to write the metadata file into.
+        runner (ExperimentRunner): The experiment runner (used to access the
+            underlying RLlib Algorithm for logdir and config).
+        ray_trial_id (Optional[str]): Ray Tune trial ID, or None for single runs.
+    """
+    meta_path = Path(output_dir) / "run_meta.json"
+    if meta_path.exists():
+        return
+
+    trainer = runner.algorithm.trainer
+    meta = {
+        "ray_trial_id": ray_trial_id or trainer.trial_id,
+        "ray_logdir": str(trainer.logdir),
+        "config": trainer.config.to_dict(),
+    }
+
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, default=str)
+
+    print(f"[INFO] Saved run metadata to: {meta_path}")
+
 def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
     """
     Searches recursively for a directory with the given experiment name
@@ -187,6 +220,12 @@ def run_single_experiment(
         seed_manager=seed_manager,
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
+    )
+
+    # Save run metadata once before training starts
+    _save_run_metadata(
+        output_dir=checkpoint_dir,
+        runner=runner,
     )
 
     # Resume from checkpoint if specified
@@ -438,6 +477,19 @@ def trainable(config: Dict[str, Any]):
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
     )
+
+    # Save run metadata once before training starts
+    if checkpoint_dir:
+        ray_trial_id = None
+        try:
+            ray_trial_id = tune.get_context().get_trial_id()
+        except (AttributeError, RuntimeError):
+            pass
+        _save_run_metadata(
+            output_dir=checkpoint_dir,
+            runner=runner,
+            ray_trial_id=ray_trial_id,
+        )
 
     # Create callback for reporting single iterations to Ray Tune
     from functools import partial
