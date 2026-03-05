@@ -77,13 +77,13 @@ environment:
           - [3, 3, 3]
           - [3, 3, 3]
           - [3, 3, 3]
-        lost_sales_handler:
+    lost_sales_handler:
       type: "shipment"
       params: null
     reward_calculator:
       type: "cost"
       params:
-        scope: "agent"
+        scope: "team"
         scale_factor: 1.0
         cost_weights:
           - 0.25
