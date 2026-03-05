@@ -140,18 +140,20 @@ ray start --head \
 # Run training
 ##############################
 
+EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_ObsNorm_TEST"
+
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_custom_FixedLambda.yaml \
-    --algorithm-config ./config_files/algorithms/mappo.yaml \
+    --env-config ./config_files/environments/env_2EU_1US.yaml \
+    --algorithm-config ./config_files/algorithms/ippo.yaml \
     --output-dir ./experiment_outputs \
-    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
+    --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
     --output-dir ./experiment_outputs \
-    --experiment-name "MAPPO_single_3WH_3SKUS_holding_cost_0.1_FixedSigma_LT1_FixedLambda_FixedParameters" \
+    --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
