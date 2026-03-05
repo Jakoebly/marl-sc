@@ -479,7 +479,6 @@ class InventoryEnvironment(ParallelEnv):
             # If ratio normalization is enabled, normalize the per-SKU features
             eps = 1e-8
             if use_ratio_norm:
-                print(f"Using ratio normalization")
                 obs_inventory = sku_inventory / (inventory_total + eps)
                 obs_pending = sku_pending / (pending_total + eps)
                 obs_demand_home = demand_home / (demand_home_total + eps)
@@ -500,24 +499,30 @@ class InventoryEnvironment(ParallelEnv):
                 obs_rolling_mean = rolling_mean
                 obs_demand_forecast = demand_forecast
 
-            # Aggregate features
-            agg_inventory = np.float32(np.log1p(inventory_total))
-            agg_pending = np.float32(np.log1p(pending_total))
-            agg_demand_home = np.float32(np.log1p(demand_home_total))
-            agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
-            agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
-            agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
+            # # Aggregate features
+            # agg_inventory = np.float32(np.log1p(inventory_total))
+            # agg_pending = np.float32(np.log1p(pending_total))
+            # agg_demand_home = np.float32(np.log1p(demand_home_total))
+            # agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
+            # agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
+            # agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
 
             # Concatenate features into a single local observation
             local = np.concatenate([
-                obs_inventory, np.array([agg_inventory]),                     
-                obs_pending, np.array([agg_pending]),             
-                obs_demand_home, np.array([agg_demand_home]),     
+                obs_inventory,
+                # obs_inventory, np.array([agg_inventory]),                     
+                obs_pending,
+                # obs_pending, np.array([agg_pending]),             
+                obs_demand_home,
+                # obs_demand_home, np.array([agg_demand_home]),     
                 obs_shipped_home,                                 
-                obs_shipped_away, np.array([agg_shipped_away]),   
+                obs_shipped_away,
+                # obs_shipped_away, np.array([agg_shipped_away]),   
                 obs_stockout,                                     
-                obs_rolling_mean, np.array([agg_rolling_mean]),   
-                obs_demand_forecast, np.array([agg_demand_forecast]),
+                obs_rolling_mean,
+                # obs_rolling_mean, np.array([agg_rolling_mean]),   
+                obs_demand_forecast,
+                # obs_demand_forecast, np.array([agg_demand_forecast]),
             ]).astype(np.float32)
             local_obs[warehouse_id] = local
 
