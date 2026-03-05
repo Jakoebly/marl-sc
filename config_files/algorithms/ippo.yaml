@@ -22,6 +22,7 @@ algorithm:
     use_gae: true
     lam: 0.95
     gamma: 0.99
+    obs_normalization: false
     parameter_sharing: true
     networks:
       shared_layers: null

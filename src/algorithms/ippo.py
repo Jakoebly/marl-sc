@@ -82,7 +82,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             action_space=action_space,
             model_config=model_config
         )
-        
+
         # Determine multi-agent setup based on parameter sharing
         if parameter_sharing:
             # Single policy shared across all agents
@@ -97,6 +97,14 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         
         # Store policy mapping function for future use (e.g., rollout)
         self.policy_mapping_fn = policy_mapping_fn
+        
+        # Apply obs normalization if enabled
+        env_runners_kwargs = {
+            "num_env_runners": num_env_runners,
+            "num_envs_per_env_runner": num_envs_per_env_runner,
+        }
+        if ippo_params.obs_normalization:
+            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
         
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
@@ -133,11 +141,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 lambda_=ippo_params.lam,
                 gamma=ippo_params.gamma
             )
-            .env_runners(
-                num_env_runners=num_env_runners,
-                num_envs_per_env_runner=num_envs_per_env_runner,
-                env_to_module_connector=lambda env, spaces, device: MeanStdFilter(multi_agent=True)
-            )
+            .env_runners(**env_runners_kwargs)
             .evaluation(
                 evaluation_interval=shared_params.eval_interval,
                 evaluation_duration=shared_params.num_eval_episodes,
