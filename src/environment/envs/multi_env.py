@@ -100,11 +100,16 @@ class InventoryEnvironment(ParallelEnv):
         self.distances = context.distances  # Shape: (n_warehouses, n_regions)
         self.home_regions = np.argmin(self.distances, axis=1)  # Shape: (n_warehouses,)
 
-        # Exponential smoothing parameter for demand forecast
+        # Set number of timesteps for rolling demand mean
+        self.rolling_window = 5
+        
+        # Set exponential smoothing parameter for demand forecast
         self.ema_alpha = 0.3
 
-        # Number of timesteps for rolling demand mean
-        self.rolling_window = 5
+        # Set observation normalization mode
+        self.obs_normalization = "off"
+        if env_meta is not None:
+            self.obs_normalization = env_meta.get("obs_normalization", "off")
 
         # Set agent IDs
         self.agents = [f"warehouse_{i}" for i in range(self.n_warehouses)]
@@ -292,16 +297,17 @@ class InventoryEnvironment(ParallelEnv):
     
     def observation_space(self, agent: str) -> Box:
         """
-        Returns the observation space for a warehouse consisting of 8 feature groups per SKU:
-        - inventory
-        - pending orders
-        - incoming demand (home)
-        - units shipped (home)
-        - units shipped (away)
-        - stockout
-        - rolling demand mean (home)
-        - demand forecast (home)
-        
+        Returns the observation space for a warehouse consisting of 8 feature groups per warehouse w (S = n_skus):
+
+            - inventory              (S per-SKU + 1 aggregate = S+1)
+            - pending orders         (S per-SKU + 1 aggregate = S+1)
+            - incoming demand (home) (S per-SKU + 1 aggregate = S+1)
+            - units shipped (home)   (S per-SKU                = S)
+            - units shipped (away)   (S per-SKU + 1 aggregate = S+1)
+            - stockout               (S per-SKU                = S)
+            - rolling demand mean    (S per-SKU + 1 aggregate = S+1)
+            - demand forecast        (S per-SKU + 1 aggregate = S+1)
+
         The observation is a flat vector that concatenates the local observation (this warehouse's
         features) followed by the global observation (all warehouses' features concatenated).
         The RLModule splits this flat vector using local_obs_dim passed via model_config.
@@ -311,17 +317,17 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             observation_space (Box): Flat observation space for a warehouse.
-                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus
-                and global_obs_dim = n_warehouses * 8 * n_skus.
+                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus + 6
+                and global_obs_dim = n_warehouses * local_obs_dim.
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 8 * self.n_skus
+        local_obs_dim = 8 * self.n_skus + 6
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the flat observation space (local + global concatenated)
         observation_space = Box(
-            low=0.0, high=np.inf, shape=(local_obs_dim + global_obs_dim,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(local_obs_dim + global_obs_dim,), dtype=np.float32
         )
 
         return observation_space
@@ -332,15 +338,15 @@ class InventoryEnvironment(ParallelEnv):
         
         Returns:
             global_observation_space (Box): Box space for global observation space. 
-                Shape: (n_warehouses * 8 * n_skus,).
+                Shape: (n_warehouses * (8 * n_skus + 6),).
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 8 * self.n_skus
+        local_obs_dim = 8 * self.n_skus + 6
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the global observation space
-        global_observation_space = Box(low=0.0, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
+        global_observation_space = Box(low=-np.inf, high=np.inf, shape=(global_obs_dim,), dtype=np.float32)
 
         return global_observation_space
 
@@ -421,15 +427,20 @@ class InventoryEnvironment(ParallelEnv):
 
     def _get_observations(self) -> Dict[str, np.ndarray]:
         """
-        Builds per-warehouse local and global observations consisting of the following features:        
-        - Current inventory level per SKU
-        - Sum of all pending orders per SKU
-        - Incoming demand from home region per SKU
-        - Units shipped to home region per SKU
-        - Units shipped to non-home regions per SKU
-        - Stockout (unmet demand at home warehouse) per SKU
-        - Rolling mean of home region demand over last 5 timesteps per SKU
-        - Exponential smoothing demand forecast for home region per SKU
+        Builds per-warehouse local and global observations consisting of 8 feature groups.
+        For obs_normalization == "ratio", per-SKU features are ratio-normalized (fractions)
+        and aggregate features are log1p-scaled totals or ratios. For "off" and "meanstd",
+        per-SKU features are raw values with the same aggregate features appended.
+        
+        Feature groups per warehouse w (S = n_skus):
+            1. Inventory:           S per-SKU + 1 aggregate  (S+1)
+            2. Pending orders:      S per-SKU + 1 aggregate  (S+1)
+            3. Demand home:         S per-SKU + 1 aggregate  (S+1)
+            4. Shipped home:        S per-SKU                (S)
+            5. Shipped away:        S per-SKU + 1 aggregate  (S+1)
+            6. Stockout:            S per-SKU                (S)
+            7. Rolling demand mean: S per-SKU + 1 aggregate  (S+1)
+            8. Demand forecast:     S per-SKU + 1 aggregate  (S+1)
         
         Returns:
             observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to flat 
@@ -437,29 +448,78 @@ class InventoryEnvironment(ParallelEnv):
                 Shape: {warehouse_id: (local_obs_dim + global_obs_dim,)}.
         """
 
-        # Initialize dictionary to store local observations
+        # Set eps and ratio normalization flag
+        use_ratio_norm = self.obs_normalization == "ratio"
+
+         # Initialize dictionary to store local observations
         local_obs = {}
         
         # Build local observations for each warehouse
         for warehouse_idx, warehouse_id in enumerate(self.agents):
-            obs_inventory = self.inventory[warehouse_idx, :].copy()
-            pending_total = np.zeros(self.n_skus, dtype=np.float32)
+            # Compute raw per-SKU features for this warehouse
+            sku_inventory  = self.inventory[warehouse_idx, :].copy()             
+            sku_pending  = np.zeros(self.n_skus, dtype=np.float32)
             for orders_array in self.pending_orders.values():
-                pending_total += orders_array[warehouse_idx, :]
+                sku_pending += orders_array[warehouse_idx, :]
+            demand_home = self._incoming_demand_home[warehouse_idx, :]  
+            shipped_home = self._units_shipped_home[warehouse_idx, :]   
+            shipped_away = self._units_shipped_away[warehouse_idx, :]   
+            stockout = self._stockout[warehouse_idx, :]                 
+            rolling_mean = self._rolling_demand_mean_home[warehouse_idx, :]
+            demand_forecast = self._demand_forecast_home[warehouse_idx, :] 
+
+            # Aggregate sums across SKUs used for ratio normalization and aggregate features
+            inventory_total = sku_inventory.sum()
+            pending_total = sku_pending.sum()
+            demand_home_total = demand_home.sum()
+            shipped_total = (shipped_home + shipped_away).sum()
+            rolling_mean_total = rolling_mean.sum()
+            demand_forecast_total = demand_forecast.sum()
+
+            # If ratio normalization is enabled, normalize the per-SKU features
+            if use_ratio_norm:
+                eps = 1e-8
+                obs_inventory = sku_inventory / (inventory_total + eps)
+                obs_pending = sku_pending / (pending_total + eps)
+                obs_demand_home = demand_home / (demand_home_total + eps)
+                obs_shipped_home = shipped_home / (demand_home_total + eps)
+                obs_shipped_away = shipped_away / (shipped_total + eps)
+                obs_stockout = stockout / (demand_home_total + eps)
+                obs_rolling_mean = rolling_mean / (rolling_mean_total + eps)
+                obs_demand_forecast = demand_forecast / (demand_forecast_total + eps)
             
-            # Concatenate features and store them in the observations dictionary
+            # If ratio normalization is disabled, use raw features
+            else:
+                obs_inventory = sku_inventory
+                obs_pending = sku_pending
+                obs_demand_home = demand_home
+                obs_shipped_home = shipped_home
+                obs_shipped_away = shipped_away
+                obs_stockout = stockout
+                obs_rolling_mean = rolling_mean
+                obs_demand_forecast = demand_forecast
+
+            # Aggregate features
+            agg_inventory = np.float32(np.log1p(inventory_total))
+            agg_pending = np.float32(np.log1p(pending_total))
+            agg_demand_home = np.float32(np.log1p(demand_home_total))
+            agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
+            agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
+            agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
+
+            # Concatenate features into a single local observation
             local = np.concatenate([
-                obs_inventory,
-                pending_total,
-                self._incoming_demand_home[warehouse_idx, :],
-                self._units_shipped_home[warehouse_idx, :],
-                self._units_shipped_away[warehouse_idx, :],
-                self._stockout[warehouse_idx, :],
-                self._rolling_demand_mean_home[warehouse_idx, :],
-                self._demand_forecast_home[warehouse_idx, :],
+                obs_inventory, np.array([agg_inventory]),                     
+                obs_pending, np.array([agg_pending]),             
+                obs_demand_home, np.array([agg_demand_home]),     
+                obs_shipped_home,                                 
+                obs_shipped_away, np.array([agg_shipped_away]),   
+                obs_stockout,                                     
+                obs_rolling_mean, np.array([agg_rolling_mean]),   
+                obs_demand_forecast, np.array([agg_demand_forecast]),
             ]).astype(np.float32)
             local_obs[warehouse_id] = local
-        
+
         # Build global observations
         global_obs = np.concatenate([local_obs[agent_id] for agent_id in self.agents])
 
@@ -468,7 +528,7 @@ class InventoryEnvironment(ParallelEnv):
             agent_id: np.concatenate([local_obs[agent_id], global_obs])
             for agent_id in self.agents
         }
-        
+
         return obs
 
     def _update_observations(

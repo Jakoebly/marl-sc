@@ -98,12 +98,18 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         # Store policy mapping function for future use (e.g., rollout)
         self.policy_mapping_fn = policy_mapping_fn
         
-        # Apply obs normalization if enabled
+        # Store obs normalization mode for rollout
+        self.obs_normalization = ippo_params.obs_normalization
+
+        # Set obs normalization mode on the env (needed for manual rollout)
+        self.env.obs_normalization = self.obs_normalization
+
+        # Apply MeanStdFilter if obs_normalization is "meanstd"
         env_runners_kwargs = {
             "num_env_runners": num_env_runners,
             "num_envs_per_env_runner": num_envs_per_env_runner,
         }
-        if ippo_params.obs_normalization:
+        if self.obs_normalization == "meanstd":
             env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
         
         # Create PPO config with multi-agent setup included in chain
@@ -115,7 +121,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 clip_actions=True,
                 env_config={
                     "seed": self.train_seed,
-                    "data_mode": "train" 
+                    "data_mode": "train",
+                    "obs_normalization": self.obs_normalization,
                 }
             )
             .multi_agent(
@@ -152,7 +159,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     "use_worker_filter_stats": False,
                     "env_config": {
                         "seed": self.eval_seed,
-                        "data_mode": "val" 
+                        "data_mode": "val",
+                        "obs_normalization": self.obs_normalization,
                     }
                 }
             )

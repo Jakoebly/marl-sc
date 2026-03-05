@@ -106,23 +106,14 @@ class BaseAlgorithmWrapper(ABC):
         # Get action distribution class for deterministic action sampling
         dist_cls = sample_module.get_inference_action_dist_cls()
 
-        # Extract observation filters to replicate the normalization applied
-        # by the MeanStdFilter env-to-module connector during training
-        obs_filters = self._get_obs_filters()
+        # Determine normalization mode (stored by the wrapper constructor)
+        obs_norm_mode = getattr(self, "obs_normalization", "off")
 
-        # Diagnostic: print filter status so we can verify normalization is active
-        if obs_filters is not None:
-            print(f"[ROLLOUT] MeanStdFilter found with keys: {list(obs_filters.keys())}")
-            for fid, filt in obs_filters.items():
-                rs = filt.running_stats
-                if hasattr(rs, 'mean') and hasattr(rs, 'std'):
-                    print(f"  Filter '{fid}': n_samples={rs.n}, "
-                          f"mean=[{rs.mean.min():.2f} .. {rs.mean.max():.2f}], "
-                          f"std=[{rs.std.min():.4f} .. {rs.std.max():.2f}]")
-                else:
-                    print(f"  Filter '{fid}': (could not read stats, type={type(rs).__name__})")
-        else:
-            print("[ROLLOUT] WARNING: No MeanStdFilter found — observations will NOT be normalized")
+        # For "meanstd" mode, extract observation filters to replicate the
+        # normalization applied by the MeanStdFilter env-to-module connector
+        obs_filters = None
+        if obs_norm_mode == "meanstd":
+            obs_filters = self._get_obs_filters()
 
         # Run manual rollout
         for ep in range(num_episodes):

@@ -420,7 +420,7 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
     Plots the normalized local observation features over time for each warehouse.
     Creates one figure per warehouse with a subplot for each of the 8 feature groups,
-    each showing one line per SKU.
+    each showing one line per SKU plus aggregate features where present.
 
     Args:
         episode (Dict[str, np.ndarray]): Episode data dict.
@@ -433,45 +433,57 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     T, n_warehouses, obs_dim = obs_norm.shape
     timesteps = np.arange(T)
 
-    feature_names = [
-        "Inventory",
-        "Pending Orders",
-        "Incoming Demand (Home)",
-        "Shipped (Home)",
-        "Shipped (Away)",
-        "Stockout",
-        "Rolling Demand Mean",
-        "Demand Forecast",
+    # Feature groups: (name, has_aggregate)
+    feature_groups = [
+        ("Inventory",              True),
+        ("Pending Orders",         True),
+        ("Incoming Demand (Home)", True),
+        ("Shipped (Home)",         False),
+        ("Shipped (Away)",         True),
+        ("Stockout",               False),
+        ("Rolling Demand Mean",    True),
+        ("Demand Forecast",        True),
     ]
-    n_features = len(feature_names)
-    n_skus = obs_dim // (n_features * (1 + n_warehouses))  # local_dim = 8 * n_skus
-    local_dim = n_features * n_skus
+
+    # Solve for n_skus: local_dim = 8*N + 6
+    n_groups_with_agg = sum(1 for _, has_agg in feature_groups if has_agg)
+    n_groups = len(feature_groups)
+    n_skus = (obs_dim // (1 + n_warehouses) - n_groups_with_agg) // n_groups
+    local_dim = n_groups * n_skus + n_groups_with_agg
 
     if local_dim > obs_dim:
         return
 
     sku_colors = plt.cm.tab10.colors
+    n_subplots = len(feature_groups)
 
     for wh in range(n_warehouses):
-        fig, axes = plt.subplots(n_features, 1, figsize=(14, 2.5 * n_features), sharex=True)
+        fig, axes = plt.subplots(n_subplots, 1, figsize=(14, 2.5 * n_subplots), sharex=True)
 
         local_obs = obs_norm[:, wh, :local_dim]  # (T, local_dim)
 
-        for feat_idx in range(n_features):
+        offset = 0
+        for feat_idx, (feat_name, has_agg) in enumerate(feature_groups):
             ax = axes[feat_idx]
-            start = feat_idx * n_skus
-            end = start + n_skus
             for sku in range(n_skus):
-                ax.plot(timesteps, local_obs[:, start + sku],
+                ax.plot(timesteps, local_obs[:, offset + sku],
                         label=f"SKU {sku}", linewidth=1.0,
                         color=sku_colors[sku % len(sku_colors)], alpha=0.85)
-            ax.set_ylabel("Norm. Value", fontsize=7)
-            ax.set_title(f"{feature_names[feat_idx]}", fontsize=9, loc="left")
-            ax.legend(fontsize=6, ncol=n_skus, loc="upper right")
+            offset += n_skus
+
+            if has_agg:
+                ax.plot(timesteps, local_obs[:, offset],
+                        label="Aggregate", linewidth=1.2, linestyle="--",
+                        color="black", alpha=0.7)
+                offset += 1
+
+            ax.set_ylabel("Value", fontsize=7)
+            ax.set_title(f"{feat_name}", fontsize=9, loc="left")
+            ax.legend(fontsize=6, ncol=min(n_skus + 1, 8), loc="upper right")
             ax.grid(True, alpha=0.2)
 
         axes[-1].set_xlabel("Timestep")
-        fig.suptitle(f"Warehouse {wh} — Normalized Local Observations", fontsize=12, y=1.0)
+        fig.suptitle(f"Warehouse {wh} — Local Observations", fontsize=12, y=1.0)
         plt.tight_layout()
         plt.savefig(output_dir / f"10_observations_wh{wh}.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
