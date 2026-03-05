@@ -42,7 +42,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Define possible values for holding cost
-HOLDING_COSTS=(0.3)
+HOLDING_COSTS=(0.1 0.3 0.6 1.0 2.0)
 N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
 
 # Get the holding cost for this task
