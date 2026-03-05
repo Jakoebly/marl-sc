@@ -48,18 +48,29 @@ def _save_run_metadata(
             underlying RLlib Algorithm for logdir and config).
         ray_trial_id (Optional[str]): Ray Tune trial ID, or None for single runs.
     """
-    meta_path = Path(output_dir) / "run_meta.json"
+
+    # Set the filename for the metadata file
+    METADATA_FILENAME = "metadata.json"
+
+    # Create the path to the metadata file and check if it already exists
+    meta_path = Path(output_dir) / METADATA_FILENAME
     if meta_path.exists():
         return
 
+    # Get the trainer from the runner instance
     trainer = runner.algorithm.trainer
+
+    # Create the metadata dictionary
     meta = {
-        "ray_trial_id": ray_trial_id or trainer.trial_id,
+        "ray_trial_id": ray_trial_id or Path(trainer.logdir).name,
         "ray_logdir": str(trainer.logdir),
         "config": trainer.config.to_dict(),
     }
 
+    # Create the directory if it does not exist
     meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save the metadata to the file
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, default=str)
 
