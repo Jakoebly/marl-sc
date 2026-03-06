@@ -46,9 +46,9 @@ environment:
       - 1.17 
       - 1.33 
     distances:
+      - [40, 1014, 6081]  
       - [806, 441, 5818]  
       - [6248, 6407, 460] 
-      - [40, 1014, 6081]  
   components:
     demand_sampler:
       type: "poisson"
