@@ -445,13 +445,14 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
         ("Demand Forecast",        True),
     ]
 
-    # Solve for n_skus: local_dim = 8*N + 6
-    n_groups_with_agg = sum(1 for _, has_agg in feature_groups if has_agg)
-    n_groups = len(feature_groups)
-    n_skus = (obs_dim // (1 + n_warehouses) - n_groups_with_agg) // n_groups
-    local_dim = n_groups * n_skus + n_groups_with_agg
+    # Solve for n_skus and handle optional warehouse_id prefix (when parameter_sharing)
+    # Full local obs = [warehouse_onehot? | features]; features = 8*n_skus + 6
+    local_dim_full = obs_dim // (1 + n_warehouses)
+    n_skus = (local_dim_full - 6) // 8
+    base_local = 8 * n_skus + 6
+    warehouse_id_offset = local_dim_full - base_local  # 0 or n_warehouses when include_warehouse_id
 
-    if local_dim > obs_dim:
+    if n_skus <= 0:
         return
 
     sku_colors = plt.cm.tab10.colors
@@ -460,7 +461,8 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     for wh in range(n_warehouses):
         fig, axes = plt.subplots(n_subplots, 1, figsize=(14, 2.5 * n_subplots), sharex=True)
 
-        local_obs = obs_norm[:, wh, :local_dim]  # (T, local_dim)
+        # Skip warehouse_id one-hot if present; use only feature dimensions
+        local_obs = obs_norm[:, wh, warehouse_id_offset:warehouse_id_offset + base_local]  # (T, base_local)
 
         offset = 0
         for feat_idx, (feat_name, has_agg) in enumerate(feature_groups):
