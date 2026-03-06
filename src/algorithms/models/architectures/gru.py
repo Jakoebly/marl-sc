@@ -1,9 +1,8 @@
 from typing import Dict, Any, Optional
 import torch.nn as nn
-from gymnasium.spaces import Space, Box
+from gymnasium.spaces import Space
 
 from .base import NetworkArchitecture
-from .mu_sigma_head import MuSigmaHead
 
 
 class GRUArchitecture(NetworkArchitecture):
@@ -60,62 +59,18 @@ class GRUArchitecture(NetworkArchitecture):
         # GRU output dimension depends on bidirectional flag
         gru_output_dim = hidden_size * (2 if bidirectional else 1)
 
-        # Optional activation after GRU output (before projection)
+        # Build output projection
+        layers = []
+
         if activation:
             layers.append(self._get_activation(activation))
-        
-        # If action space is a Box, build mu and sigma branches
-        if isinstance(action_space, Box):
-            # Set mu and sigma hidden sizes
-            MU_HIDDEN_SIZES = [256]
-            SIGMA_HIDDEN_SIZES = [30]
 
-            # Build mu branch
-            current_mu_dim = gru_output_dim
-            mu_layers = []
-            for hidden_size in MU_HIDDEN_SIZES:
-                mu_layers.append(nn.Linear(current_mu_dim, hidden_size))
-                mu_layers.append(self._get_activation(activation))
-                current_mu_dim = hidden_size
-            mu_layers.append(nn.Linear(current_mu_dim, output_dim))
-            mu_layers.append(self._get_activation("tanh"))
+        layers.append(nn.Linear(gru_output_dim, output_dim))
 
-            # Build sigma branch
-            current_sigma_dim = gru_output_dim
-            sigma_layers = []
-            for hidden_size in SIGMA_HIDDEN_SIZES:
-                sigma_layers.append(nn.Linear(current_sigma_dim, hidden_size))
-                sigma_layers.append(self._get_activation(activation))
-                current_sigma_dim = hidden_size
-            sigma_layers.append(nn.Linear(current_sigma_dim, output_dim))
-            sigma_layers.append(self._get_activation("relu"))
+        if output_activation:
+            layers.append(self._get_activation(output_activation))
 
-            # Build mu sigma head
-            output_proj = MuSigmaHead(
-                shared_layers=nn.Sequential(*layers),
-                mu_branch=nn.Sequential(*mu_layers),
-                sigma_branch=nn.Sequential(*sigma_layers),
-                action_low=action_space.low,
-                action_high=action_space.high,
-            )
-        
-        # If action space is not a Box, build a simple output projection
-        else:            
-            # Output projection layer
-            layers = []
-            layers.append(nn.Linear(gru_output_dim, output_dim))
-            
-            # Optional output activation
-            if output_activation:
-                layers.append(self._get_activation(output_activation))
-            
-            # Create projection module (may include activations)
-            if len(layers) == 1:
-                # Only linear layer, no activations
-                output_proj = layers[0]
-            else:
-                # Multiple layers (activation + linear, or linear + activation, or both)
-                output_proj = nn.Sequential(*layers)
+        output_proj = nn.Sequential(*layers) if len(layers) > 1 else layers[0]
         
         return nn.ModuleDict({
             "gru": gru,
