@@ -322,7 +322,7 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 8 * self.n_skus + 6
+        local_obs_dim = 8 * self.n_skus
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the flat observation space (local + global concatenated)
@@ -342,7 +342,7 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 8 * self.n_skus + 6
+        local_obs_dim = 8 * self.n_skus
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the global observation space
