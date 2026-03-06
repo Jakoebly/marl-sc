@@ -616,6 +616,12 @@ def main():
         help="Path to checkpoint directory for evaluation. Mutually exclusive with --experiment-name."
     )
     parser.add_argument(
+        "--checkpoint-number",
+        type=int,
+        help="Checkpoint number to evaluate (e.g. 50 for checkpoint_50). "
+             "Only used with --experiment-name. If omitted, defaults to checkpoint_final."
+    )
+    parser.add_argument(
         "--eval-episodes",
         type=int,
         help="Number of evaluation episodes (overrides config default)"
@@ -654,6 +660,24 @@ def main():
             raise ValueError("--env-config is required for single/tune mode")
         if not args.algorithm_config:
             raise ValueError("--algorithm-config is required for single/tune mode")
+
+    # Validate evaluate mode: require either --checkpoint-dir or --experiment-name
+    if args.mode == "evaluate":
+        if args.checkpoint_dir and args.experiment_name:
+            raise ValueError(
+                "Cannot specify both --checkpoint-dir and --experiment-name. "
+                "Use one or the other."
+            )
+        if not args.checkpoint_dir and not args.experiment_name:
+            raise ValueError(
+                "For evaluate mode, either --checkpoint-dir or --experiment-name "
+                "(with optional --checkpoint-number) must be specified."
+            )
+        if args.checkpoint_number is not None and not args.experiment_name:
+            raise ValueError(
+                "--checkpoint-number can only be used with --experiment-name, "
+                "not with --checkpoint-dir (which already points to a specific checkpoint)."
+            )
 
     # Run a single experiment if mode is "single"
     if args.mode == "single":
@@ -701,8 +725,12 @@ def main():
             # Use the --experiment-name to search for the checkpoint directory
             base_dir = args.output_dir if args.output_dir != "./experiment_outputs" else "./experiment_outputs"
             experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
-            checkpoint_dir = str(experiment_dir / "checkpoint_final") # Default checkpoint directory
-            output_dir = str(experiment_dir) # Default output directory
+            if args.checkpoint_number is not None:
+                checkpoint_folder = f"checkpoint_{args.checkpoint_number}"
+            else:
+                checkpoint_folder = "checkpoint_final"
+            checkpoint_dir = str(experiment_dir / checkpoint_folder)
+            output_dir = str(experiment_dir)
         # Option 2: Explicit path 
         elif args.checkpoint_dir:
             # Use explicit path from --checkpoint-dir for the checkpoint directory
@@ -711,6 +739,14 @@ def main():
         else:
             raise ValueError(
                 "Either --experiment-name or --checkpoint-dir is required for evaluate mode"
+            )
+
+        # Verify the checkpoint directory actually exists
+        if not Path(checkpoint_dir).is_dir():
+            raise FileNotFoundError(
+                f"Checkpoint directory does not exist: {checkpoint_dir}\n"
+                f"Checkpoints are only saved every N episodes, so make sure "
+                f"the requested checkpoint number is valid."
             )
 
         # Load configs

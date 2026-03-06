@@ -59,23 +59,30 @@ class GRUArchitecture(NetworkArchitecture):
         # GRU output dimension depends on bidirectional flag
         gru_output_dim = hidden_size * (2 if bidirectional else 1)
 
-        # Build output projection
+        # Build output projection with optional activations
         layers = []
-
+        
+        # Optional activation after GRU output (before projection)
         if activation:
             layers.append(self._get_activation(activation))
 
+        # Output projection layer
         layers.append(nn.Linear(gru_output_dim, output_dim))
 
+        # Optional output activation
         if output_activation:
             layers.append(self._get_activation(output_activation))
 
+        # Create projection module (may include activations)
         output_proj = nn.Sequential(*layers) if len(layers) > 1 else layers[0]
         
-        return nn.ModuleDict({
+        # Return the GRU and output projection modules as a ModuleDict
+        module_dict = nn.ModuleDict({
             "gru": gru,
             "output_proj": output_proj,
         })
+
+        return module_dict
     
     def _get_activation(self, activation: str) -> nn.Module:
         """Gets activation function module by name.

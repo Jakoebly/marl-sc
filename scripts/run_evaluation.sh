@@ -19,8 +19,14 @@
 # Parse arguments
 ##############################
 
-EXPERIMENT_NAME=${1:?"Usage: sbatch run_evaluation.sh <ExperimentName>"}
+EXPERIMENT_NAME=${1:?"Usage: sbatch run_evaluation.sh <ExperimentName> [CheckpointNumber]"}
+CHECKPOINT_NUMBER=${2:-""}
 echo "EXPERIMENT_NAME=${EXPERIMENT_NAME}"
+if [ -n "${CHECKPOINT_NUMBER}" ]; then
+    echo "CHECKPOINT_NUMBER=${CHECKPOINT_NUMBER}"
+else
+    echo "CHECKPOINT_NUMBER=final (default)"
+fi
 
 ##############################
 # Load modules + env
@@ -52,8 +58,16 @@ ray start --head \
 # Run evaluation with visualization
 ##############################
 
-python src/experiments/run_experiment.py \
-    --mode evaluate \
-    --experiment-name "${EXPERIMENT_NAME}" \
-    --visualize \
+EVAL_CMD=(
+    python src/experiments/run_experiment.py
+    --mode evaluate
+    --experiment-name "${EXPERIMENT_NAME}"
+    --visualize
     --root-seed 42
+)
+
+if [ -n "${CHECKPOINT_NUMBER}" ]; then
+    EVAL_CMD+=(--checkpoint-number "${CHECKPOINT_NUMBER}")
+fi
+
+"${EVAL_CMD[@]}"
