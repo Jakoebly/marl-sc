@@ -111,6 +111,11 @@ class InventoryEnvironment(ParallelEnv):
         if env_meta is not None:
             self.obs_normalization = env_meta.get("obs_normalization", "off")
 
+        # Set include warehouse ID flag for parameter sharing
+        self.include_warehouse_id = False
+        if env_meta is not None:
+            self.include_warehouse_id = env_meta.get("include_warehouse_id", False)
+
         # Set agent IDs
         self.agents = [f"warehouse_{i}" for i in range(self.n_warehouses)]
         self.possible_agents = self.agents.copy()
@@ -322,7 +327,9 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 8 * self.n_skus
+        local_obs_dim = 8 * self.n_skus + 6
+        if self.include_warehouse_id:
+            local_obs_dim += self.n_warehouses  
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the flat observation space (local + global concatenated)
@@ -342,7 +349,9 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 8 * self.n_skus
+        local_obs_dim = 8 * self.n_skus + 6
+        if self.include_warehouse_id:
+            local_obs_dim += self.n_warehouses 
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the global observation space
@@ -499,31 +508,39 @@ class InventoryEnvironment(ParallelEnv):
                 obs_rolling_mean = rolling_mean
                 obs_demand_forecast = demand_forecast
 
-            # # Aggregate features
-            # agg_inventory = np.float32(np.log1p(inventory_total))
-            # agg_pending = np.float32(np.log1p(pending_total))
-            # agg_demand_home = np.float32(np.log1p(demand_home_total))
-            # agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
-            # agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
-            # agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
+            # Aggregate features
+            agg_inventory = np.float32(np.log1p(inventory_total))
+            agg_pending = np.float32(np.log1p(pending_total))
+            agg_demand_home = np.float32(np.log1p(demand_home_total))
+            agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
+            agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
+            agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
 
             # Concatenate features into a single local observation
             local = np.concatenate([
                 obs_inventory,
-                # obs_inventory, np.array([agg_inventory]),                     
-                obs_pending,
-                # obs_pending, np.array([agg_pending]),             
-                obs_demand_home,
-                # obs_demand_home, np.array([agg_demand_home]),     
-                obs_shipped_home,                                 
-                obs_shipped_away,
-                # obs_shipped_away, np.array([agg_shipped_away]),   
-                obs_stockout,                                     
-                obs_rolling_mean,
-                # obs_rolling_mean, np.array([agg_rolling_mean]),   
-                obs_demand_forecast,
-                # obs_demand_forecast, np.array([agg_demand_forecast]),
+                obs_inventory, np.array([agg_inventory]),                     
+                # obs_pending,
+                obs_pending, np.array([agg_pending]),             
+                # obs_demand_home,
+                obs_demand_home, np.array([agg_demand_home]),     
+                # obs_shipped_home,                                 
+                # obs_shipped_away,
+                obs_shipped_away, np.array([agg_shipped_away]),   
+                # obs_stockout,                                     
+                # obs_rolling_mean,
+                obs_rolling_mean, np.array([agg_rolling_mean]),   
+                # obs_demand_forecast,
+                obs_demand_forecast, np.array([agg_demand_forecast]),
             ]).astype(np.float32)
+
+            # Prepend one-hot warehouse identifier when parameter sharing is enabled (include_warehouse_id is True)
+            if self.include_warehouse_id:
+                warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
+                warehouse_id_onehot[warehouse_idx] = 1.0
+                local = np.concatenate([warehouse_id_onehot, local])
+            
+            # Store local observation for this warehouse
             local_obs[warehouse_id] = local
 
         # Build global observations
