@@ -241,9 +241,17 @@ class EvaluationRunner:
             # Run manual rollout for detailed per-step data collection
             episodes_data = self.algorithm.rollout(rollout_env, num_episodes=num_episodes)
 
-            # Generate and save visualizations
+            # Generate and save visualizations in a checkpoint-specific subfolder
             from src.experiments.visualization import generate_visualizations
-            vizualization_dir = self.output_dir / "visualizations"
+            checkpoint_name = Path(self.checkpoint_dir).name
+            if checkpoint_name == "checkpoint_final":
+                viz_subfolder = "visualization_final"
+            elif checkpoint_name.startswith("checkpoint_"):
+                chkpt_num = checkpoint_name.replace("checkpoint_", "")
+                viz_subfolder = f"visualization_chkpt{chkpt_num}"
+            else:
+                viz_subfolder = f"visualization_{checkpoint_name}"
+            vizualization_dir = self.output_dir / "visualizations" / viz_subfolder
             generate_visualizations(episodes_data, str(vizualization_dir))
 
             # Build a lightweight result dict from rollout data
@@ -257,7 +265,7 @@ class EvaluationRunner:
                     "visualizations_dir": str(vizualization_dir),
                 }
             }
-        
+
         # If visualize is False, run standard RLlib evaluation (aggregated metrics only)
         else:
             result = self.algorithm.evaluate(eval_episodes=num_episodes)
