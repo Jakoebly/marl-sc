@@ -140,12 +140,12 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_RatioNorm_NoAggFeat"
+EXPERIMENT_NAME="MAPPO_Single_3WH_3SKUS_Team_PSTrue_HC0.1_RatioNorm_NoAggFeat"
 
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config ./config_files/environments/env_2EU_1US.yaml \
-    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --algorithm-config ./config_files/algorithms/mappo.yaml \
     --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
