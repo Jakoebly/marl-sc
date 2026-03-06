@@ -23,7 +23,7 @@ algorithm:
     lam: 0.95
     gamma: 0.99
     obs_normalization: "ratio"
-    parameter_sharing: true
+    parameter_sharing: false
     networks:
       shared_layers: null
         #type: "gru"
