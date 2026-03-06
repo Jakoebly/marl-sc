@@ -119,6 +119,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             .environment(
                 env=self.env_name, 
                 clip_actions=True,
+                normalize_actions=False,
                 env_config={
                     "seed": self.train_seed,
                     "data_mode": "train",
@@ -156,6 +157,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 evaluation_config={
                     "env": self.env_name, 
                     "clip_actions": True,
+                    "normalize_actions": False,
                     "use_worker_filter_stats": False,
                     "env_config": {
                         "seed": self.eval_seed,

@@ -120,6 +120,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             .environment(
                 env=self.env_name, 
                 clip_actions=True,
+                normalize_actions=False,
                 env_config={
                     "seed": self.train_seed,
                     "data_mode": "train",
@@ -156,6 +157,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                 evaluation_config={
                     "env": self.env_name, 
                     "clip_actions": True,
+                    "normalize_actions": False,
                     "env_config": {
                         "seed": self.eval_seed,
                         "data_mode": "val",
