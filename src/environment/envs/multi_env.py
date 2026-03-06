@@ -518,7 +518,7 @@ class InventoryEnvironment(ParallelEnv):
 
             # Concatenate features into a single local observation
             local = np.concatenate([
-                obs_inventory,
+                # obs_inventory,
                 obs_inventory, np.array([agg_inventory]),                     
                 # obs_pending,
                 obs_pending, np.array([agg_pending]),             
