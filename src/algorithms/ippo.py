@@ -50,41 +50,41 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         shared_params = self.ippo_config.shared
         ippo_params = self.ippo_config.algorithm_specific
         networks_params = ippo_params.networks.model_dump()
-        parameter_sharing = ippo_params.parameter_sharing
-        max_seq_len = self.extract_max_seq_len(networks_params)
-        num_env_runners = shared_params.num_env_runners
-        num_envs_per_env_runner = shared_params.num_envs_per_env_runner
+        self.parameter_sharing = ippo_params.parameter_sharing
+        self.max_seq_len = self.extract_max_seq_len(networks_params)
+        self.num_env_runners = shared_params.num_env_runners
+        self.num_envs_per_env_runner = shared_params.num_envs_per_env_runner
         
         # Get observation and action spaces
-        obs_space = env.observation_space(env.agents[0])
-        action_space = env.action_space(env.agents[0])
+        self.obs_space = env.observation_space(env.agents[0])
+        self.action_space = env.action_space(env.agents[0])
         
         # Compute local observation dimension for splitting flat obs in the RLModule
-        local_obs_dim = obs_space.shape[0] // (1 + env.n_warehouses)
-        global_obs_dim = obs_space.shape[0] - local_obs_dim
+        self.local_obs_dim = self.obs_space.shape[0] // (1 + env.n_warehouses)
+        self.global_obs_dim = self.obs_space.shape[0] - self.local_obs_dim
 
         # Create model config
         model_config = {
             "networks": networks_params,
-            "observation_space": obs_space,
-            "action_space": action_space,
+            "observation_space": self.obs_space,
+            "action_space": self.action_space,
             "use_centralized_critic": False,
-            "local_obs_dim": local_obs_dim,
-            "global_obs_dim": global_obs_dim,
+            "local_obs_dim": self.local_obs_dim,
+            "global_obs_dim": self.global_obs_dim,
         }
-        if max_seq_len is not None:
-            model_config["max_seq_len"] = max_seq_len
+        if self.max_seq_len is not None:
+            model_config["max_seq_len"] = self.max_seq_len
 
         # Create RLModule spec using RLModuleSpec
         rl_module_spec = RLModuleSpec(
             module_class=ActorCriticRLModule,
-            observation_space=obs_space,
-            action_space=action_space,
+            observation_space=self.obs_space,
+            action_space=self.action_space,
             model_config=model_config
         )
 
         # Determine multi-agent setup based on parameter sharing
-        if parameter_sharing:
+        if self.parameter_sharing:
             # Single policy shared across all agents
             policies = {"shared_policy"}
             policy_mapping_fn = lambda agent_id, *args, **kwargs: "shared_policy"
@@ -98,20 +98,38 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         # Store policy mapping function for future use (e.g., rollout)
         self.policy_mapping_fn = policy_mapping_fn
         
-        # Store obs normalization mode for rollout
+        # Store obs normalization mode and parameter sharing flag on the env (needed for manual rollout)
         self.obs_normalization = ippo_params.obs_normalization
-
-        # Set obs normalization mode on the env (needed for manual rollout)
+        self.include_warehouse_id = self.parameter_sharing
         self.env.obs_normalization = self.obs_normalization
+        self.env.include_warehouse_id = self.include_warehouse_id
 
         # Apply MeanStdFilter if obs_normalization is "meanstd"
         env_runners_kwargs = {
-            "num_env_runners": num_env_runners,
-            "num_envs_per_env_runner": num_envs_per_env_runner,
+            "num_env_runners": self.num_env_runners,
+            "num_envs_per_env_runner": self.num_envs_per_env_runner,
         }
         if self.obs_normalization == "meanstd":
             env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
         
+        # Build train env_config for RLlib
+        train_env_config = {
+            "seed": self.train_seed,
+            "data_mode": "train",
+            "obs_normalization": self.obs_normalization,
+        }
+        if self.include_warehouse_id:
+            train_env_config["include_warehouse_id"] = True
+
+        # Build eval env_config for RLlib
+        eval_env_config = {
+            "seed": self.eval_seed,
+            "data_mode": "val",
+            "obs_normalization": self.obs_normalization,
+        }
+        if self.include_warehouse_id:
+            eval_env_config["include_warehouse_id"] = True
+
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
             PPOConfig()
@@ -120,11 +138,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 env=self.env_name, 
                 clip_actions=True,
                 normalize_actions=False,
-                env_config={
-                    "seed": self.train_seed,
-                    "data_mode": "train",
-                    "obs_normalization": self.obs_normalization,
-                }
+                env_config=train_env_config,
             )
             .multi_agent(
                 policies=policies,
@@ -159,11 +173,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     "clip_actions": True,
                     "normalize_actions": False,
                     "use_worker_filter_stats": False,
-                    "env_config": {
-                        "seed": self.eval_seed,
-                        "data_mode": "val",
-                        "obs_normalization": self.obs_normalization,
-                    }
+                    "env_config": eval_env_config,
                 }
             )
         )

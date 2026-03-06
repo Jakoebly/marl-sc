@@ -223,14 +223,19 @@ class EvaluationRunner:
 
         # If visualize is True, run manual rollout and generate visualization plots
         if self.visualize:
-            # Create a new evaluation environment with the eval_seed
+            # Create the environment metadata for the rollout environment
+            rollout_env_meta = {
+                "data_mode": "val",
+                "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
+            }
+            if self.algorithm_config.algorithm_specific.parameter_sharing:
+                rollout_env_meta["include_warehouse_id"] = True
+
+            # Create a new evaluation environment with the eval_seed and environment metadata
             rollout_env = InventoryEnvironment(
                 self.env_config, 
                 seed=self.eval_seed,
-                env_meta={
-                    "data_mode": "val",
-                    "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
-                },
+                env_meta=rollout_env_meta,
             )
 
             # Run manual rollout for detailed per-step data collection
