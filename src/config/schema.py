@@ -887,6 +887,8 @@ class ActorCriticConfig(OptionalSharedLayers):
 class PPOConfig(BaseModel):
     """Configuration for PPO-specific parameters."""
 
+    use_kl_loss: bool = False
+    grad_clip: NonNegativeFloat = 0.5
     vf_loss_coeff: NonNegativeFloat = 0.5
     vf_clip_param: NonNegativeFloat = 10
     entropy_coeff: NonNegativeFloat = 0.01
