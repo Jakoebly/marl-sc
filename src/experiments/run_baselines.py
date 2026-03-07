@@ -524,8 +524,9 @@ def main():
     # ==================================================================
 
     print("\n[2/3] Running Constant Order baseline sweep...")
-    step_size = 5
-    sweep_max = int(max_qty.min())
+    step_size = 1
+    # sweep_max = int(max_qty.min())
+    sweep_max = 30
     constant_amounts = list(range(step_size, sweep_max + 1, step_size))
 
     const_sweep_stats: List[Dict[str, float]] = []
