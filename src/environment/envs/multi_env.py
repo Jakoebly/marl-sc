@@ -618,13 +618,12 @@ class InventoryEnvironment(ParallelEnv):
         # Initialize dictionary to store quantities
         quantities = {}
         
-        # Rescale actions to quantities for each warehouse
-        for i, (agent_id, action) in enumerate(actions.items()):
-            max_order_quantity = self.max_order_quantities[i]
-            scaled = (action + 1.0) / 2.0 * max_order_quantity
+        # Rescale actions to quantities for each warehouse (element-wise per SKU)
+        for agent_id, action in actions.items():
+            scaled = (action + 1.0) / 2.0 * self.max_order_quantities
             integer_action = np.round(scaled).astype(int)
-            integer_action = np.clip(integer_action, 0, max_order_quantity) # Clip to ensure [0, max_order_quantity] range
-            quantities[agent_id] = integer_action.astype(float) # Convert to float for compatibility with _apply_orders        
+            integer_action = np.clip(integer_action, 0, self.max_order_quantities)
+            quantities[agent_id] = integer_action.astype(float)
 
         return quantities
 

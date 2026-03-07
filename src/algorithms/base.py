@@ -179,12 +179,13 @@ class BaseAlgorithmWrapper(ABC):
                         action_tensor = det_dist.sample()
                         action = action_tensor.squeeze(0).cpu().numpy()
 
-                        # Extract mu and sigma from action distribution inputs
+                        # Extract mu and std from action distribution inputs
+                        # ACTION_DIST_INPUTS = [means, log_std] (log_std from nn.Parameter)
                         logits_np = action_logits.squeeze(0).cpu().numpy()
                         action_dim = action.shape[-1]
                         mu_sigma_per_agent[agent_id] = {
                             "mu": logits_np[:action_dim],
-                            "sigma": logits_np[action_dim:],
+                            "sigma": np.exp(logits_np[action_dim:]),
                         }
 
                         # Update hidden states for recurrent policies
@@ -229,7 +230,7 @@ class BaseAlgorithmWrapper(ABC):
             episode_data = {k: np.array(v) for k, v in episode_data.items()}
             all_episodes.append(episode_data)
 
-        # Disable flag after rollout
+        # Disable step info collection after rollout
         env.collect_step_info = False
 
         return all_episodes
