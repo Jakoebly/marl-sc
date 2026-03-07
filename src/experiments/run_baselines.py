@@ -571,7 +571,7 @@ def main():
     # ==================================================================
 
     print("\n[3/3] Running Heuristic (Newsvendor) baseline sweep...")
-    z_values = [0.0, 0.5, 0.97, 1.0, 2.0]
+    z_values = [0.0, 0.5, 0.97, 1.0, 2.0, 4.0, 5.0, 6.0]
 
     heur_sweep_stats: List[Dict[str, float]] = []
     best_heur_idx = 0
