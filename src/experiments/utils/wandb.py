@@ -5,8 +5,6 @@ import wandb
 
 from src.config.loader import load_algorithm_config
 
-_LEARNER_STRUCTURE_LOGGED = False
-
 
 def create_wandb_callback(
     project: str,
@@ -181,18 +179,6 @@ def log_wandb_metrics(result: Dict[str, Any], iteration: int) -> None:
     
     # Extract learner stats (per-policy training loss and statistics)
     learners = result.get("learners", {})
-
-    global _LEARNER_STRUCTURE_LOGGED
-    if learners and not _LEARNER_STRUCTURE_LOGGED:
-        _LEARNER_STRUCTURE_LOGGED = True
-        print("[WANDB DEBUG] result['learners'] structure:")
-        for pid, pstats in learners.items():
-            if isinstance(pstats, dict):
-                for k, v in pstats.items():
-                    print(f"  [{pid}] {k}: {type(v).__name__} = {v!r}")
-            else:
-                print(f"  [{pid}]: {type(pstats).__name__} = {pstats!r}")
-
     if learners:
         for policy_id, policy_stats in learners.items():
             # Check for RLlib's key for aggregate statistics across all policies
