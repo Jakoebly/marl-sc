@@ -1,8 +1,11 @@
 from typing import Optional, Callable, Any, Tuple, List, Dict
+import numbers
 from ray.air.integrations.wandb import WandbLoggerCallback
 import wandb
 
 from src.config.loader import load_algorithm_config
+
+_LEARNER_STRUCTURE_LOGGED = False
 
 
 def create_wandb_callback(
@@ -178,21 +181,33 @@ def log_wandb_metrics(result: Dict[str, Any], iteration: int) -> None:
     
     # Extract learner stats (per-policy training loss and statistics)
     learners = result.get("learners", {})
+
+    global _LEARNER_STRUCTURE_LOGGED
+    if learners and not _LEARNER_STRUCTURE_LOGGED:
+        _LEARNER_STRUCTURE_LOGGED = True
+        print("[WANDB DEBUG] result['learners'] structure:")
+        for pid, pstats in learners.items():
+            if isinstance(pstats, dict):
+                for k, v in pstats.items():
+                    print(f"  [{pid}] {k}: {type(v).__name__} = {v!r}")
+            else:
+                print(f"  [{pid}]: {type(pstats).__name__} = {pstats!r}")
+
     if learners:
         for policy_id, policy_stats in learners.items():
             # Check for RLlib's key for aggregate statistics across all policies
             if policy_id == "__all_modules__":
                 if isinstance(policy_stats, dict):
                     for key, value in policy_stats.items():
-                        if key != "learner_connector" and isinstance(value, (int, float)):
-                            metrics[f"train/learner/all/{key}"] = value
+                        if key != "learner_connector" and isinstance(value, numbers.Number):
+                            metrics[f"train/learner/all/{key}"] = float(value)
             
             # Otherwise, extract per-policy learner stats
             else:
                 if isinstance(policy_stats, dict):
                     for key, value in policy_stats.items():
-                        if isinstance(value, (int, float)):
-                            metrics[f"train/learner/{policy_id}/{key}"] = value
+                        if isinstance(value, numbers.Number):
+                            metrics[f"train/learner/{policy_id}/{key}"] = float(value)
     
     # Extract timing metrics
     timers = result.get("timers", {})
