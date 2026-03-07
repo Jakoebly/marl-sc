@@ -1,7 +1,7 @@
 algorithm:
   name: "ippo"
   shared:
-    num_iterations: 150
+    num_iterations: 300
     checkpoint_freq: 10
     batch_size: 8000
     num_epochs: 10
@@ -19,13 +19,13 @@ algorithm:
     grad_clip: 0.5 
     vf_loss_coeff: 0.5
     vf_clip_param: 1000000
-    entropy_coeff: 0.1
+    entropy_coeff: 0.01
     clip_param: 0.2
     use_gae: true
     lam: 0.95
     gamma: 0.99
     obs_normalization: "ratio"
-    parameter_sharing: true
+    parameter_sharing: false
     networks:
       shared_layers: null
         #type: "gru"

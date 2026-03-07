@@ -272,7 +272,7 @@ class EvaluationRunner:
 
         # Log metrics and finish WandB run (if WandB config is provided)
         if self.wandb_config:
-            log_wandb_metrics(result, step=0)
+            log_wandb_metrics(result, iteration=0)
             wandb.finish()
 
         return result
