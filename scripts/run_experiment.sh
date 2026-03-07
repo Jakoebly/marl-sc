@@ -140,20 +140,20 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SIMPLIFIED_Agent_PSFalse_MAXQTY50"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SIMPLIFIED_Agent_PSFalse_MAXQTY50_RATIONORM"
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_3EU.yaml \
-    --algorithm-config ./config_files/algorithms/mappo.yaml \
-    --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
+    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
+    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --output-dir ./experiment_outputs/SimplifiedBaselineExp_3WH_2SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
+    --output-dir ./experiment_outputs/SimplifiedBaselineExp_3WH_2SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
