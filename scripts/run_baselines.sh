@@ -37,4 +37,4 @@ python src/experiments/run_baselines.py \
     --output-dir ./experiment_outputs \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 10 \
-    --seed 42
+    --root-seed 42
