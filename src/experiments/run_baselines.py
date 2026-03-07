@@ -26,6 +26,7 @@ from src.config.loader import load_environment_config
 from src.config.schema import EnvironmentConfig
 from src.environment.envs.multi_env import InventoryEnvironment
 from src.experiments.visualization import generate_visualizations
+from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
 
 # ---------------------------------------------------------------------------
@@ -468,13 +469,19 @@ def main():
     parser.add_argument("--output-dir", type=str, default="./experiment_outputs")
     parser.add_argument("--experiment-name", type=str, default=None, help="Experiment folder name. If not provided, auto-generated.")
     parser.add_argument("--num-episodes", type=int, default=10)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--root-seed", type=int, default=42)
     args = parser.parse_args() # Parse command line arguments
 
     # Load environment config
     env_config = load_environment_config(args.env_config)
     max_qty = np.array(env_config.max_order_quantities, dtype=float)
-    rng = np.random.default_rng(args.seed)
+
+    # Derive eval_seed via SeedManager (same derivation as EvaluationRunner)
+    seed_manager = SeedManager(root_seed=args.root_seed, seed_registry=EXPERIMENT_SEEDS)
+    eval_seed = seed_manager.get_seed_int('eval')
+
+    # Separate RNG for the random baseline policy (independent of env seeds)
+    rng = np.random.default_rng(args.root_seed)
 
     # Create experiment directory (matching project convention)
     experiment_name = args.experiment_name or generate_experiment_name(env_config)
@@ -492,7 +499,8 @@ def main():
 
     # Collect all results for the JSON summary
     all_results: Dict[str, Any] = {
-        "seed": args.seed,
+        "root_seed": args.root_seed,
+        "eval_seed": eval_seed,
         "num_episodes": args.num_episodes,
         "env_config_path": str(args.env_config),
         "baselines": {},
@@ -503,7 +511,7 @@ def main():
     # ==================================================================
 
     print("\n[1/3] Running Random baseline...")
-    env = InventoryEnvironment(env_config, seed=args.seed)
+    env = InventoryEnvironment(env_config, seed=eval_seed)
     episodes = baseline_rollout(env, make_random_action_fn(rng), args.num_episodes)
     random_agg = aggregate_costs(episodes)
     print_summary_block("Random Baseline", random_agg)
@@ -526,7 +534,7 @@ def main():
     best_const_episodes = None
 
     for idx, amount in enumerate(constant_amounts):
-        env = InventoryEnvironment(env_config, seed=args.seed)
+        env = InventoryEnvironment(env_config, seed=eval_seed)
         eps = baseline_rollout(env, make_constant_action_fn(float(amount)), args.num_episodes)
         agg = aggregate_costs(eps)
         const_sweep_stats.append(agg)
@@ -570,7 +578,7 @@ def main():
     best_heur_episodes = None
 
     for idx, z in enumerate(z_values):
-        env = InventoryEnvironment(env_config, seed=args.seed)
+        env = InventoryEnvironment(env_config, seed=eval_seed)
         action_fn = make_heuristic_action_fn(env_config, z=z)
         eps = baseline_rollout(env, action_fn, args.num_episodes)
         agg = aggregate_costs(eps)
@@ -605,7 +613,7 @@ def main():
     # ==================================================================
     # Final comparison + save
     # ==================================================================
-    
+
     print(f"\n{'=' * 75}")
     print("  BASELINE COMPARISON")
     print(f"{'=' * 75}")
