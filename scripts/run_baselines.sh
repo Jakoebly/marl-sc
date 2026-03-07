@@ -34,7 +34,7 @@ EXPERIMENT_NAME="BASELINES_single_3WH_2SKUS_SIMPLIFIED_SYMMETRIC"
 
 python src/experiments/run_baselines.py \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
-    --output-dir ./experiment_outputs \
+    --output-dir ./experiment_outputs/WorkingConfigExp_3WH_3SKUS \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 10 \
     --root-seed 42
