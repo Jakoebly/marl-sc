@@ -24,7 +24,7 @@ algorithm:
     use_gae: true
     lam: 0.95
     gamma: 0.99
-    obs_normalization: "off"
+    obs_normalization: "meanstd"
     parameter_sharing: false
     networks:
       shared_layers: null
