@@ -4,8 +4,8 @@ environment:
   n_regions: 3
   episode_length: 100
   max_order_quantities:
-    - 40
-    - 40
+    - 20
+    - 20
   max_wh_capacities:
     - 10000000
     - 10000000
