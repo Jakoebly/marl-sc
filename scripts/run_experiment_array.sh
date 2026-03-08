@@ -237,7 +237,7 @@ else
 fi
 
 # Set experiment name
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Team_PSTrue_StdFloor_NoTanh_MaxQty${MAX_QTY}_Ent${ENT_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_StdFloor_NoTanh_MaxQty${MAX_QTY}_Ent${ENT_LABEL}"
 
 python src/experiments/run_experiment.py \
     --mode single \
