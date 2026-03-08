@@ -212,7 +212,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # half of ACTION_DIST_INPUTS to be log(std), so we concatenate this
         # learnable parameter to the actor's mean output in the forward methods.
         if isinstance(self.action_space, Box):
-            self.log_std = nn.Parameter(torch.zeros(actor_output_dim))
+            self.log_std = nn.Parameter(torch.full((actor_output_dim,), -1.0))
 
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
@@ -416,6 +416,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             Concatenated [means, log_std] with the last dim doubled.
         """
         log_std = self.log_std
+        log_std = torch.clamp(log_std, min=-2.0)
         while log_std.dim() < actor_out.dim():
             log_std = log_std.unsqueeze(0)
         log_std = log_std.expand_as(actor_out)

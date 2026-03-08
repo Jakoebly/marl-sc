@@ -14,15 +14,19 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-0%1                           # Array for 5 jobs (indices 0-4) with 1 job at once per node
+#SBATCH --array=0-5%6                           # Array for 6 jobs (indices 0-5) with 1 job at once per node
 
 
 ##############################
 # Parse arguments
 ##############################
 
-ARRAY_NAME=${1:?"Usage: sbatch run_experiment_array.sh <ArrayName>"}
-echo "ARRAY_NAME=${ARRAY_NAME}"
+ARRAY_NAME=${1:-}
+if [ -n "$ARRAY_NAME" ]; then
+  echo "ARRAY_NAME=${ARRAY_NAME}"
+else
+  echo "ARRAY_NAME=not specified"
+fi
 
 
 ##############################
@@ -38,43 +42,70 @@ export PYTHONUNBUFFERED=1
 
 
 ##############################
-# Map SLURM_ARRAY_TASK_ID -> holding_cost
+# Map SLURM_ARRAY_TASK_ID -> (max_qty, entropy_coeff)
 ##############################
 
-# Define possible values for holding cost
-HOLDING_COSTS=(0.1)
-N_HOLDING_COSTS=${#HOLDING_COSTS[@]}
+# Define possible values for max quantity and entropy coefficient
+MAX_QTYS=(20 30 40)
+ENTROPY_COEFFS=(0.01 0.05)
 
-# Get the holding cost for this task
+# Get the number of possible values for max quantity and entropy coefficient
+N_QTYS=${#MAX_QTYS[@]}
+N_ENTS=${#ENTROPY_COEFFS[@]}
+
+# Get the ID of the current task for indexing the MAX_QTYS and ENTROPY_COEFFS arrays
 ID=${SLURM_ARRAY_TASK_ID}
-HOLDING_COST_IDX=$(( ID % N_HOLDING_COSTS ))
-HOLDING_COST=${HOLDING_COSTS[$HOLDING_COST_IDX]}
+QTY_IDX=$(( ID % N_QTYS ))
+ENT_IDX=$(( ID / N_QTYS ))
 
-echo "Task $ID -> holding_cost=$HOLDING_COST (index $HOLDING_COST_IDX of ${N_HOLDING_COSTS})"
+# Get the max quantity and entropy coefficient for this task
+MAX_QTY=${MAX_QTYS[$QTY_IDX]}
+ENTROPY_COEFF=${ENTROPY_COEFFS[$ENT_IDX]}
+
+echo "Task $ID -> max_qty=$MAX_QTY, entropy_coeff=$ENTROPY_COEFF"
 
 
 ##############################
-# Create temporary config with holding_cost override
+# Create temporary config with max quantity and entropy coefficient overrides
 ##############################
 
-TEMP_CONFIG=$(mktemp --suffix=.yaml)
+# Set environment and algorithm name
+ENV_NAME="env_simplified_symmetric"
+ALGO_NAME="ippo"
+
+# Create temporary config files
+TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
+TEMP_ALGO_CONFIG=$(mktemp --suffix=.yaml)
 
 python - <<PY
 import yaml
 
-HOLDING_COST = $HOLDING_COST
-TEMP_CONFIG  = "$TEMP_CONFIG"
+# Set environment and algorithm names
+ENV_NAME = "$ENV_NAME"
+ALGO_NAME = "$ALGO_NAME"
 
-with open("config_files/environments/env_2EU_1US.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# Set max quantity and entropy coefficient
+MAX_QTY = $MAX_QTY
+ENTROPY_COEFF = $ENTROPY_COEFF
 
-env = config["environment"]
-if "cost_structure" not in env:
-    env["cost_structure"] = {}
-env["cost_structure"]["holding_cost"] = HOLDING_COST
+# --- Environment config ---
+with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
+    env_cfg = yaml.safe_load(f)
 
-with open(TEMP_CONFIG, "w") as f:
-    yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+n_skus = env_cfg["environment"]["n_skus"]
+env_cfg["environment"]["max_order_quantities"] = [MAX_QTY] * n_skus
+
+with open("$TEMP_ENV_CONFIG", "w") as f:
+    yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
+
+# --- Algorithm config ---
+with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
+    algo_cfg = yaml.safe_load(f)
+
+algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = ENTROPY_COEFF
+
+with open("$TEMP_ALGO_CONFIG", "w") as f:
+    yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
 PY
 
 
@@ -157,7 +188,7 @@ mkdir -p "$RAY_TMPDIR"
 
 # Cleanup function for Ray temp dir
 cleanup() {
-  rm -f "$TEMP_CONFIG" >/dev/null 2>&1 || true
+  rm -f "$TEMP_ENV_CONFIG" "$TEMP_ALGO_CONFIG" >/dev/null 2>&1 || true
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -191,23 +222,35 @@ ray start --head \
 
 
 ##############################
-# Run training
+# Run training + evaluation
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_3SKUS_Team_PSTrue_HC${HOLDING_COST}_NoObsNorm"
+# Format entropy coeff for experiment name: 0.01 -> 001, 0.05 -> 005
+ENT_LABEL=$(echo "$ENTROPY_COEFF" | sed 's/0\.//; s/^0*//')
+ENT_LABEL=$(printf "%03d" "$ENT_LABEL")
+
+# Set output directory
+if [ -n "$ARRAY_NAME" ]; then
+  OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
+else
+  OUTPUT_DIR="./experiment_outputs"
+fi
+
+# Set experiment name
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Team_PSTrue_StdFloor_NoTanh_MaxQty${MAX_QTY}_Ent${ENT_LABEL}"
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config "$TEMP_CONFIG" \
-    --algorithm-config config_files/algorithms/ippo.yaml \
-    --output-dir "./experiment_outputs/${ARRAY_NAME}" \
+    --env-config "$TEMP_ENV_CONFIG" \
+    --algorithm-config "$TEMP_ALGO_CONFIG" \
+    --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir "./experiment_outputs/${ARRAY_NAME}" \
+    --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
