@@ -140,7 +140,7 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SIMPLIFIED_Agent_PSFalse_MAXQTY20_NORMMEANSTD"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SIMPLIFIED_Agent_PSFalse_MAXQTY40_NORMMEANSTD"
 
 python src/experiments/run_experiment.py \
     --mode single \
