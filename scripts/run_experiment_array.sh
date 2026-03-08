@@ -233,7 +233,7 @@ ENT_LABEL=$(printf "%03d" "$ENT_LABEL")
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs"
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2"
 fi
 
 # Set experiment name
