@@ -140,20 +140,22 @@ ray start --head \
 # Run training
 ##############################
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_StdFloor_NoTanh_MaxQty40_Ent001_NORMOFF"
+# Set output directory and experiment name
+OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2"
+EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent"
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
+    --env-config ./config_files/environments/env_simplified_single.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
-    --output-dir ./experiment_outputs/WorkingConfig_Phase1.2 \
+    --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir ./experiment_outputs/WorkingConfig_Phase1.2 \
+    --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42

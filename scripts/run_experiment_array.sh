@@ -231,24 +231,20 @@ ray start --head \
 # Run training + evaluation
 ##############################
 
-# Format learning rate for experiment name: 0.0003 -> 3e-4, 0.001 -> 1e-4
+# Format learning rate and vf_clip_param for experiment name
 LR_LABEL=$(printf "%.0e" "$LEARNING_RATE" | sed 's/e-0/e-/; s/e+0/e+/')
-
-# Format vf_clip_param for experiment name: 30000 -> 3e+4, 100000 -> 1e+5, 10000000000 -> Off
 if [ "$VF_CLIP_PARAM" = "10000000000" ]; then
     VFC_LABEL="Off"
 else
     VFC_LABEL=$(printf "%.0e" "$VF_CLIP_PARAM" | sed 's/e+0/e/; s/e+/e/; s/e-0/e-/')
 fi
 
-# Set output directory
+# Set output directory and experiment name
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2"
 fi
-
-# Set experiment name
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_LR${LR_LABEL}_VfC${VFC_LABEL}"
 
 python src/experiments/run_experiment.py \
