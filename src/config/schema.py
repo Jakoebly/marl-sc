@@ -887,15 +887,15 @@ class ActorCriticConfig(OptionalSharedLayers):
 class PPOConfig(BaseModel):
     """Configuration for PPO-specific parameters."""
 
-    use_kl_loss: bool = False
-    grad_clip: NonNegativeFloat = 0.5
-    vf_loss_coeff: NonNegativeFloat = 0.5
-    vf_clip_param: NonNegativeFloat = 10
-    entropy_coeff: NonNegativeFloat = 0.01
-    clip_param: PositiveFloat = 0.2
-    use_gae: bool = True
-    lam: NonNegativeFloat = 0.95
-    gamma: NonNegativeFloat = 0.99
+    use_gae: Optional[bool] = True
+    lam: Optional[NonNegativeFloat] = 0.95
+    gamma: Optional[NonNegativeFloat] = 0.99
+    use_kl_loss: Optional[bool] = False
+    grad_clip: Optional[NonNegativeFloat] = None
+    entropy_coeff: Optional[NonNegativeFloat] = 0.01
+    vf_loss_coeff: Optional[NonNegativeFloat] = 0.5
+    clip_param: Optional[PositiveFloat] = 0.2
+    vf_clip_param: Optional[NonNegativeFloat] = 10
     model_config = ConfigDict(extra="forbid")
     
     @model_validator(mode="after")

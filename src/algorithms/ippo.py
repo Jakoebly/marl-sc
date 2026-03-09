@@ -150,6 +150,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                 )
             )
             .training(
+                use_kl_loss=ippo_params.use_kl_loss,
+                grad_clip=ippo_params.grad_clip,
                 lr=shared_params.learning_rate,
                 train_batch_size_per_learner=shared_params.batch_size,
                 num_epochs=shared_params.num_epochs,
