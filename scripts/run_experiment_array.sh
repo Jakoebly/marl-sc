@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-5%6                           # Array for 6 jobs (indices 0-5) with 1 job at once per node
+#SBATCH --array=0-17%9                          # Array for 18 jobs (indices 0-17) with 1 job at once per node
 
 
 ##############################
@@ -47,22 +47,26 @@ export PYTHONUNBUFFERED=1
 
 # Define possible values for max quantity and entropy coefficient
 MAX_QTYS=(20 30 40)
-ENTROPY_COEFFS=(0.01 0.05)
+LEARNING_RATES=(0.0003 0.001)
+VF_CLIP_PARAMS=(30000 100000 10000000000)
 
 # Get the number of possible values for max quantity and entropy coefficient
 N_QTYS=${#MAX_QTYS[@]}
-N_ENTS=${#ENTROPY_COEFFS[@]}
+N_LRS=${#LEARNING_RATES[@]}
+N_VFCLIPS=${#VF_CLIP_PARAMS[@]}
 
 # Get the ID of the current task for indexing the MAX_QTYS and ENTROPY_COEFFS arrays
 ID=${SLURM_ARRAY_TASK_ID}
 QTY_IDX=$(( ID % N_QTYS ))
-ENT_IDX=$(( ID / N_QTYS ))
+LR_IDX=$(( (ID / N_QTYS) % N_LRS ))
+VFC_IDX=$(( (ID / ( N_QTYS*N_LRS )) ))
 
 # Get the max quantity and entropy coefficient for this task
 MAX_QTY=${MAX_QTYS[$QTY_IDX]}
-ENTROPY_COEFF=${ENTROPY_COEFFS[$ENT_IDX]}
+LEARNING_RATE=${LEARNING_RATES[$LR_IDX]}
+VF_CLIP_PARAM=${VF_CLIP_PARAMS[$VFC_IDX]}
 
-echo "Task $ID -> max_qty=$MAX_QTY, entropy_coeff=$ENTROPY_COEFF"
+echo "Task $ID -> max_qty=$MAX_QTY, learning_rate=$LEARNING_RATE, vf_clip_param=$VF_CLIP_PARAM"
 
 
 ##############################
@@ -86,7 +90,8 @@ ALGO_NAME = "$ALGO_NAME"
 
 # Set max quantity and entropy coefficient
 MAX_QTY = $MAX_QTY
-ENTROPY_COEFF = $ENTROPY_COEFF
+LEARNING_RATE = $LEARNING_RATE
+VF_CLIP_PARAM = $VF_CLIP_PARAM
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
@@ -102,7 +107,8 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = ENTROPY_COEFF
+algo_cfg["algorithm"]["shared"]["learning_rate"] = LEARNING_RATE
+algo_cfg["algorithm"]["algorithm_specific"]["vf_clip_param"] = VF_CLIP_PARAM
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -225,9 +231,15 @@ ray start --head \
 # Run training + evaluation
 ##############################
 
-# Format entropy coeff for experiment name: 0.01 -> 001, 0.05 -> 005
-ENT_LABEL=$(echo "$ENTROPY_COEFF" | sed 's/0\.//; s/^0*//')
-ENT_LABEL=$(printf "%03d" "$ENT_LABEL")
+# Format learning rate for experiment name: 0.0003 -> 3e-4, 0.001 -> 1e-4
+LR_LABEL=$(printf "%.0e" "$LEARNING_RATES" | sed 's/e-0/e-/; s/e+0/e+/')
+
+# Format vf_clip_param for experiment name: 30000 -> 3e+4, 100000 -> 1e+5, 10000000000 -> Off
+if [ "$VF_CLIP_PARAMS" = "10000000000" ]; then
+    VFC_LABEL="Off"
+else
+    VFC_LABEL=$(printf "%.0e" "$VF_CLIP_PARAMS" | sed 's/e+0/e/; s/e+/e/; s/e-0/e-/')
+fi
 
 # Set output directory
 if [ -n "$ARRAY_NAME" ]; then
@@ -237,7 +249,7 @@ else
 fi
 
 # Set experiment name
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_StdFloor_NoTanh_MaxQty${MAX_QTY}_Ent${ENT_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_LR${LR_LABEL}_VfC${VFC_LABEL}"
 
 python src/experiments/run_experiment.py \
     --mode single \

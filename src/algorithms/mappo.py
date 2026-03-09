@@ -152,12 +152,15 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                 )
             )
             .training(
+                use_kl_loss=mappo_params.use_kl_loss,
+                grad_clip=mappo_params.grad_clip,
                 lr=shared_params.learning_rate,
                 train_batch_size_per_learner=shared_params.batch_size,
                 num_epochs=shared_params.num_epochs,
                 minibatch_size=shared_params.batch_size // shared_params.num_minibatches, 
                 shuffle_batch_per_epoch=True,
                 vf_loss_coeff=mappo_params.vf_loss_coeff,
+                vf_clip_param=mappo_params.vf_clip_param,
                 entropy_coeff=mappo_params.entropy_coeff,
                 clip_param=mappo_params.clip_param,
                 use_gae=mappo_params.use_gae,
