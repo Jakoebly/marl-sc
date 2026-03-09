@@ -142,11 +142,11 @@ ray start --head \
 
 # Set output directory and experiment name
 OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2"
-EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty30_LR1e-3_VfC3e4"
 
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_simplified_single.yaml \
+    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
     --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
