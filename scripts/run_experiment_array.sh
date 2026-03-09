@@ -232,13 +232,13 @@ ray start --head \
 ##############################
 
 # Format learning rate for experiment name: 0.0003 -> 3e-4, 0.001 -> 1e-4
-LR_LABEL=$(printf "%.0e" "$LEARNING_RATES" | sed 's/e-0/e-/; s/e+0/e+/')
+LR_LABEL=$(printf "%.0e" "$LEARNING_RATE" | sed 's/e-0/e-/; s/e+0/e+/')
 
 # Format vf_clip_param for experiment name: 30000 -> 3e+4, 100000 -> 1e+5, 10000000000 -> Off
-if [ "$VF_CLIP_PARAMS" = "10000000000" ]; then
+if [ "$VF_CLIP_PARAM" = "10000000000" ]; then
     VFC_LABEL="Off"
 else
-    VFC_LABEL=$(printf "%.0e" "$VF_CLIP_PARAMS" | sed 's/e+0/e/; s/e+/e/; s/e-0/e-/')
+    VFC_LABEL=$(printf "%.0e" "$VF_CLIP_PARAM" | sed 's/e+0/e/; s/e+/e/; s/e-0/e-/')
 fi
 
 # Set output directory
