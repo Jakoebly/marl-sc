@@ -83,7 +83,7 @@ environment:
       type: "cost"
       params:
         scope: "agent"
-        scale_factor: 1.0
+        scale_factor: 0.01
         cost_weights:
           - 0.25
           - 0.25
