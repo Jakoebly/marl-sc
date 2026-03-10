@@ -21,7 +21,7 @@ environment:
         - [40, 40]
         - [40, 40]
   cost_structure:
-    holding_cost: 3.0
+    holding_cost: 1.0
     penalty_cost:
       - 5
       - 5
