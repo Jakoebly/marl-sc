@@ -132,9 +132,9 @@ with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
 
 algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = OBS_NORM
 if STD_TYPE == "mu_sigma":
-    algo_cfg["algorithm"]["algorithm_specific"]["use_mu_sigma_head"] = True
+    algo_cfg["algorithm"]["algorithm_specific"]["networks"]["use_mu_sigma_head"] = True
 else:
-    algo_cfg["algorithm"]["algorithm_specific"]["use_mu_sigma_head"] = False
+    algo_cfg["algorithm"]["algorithm_specific"]["networks"]["use_mu_sigma_head"] = False
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
