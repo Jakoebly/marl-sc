@@ -167,11 +167,7 @@ class CostRewardCalculator(BaseRewardCalculator):
             inbound_shipment_costs_total
         ) # Shape: (n_warehouses,)
 
-        # Apply scale factor if enabled
-        if self.scale_factor:
-            pass # TODO: Implement scaling
-
-        # Store individual cost components for visualization (read via env.reward_calculator._cost_breakdown)
+        # Store individual cost components for visualization (before scaling)
         self._cost_breakdown = {
             "holding_cost": holding_costs_total.copy(),
             "penalty_cost": penalty_costs_total.copy(),
@@ -179,7 +175,11 @@ class CostRewardCalculator(BaseRewardCalculator):
             "inbound_shipment_cost": inbound_shipment_costs_total.copy(),
         }
 
-        # Convert to rewards (negative costs)
+        # Apply scale factor if enabled
+        if self.scale_factor:
+            costs_per_warehouse = costs_per_warehouse * self.scale_factor # Shape: (n_warehouses,)
+
+        # Convert to rewards (negative costs) and apply scale factor
         rewards = -costs_per_warehouse # Shape: (n_warehouses,)
         
         # If team scope is enabled, sum per-warehouse rewards and use as reward for all warehouses

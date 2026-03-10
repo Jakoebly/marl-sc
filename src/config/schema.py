@@ -517,6 +517,46 @@ class DataSourceCustom(BaseModel):
 DataSourceConfig = Union[DataSourceSynthetic, DataSourceRealWorld, DataSourceCustom]
 
 # ============================================================================
+# Action Space Config Schemas
+# ============================================================================
+
+# Direct: [-1, 1] → [0, max_order_quantities]
+class ActionSpaceDirectParams(BaseModel):
+    max_order_quantities: List[PositiveInt]
+    model_config = ConfigDict(extra="forbid")
+
+class ActionSpaceDirect(BaseModel):
+    """Configuration for direct action space (linear scaling to order quantities)."""
+    type: Literal["direct"]
+    params: ActionSpaceDirectParams
+    model_config = ConfigDict(extra="forbid")
+
+# Demand-centered: [-1, 1] → adjustment around incoming demand
+class ActionSpaceDemandCenteredParams(BaseModel):
+    max_quantity_adjustment: List[PositiveInt]
+    model_config = ConfigDict(extra="forbid")
+
+class ActionSpaceDemandCentered(BaseModel):
+    """Configuration for demand-centered action space."""
+    type: Literal["demand_centered"]
+    params: ActionSpaceDemandCenteredParams
+    model_config = ConfigDict(extra="forbid")
+
+# Base-stock: [-1, 1] → target stock level, then order to fill gap
+class ActionSpaceBaseStockParams(BaseModel):
+    max_stock_level: List[PositiveInt]
+    model_config = ConfigDict(extra="forbid")
+
+class ActionSpaceBaseStock(BaseModel):
+    """Configuration for base-stock action space."""
+    type: Literal["base_stock"]
+    params: ActionSpaceBaseStockParams
+    model_config = ConfigDict(extra="forbid")
+
+ActionSpaceConfig = Union[ActionSpaceDirect, ActionSpaceDemandCentered, ActionSpaceBaseStock]
+
+
+# ============================================================================
 # Top-level Environment Config Schemas
 # ============================================================================
 
@@ -527,8 +567,9 @@ class EnvironmentConfig(BaseModel):
     n_skus: PositiveInt
     n_regions: PositiveInt
     episode_length: PositiveInt
-    max_order_quantities: List[PositiveInt]
     max_wh_capacities: List[PositiveFloat]
+
+    action_space: ActionSpaceConfig = Field(..., discriminator="type")
 
     initial_inventory: InitialInventoryConfig = Field(..., discriminator="type")
     cost_structure: CostStructureConfig
@@ -549,12 +590,25 @@ class EnvironmentConfig(BaseModel):
                 f"(home region assumption: each warehouse is assigned to exactly one region)"
             )
 
-        # max_order_quantities: (n_skus,)
-        if len(self.max_order_quantities) != ns:
-            raise ValueError(
-                f"max_order_quantities must have length n_skus={ns}, "
-                f"got {len(self.max_order_quantities)}"
-            )
+        # Action space parameter validation (per-SKU lists must match n_skus)
+        if isinstance(self.action_space, ActionSpaceDirect):
+            if len(self.action_space.params.max_order_quantities) != ns:
+                raise ValueError(
+                    f"action_space.params.max_order_quantities must have length n_skus={ns}, "
+                    f"got {len(self.action_space.params.max_order_quantities)}"
+                )
+        elif isinstance(self.action_space, ActionSpaceDemandCentered):
+            if len(self.action_space.params.max_quantity_adjustment) != ns:
+                raise ValueError(
+                    f"action_space.params.max_quantity_adjustment must have length n_skus={ns}, "
+                    f"got {len(self.action_space.params.max_quantity_adjustment)}"
+                )
+        elif isinstance(self.action_space, ActionSpaceBaseStock):
+            if len(self.action_space.params.max_stock_level) != ns:
+                raise ValueError(
+                    f"action_space.params.max_stock_level must have length n_skus={ns}, "
+                    f"got {len(self.action_space.params.max_stock_level)}"
+                )
 
         # max_wh_capacities: (n_warehouses,)
         if len(self.max_wh_capacities) != nw:
@@ -760,6 +814,8 @@ class MLPConfig(BaseModel):
     hidden_sizes: List[PositiveInt] = Field(min_length=1)
     activation: ActivationName
     output_activation: Optional[ActivationName] = None
+    output_activation_mu: Optional[ActivationName] = None
+    output_activation_sigma: Optional[ActivationName] = None
     output_dim: Optional[PositiveInt] = None
     model_config = ConfigDict(extra="forbid")
 
@@ -781,6 +837,8 @@ class GRUConfig(BaseModel):
     max_seq_len: PositiveInt
     activation: Optional[ActivationName] = None
     output_activation: Optional[ActivationName] = None
+    output_activation_mu: Optional[ActivationName] = None
+    output_activation_sigma: Optional[ActivationName] = None
     output_dim: Optional[PositiveInt] = None
     model_config = ConfigDict(extra="forbid")
 
@@ -881,7 +939,37 @@ class ActorCriticConfig(OptionalSharedLayers):
     
     actor: NetworkConfig
     critic: NetworkConfig
+    use_mu_sigma_head: bool = False
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _validate_output_activations(self):
+        actor_cfg = self.actor.config
+        critic_cfg = self.critic.config
+
+        # output_activation_mu / output_activation_sigma are actor-only
+        if critic_cfg.output_activation_mu is not None:
+            raise ValueError("output_activation_mu is only valid for the actor, not the critic")
+        if critic_cfg.output_activation_sigma is not None:
+            raise ValueError("output_activation_sigma is only valid for the actor, not the critic")
+
+        if self.use_mu_sigma_head:
+            if actor_cfg.output_activation is not None:
+                raise ValueError(
+                    "output_activation must not be set on the actor when use_mu_sigma_head is true. "
+                    "Use output_activation_mu and/or output_activation_sigma instead."
+                )
+        else:
+            if actor_cfg.output_activation_mu is not None:
+                raise ValueError(
+                    "output_activation_mu is only valid when use_mu_sigma_head is true"
+                )
+            if actor_cfg.output_activation_sigma is not None:
+                raise ValueError(
+                    "output_activation_sigma is only valid when use_mu_sigma_head is true"
+                )
+
+        return self
 
 # PPO-specific parameters
 class PPOConfig(BaseModel):
@@ -913,7 +1001,7 @@ class PPOConfig(BaseModel):
 class IPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "ratio"] = "off"
     parameter_sharing: bool = False
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
@@ -939,7 +1027,7 @@ class IPPOConfig(BaseModel):
 class MAPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "ratio"] = "off"
     parameter_sharing: bool = False
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")

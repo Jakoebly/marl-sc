@@ -3,10 +3,13 @@ environment:
   n_skus: 3
   n_regions: 3
   episode_length: 100
-  max_order_quantities:
-    - 5000
-    - 5000
-    - 5000
+  action_space:
+    type: "direct"
+    params:
+      max_order_quantities: 
+        - 5000
+        - 5000
+        - 5000
   max_wh_capacities:
    - 10000000
    - 10000000

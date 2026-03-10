@@ -13,6 +13,7 @@ EXPERIMENT_SEEDS: Tuple[str, ...] = (
     'data_costs',
     'train',
     'eval',
+    'obs_stats',
 )
 
 # Define environment seed registry

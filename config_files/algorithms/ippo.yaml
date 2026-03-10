@@ -35,6 +35,7 @@ algorithm:
         #  bidirectional: false
         #  output_dim: 128
         #  max_seq_len: 20
+      use_mu_sigma_head: false
       actor:
         type: "mlp"
         config:        

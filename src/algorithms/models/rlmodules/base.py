@@ -180,6 +180,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # Set flags
         self.has_shared_layers = network_configs.get("shared_layers") is not None
         self.use_centralized_critic = self.model_config.get("use_centralized_critic", False)
+        self.use_mu_sigma_head = network_configs.get("use_mu_sigma_head", False)
         
         # Build shared layers if specified
         if self.has_shared_layers:
@@ -198,21 +199,58 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             critic_input_dim = self.global_obs_dim if self.use_centralized_critic else self.local_obs_dim
         
         # Build actor network
-        self.actor = self.build_network(
-            architecture_type=self.actor_type,
-            input_dim=actor_input_dim,
-            output_dim=actor_output_dim,
-            architecture_config=self.actor_config,
-            action_space=self.action_space,
-            name="actor"
-        )
+        if self.use_mu_sigma_head and isinstance(self.action_space, Box):
+            from src.algorithms.models.architectures.mu_sigma_head import MuSigmaHead
 
-        # For continuous action spaces, add a free (state-independent) log_std
-        # parameter. RLlib's TorchDiagGaussian.from_logits() expects the second
-        # half of ACTION_DIST_INPUTS to be log(std), so we concatenate this
-        # learnable parameter to the actor's mean output in the forward methods.
-        if isinstance(self.action_space, Box):
-            self.log_std = nn.Parameter(torch.full((actor_output_dim,), -1.0))
+            # Determine the backbone output dimension from the actor config
+            if self.actor_type == "mlp":
+                backbone_dim = self.actor_config.get("hidden_sizes", [256])[-1]
+            elif self.actor_type == "gru":
+                hidden_size = self.actor_config.get("hidden_size", 128)
+                bidirectional = self.actor_config.get("bidirectional", False)
+                backbone_dim = hidden_size * (2 if bidirectional else 1)
+            else:
+                raise ValueError(
+                    f"use_mu_sigma_head is not supported with actor type '{self.actor_type}'"
+                )
+
+            # Build actor as backbone (outputs backbone_dim features).
+            # Strip all output activation params — the backbone produces raw
+            # features, per-head activations are handled by MuSigmaHead.
+            backbone_config = dict(self.actor_config)
+            output_activation_mu = backbone_config.pop("output_activation_mu", None)
+            output_activation_sigma = backbone_config.pop("output_activation_sigma", None)
+            backbone_config.pop("output_activation", None)
+
+            self.actor = self.build_network(
+                architecture_type=self.actor_type,
+                input_dim=actor_input_dim,
+                output_dim=backbone_dim,
+                architecture_config=backbone_config,
+                action_space=self.action_space,
+                name="actor"
+            )
+
+            # Attach dual-head module on top of backbone
+            self.mu_sigma_head = MuSigmaHead(
+                backbone_dim, actor_output_dim,
+                self.action_space.low, self.action_space.high,
+                output_activation_mu=output_activation_mu,
+                output_activation_sigma=output_activation_sigma,
+            )
+        else:
+            self.actor = self.build_network(
+                architecture_type=self.actor_type,
+                input_dim=actor_input_dim,
+                output_dim=actor_output_dim,
+                architecture_config=self.actor_config,
+                action_space=self.action_space,
+                name="actor"
+            )
+
+            # Add a free (state-independent) log_std parameter for continuous action spaces
+            if isinstance(self.action_space, Box):
+                self.log_std = nn.Parameter(torch.full((actor_output_dim,), -1.0))
 
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
@@ -361,7 +399,9 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
     def _forward_actor(self, obs: torch.Tensor, hidden_states: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
-        Performs a forward pass through the actor network.
+        Performs a forward pass through the actor network.  When
+        ``use_mu_sigma_head`` is enabled, the backbone output is further
+        passed through the dual mu/sigma head to produce ``[mu, log_std]``.
         
         Args:
             obs (torch.Tensor): Input observations.
@@ -378,6 +418,9 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
         # Forward through actor network using the base class method
         actor_out, actor_states_out = self._forward_network(self.actor, obs, hidden_states)
+
+        if self.use_mu_sigma_head:
+            actor_out = self.mu_sigma_head(actor_out)
 
         return actor_out, actor_states_out
 

@@ -106,7 +106,10 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         self.env.obs_normalization = self.obs_normalization
         self.env.include_warehouse_id = self.include_warehouse_id
 
-        # Apply MeanStdFilter if obs_normalization is "meanstd"
+        # Read precomputed observation statistics from the template environment
+        self.obs_stats = self.env.obs_stats
+
+        # Build environment runners config for RLlib
         env_runners_kwargs = {
             "num_env_runners": self.num_env_runners,
             "num_envs_per_env_runner": self.num_envs_per_env_runner,
@@ -119,6 +122,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             "seed": self.train_seed,
             "data_mode": "train",
             "obs_normalization": self.obs_normalization,
+            "obs_stats": self.obs_stats,
         }
         if self.include_warehouse_id:
             train_env_config["include_warehouse_id"] = True
@@ -128,6 +132,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             "seed": self.eval_seed,
             "data_mode": "val",
             "obs_normalization": self.obs_normalization,
+            "obs_stats": self.obs_stats,
         }
         if self.include_warehouse_id:
             eval_env_config["include_warehouse_id"] = True
