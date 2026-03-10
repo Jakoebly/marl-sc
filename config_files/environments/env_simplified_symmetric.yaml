@@ -3,12 +3,9 @@ environment:
   n_skus: 2
   n_regions: 3
   episode_length: 100
-  action_space:
-    type: "direct"
-    params:
-      max_order_quantities: 
-        - 30
-        - 30
+  max_order_quantities:
+    - 50
+    - 50
   max_wh_capacities:
     - 10000000
     - 10000000
@@ -17,9 +14,9 @@ environment:
     type: "custom"
     params:
       values:
-        - [40, 40]
-        - [40, 40]
-        - [40, 40]
+        - [30, 30]
+        - [30, 30]
+        - [30, 30]
   cost_structure:
     holding_cost: 1.0
     penalty_cost:
@@ -83,7 +80,7 @@ environment:
       type: "cost"
       params:
         scope: "agent"
-        scale_factor: 0.01
+        scale_factor: 1.0
         cost_weights:
           - 0.25
           - 0.25
