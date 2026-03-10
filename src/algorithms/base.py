@@ -16,12 +16,15 @@ class BaseAlgorithmWrapper(ABC):
     """Base class for RLlib algorithm wrappers."""
 
     @abstractmethod
-    def __init__(self, env: 'InventoryEnvironment', config: 'AlgorithmConfig'):
+    def __init__(self, env: 'InventoryEnvironment', config: 'AlgorithmConfig',
+                 train_seed: int = None, eval_seed: int = None):
         """Initializes algorithm wrapper.
         
         Args:
             env (InventoryEnvironment): InventoryEnvironment instance (PettingZoo ParallelEnv)
             config (AlgorithmConfig): Algorithm configuration
+            train_seed (Optional[int]): Seed for training environments.
+            eval_seed (Optional[int]): Seed for evaluation environments.
         """
         pass
 

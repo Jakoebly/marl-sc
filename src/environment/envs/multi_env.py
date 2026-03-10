@@ -66,8 +66,22 @@ class InventoryEnvironment(ParallelEnv):
         self.n_skus = env_config.n_skus
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
-        self.max_order_quantities = np.asarray(env_config.max_order_quantities, dtype=float)
         self.max_wh_capacities = env_config.max_wh_capacities
+
+        # Store action space formulation parameters
+        self.action_space_type = env_config.action_space.type
+        if self.action_space_type == "direct":
+            self.max_order_quantities = np.asarray(
+                env_config.action_space.params.max_order_quantities, dtype=float
+            )
+        elif self.action_space_type == "demand_centered":
+            self.max_quantity_adjustment = np.asarray(
+                env_config.action_space.params.max_quantity_adjustment, dtype=float
+            )
+        elif self.action_space_type == "base_stock":
+            self.max_stock_level = np.asarray(
+                env_config.action_space.params.max_stock_level, dtype=float
+            )
         
         # Initialize seed manager
         self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEEDS)
@@ -106,10 +120,12 @@ class InventoryEnvironment(ParallelEnv):
         # Set exponential smoothing parameter for demand forecast
         self.ema_alpha = 0.3
 
-        # Set observation normalization mode
+        # Set observation normalization mode and optional precomputed statistics
         self.obs_normalization = "off"
+        self.obs_stats = None
         if env_meta is not None:
             self.obs_normalization = env_meta.get("obs_normalization", "off")
+            self.obs_stats = env_meta.get("obs_stats", None)
 
         # Set include warehouse ID flag for parameter sharing
         self.include_warehouse_id = False
@@ -361,8 +377,9 @@ class InventoryEnvironment(ParallelEnv):
 
     def action_space(self, agent: str) -> Box:
         """
-        Returns the action space (normalized replenishment order quantities) for a warehouse. Actions are in the
-        range [-1, 1] and will be rescaled to [0, max_order_quantities] internally.
+        Returns the action space for a warehouse. Actions are in the range [-1, 1] and
+        will be rescaled internally according to the configured action_space_type
+        ("direct", "demand_centered", or "base_stock").
 
         Args:
             agent (str): Warehouse ID (unused, all warehouses have the same action space).
@@ -438,8 +455,11 @@ class InventoryEnvironment(ParallelEnv):
         """
         Builds per-warehouse local and global observations consisting of 8 feature groups.
         For obs_normalization == "ratio", per-SKU features are ratio-normalized (fractions)
-        and aggregate features are log1p-scaled totals or ratios. For "off" and "meanstd",
-        per-SKU features are raw values with the same aggregate features appended.
+        and aggregate features are log1p-scaled totals or ratios. For "meanstd_custom",
+        raw features are assembled and then the entire local vector is normalized using
+        precomputed mean/std from a random-policy rollout. For "off" and "meanstd",
+        per-SKU features are raw values with the same aggregate features appended ("meanstd" 
+        lets RLlib handle mean/std normalization).
         
         Feature groups per warehouse w (S = n_skus):
             1. Inventory:           S per-SKU + 1 aggregate  (S+1)
@@ -457,93 +477,20 @@ class InventoryEnvironment(ParallelEnv):
                 Shape: {warehouse_id: (local_obs_dim + global_obs_dim,)}.
         """
 
-        # Set eps and ratio normalization flag
-        use_ratio_norm = self.obs_normalization == "ratio"
+        # Precompute pending orders matrix once for all warehouses
+        pending_matrix = (
+            sum(self.pending_orders.values())
+            if self.pending_orders
+            else np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+        )  # Shape: (n_warehouses, n_skus)
 
-         # Initialize dictionary to store local observations
-        local_obs = {}
-        
-        # Build local observations for each warehouse
-        for warehouse_idx, warehouse_id in enumerate(self.agents):
-            # Compute raw per-SKU features for this warehouse
-            sku_inventory  = self.inventory[warehouse_idx, :].copy()             
-            sku_pending  = np.zeros(self.n_skus, dtype=np.float32)
-            for orders_array in self.pending_orders.values():
-                sku_pending += orders_array[warehouse_idx, :]
-            demand_home = self._incoming_demand_home[warehouse_idx, :]  
-            shipped_home = self._units_shipped_home[warehouse_idx, :]   
-            shipped_away = self._units_shipped_away[warehouse_idx, :]   
-            stockout = self._stockout[warehouse_idx, :]                 
-            rolling_mean = self._rolling_demand_mean_home[warehouse_idx, :]
-            demand_forecast = self._demand_forecast_home[warehouse_idx, :] 
+        # Build local observation for each warehouse
+        local_obs = {
+            warehouse_id: self._build_local_obs(warehouse_idx, pending_matrix)
+            for warehouse_idx, warehouse_id in enumerate(self.agents)
+        }
 
-            # Aggregate sums across SKUs used for ratio normalization and aggregate features
-            inventory_total = sku_inventory.sum()
-            pending_total = sku_pending.sum()
-            demand_home_total = demand_home.sum()
-            shipped_total = (shipped_home + shipped_away).sum()
-            rolling_mean_total = rolling_mean.sum()
-            demand_forecast_total = demand_forecast.sum()
-
-            # If ratio normalization is enabled, normalize the per-SKU features
-            eps = 1e-8
-            if use_ratio_norm:
-                obs_inventory = sku_inventory / (inventory_total + eps)
-                obs_pending = sku_pending / (pending_total + eps)
-                obs_demand_home = demand_home / (demand_home_total + eps)
-                obs_shipped_home = shipped_home / (demand_home_total + eps)
-                obs_shipped_away = shipped_away / (shipped_total + eps)
-                obs_stockout = stockout / (demand_home_total + eps)
-                obs_rolling_mean = rolling_mean / (rolling_mean_total + eps)
-                obs_demand_forecast = demand_forecast / (demand_forecast_total + eps)
-            
-            # If ratio normalization is disabled, use raw features
-            else:
-                obs_inventory = sku_inventory
-                obs_pending = sku_pending
-                obs_demand_home = demand_home
-                obs_shipped_home = shipped_home
-                obs_shipped_away = shipped_away
-                obs_stockout = stockout
-                obs_rolling_mean = rolling_mean
-                obs_demand_forecast = demand_forecast
-
-            # Aggregate features
-            agg_inventory = np.float32(np.log1p(inventory_total))
-            agg_pending = np.float32(np.log1p(pending_total))
-            agg_demand_home = np.float32(np.log1p(demand_home_total))
-            agg_shipped_away = np.float32(shipped_away.sum() / (shipped_total + eps))
-            agg_rolling_mean = np.float32(np.log1p(rolling_mean_total))
-            agg_demand_forecast = np.float32(np.log1p(demand_forecast_total))
-
-            # Concatenate features into a single local observation
-            local = np.concatenate([
-                # obs_inventory,
-                obs_inventory, np.array([agg_inventory]),                     
-                # obs_pending,
-                obs_pending, np.array([agg_pending]),             
-                # obs_demand_home,
-                obs_demand_home, np.array([agg_demand_home]),     
-                obs_shipped_home,                                 
-                # obs_shipped_away,
-                obs_shipped_away, np.array([agg_shipped_away]),   
-                obs_stockout,                                     
-                # obs_rolling_mean,
-                obs_rolling_mean, np.array([agg_rolling_mean]),   
-                # obs_demand_forecast,
-                obs_demand_forecast, np.array([agg_demand_forecast]),
-            ]).astype(np.float32)
-
-            # Prepend one-hot warehouse identifier when parameter sharing is enabled (include_warehouse_id is True)
-            if self.include_warehouse_id:
-                warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
-                warehouse_id_onehot[warehouse_idx] = 1.0
-                local = np.concatenate([warehouse_id_onehot, local])
-            
-            # Store local observation for this warehouse
-            local_obs[warehouse_id] = local
-
-        # Build global observations
+        # Build global observation (concatenation of all local observations)
         global_obs = np.concatenate([local_obs[agent_id] for agent_id in self.agents])
 
         # Build flat observations dictionary (local + global concatenated per agent)
@@ -553,6 +500,111 @@ class InventoryEnvironment(ParallelEnv):
         }
 
         return obs
+
+    def _build_local_obs(self, warehouse_idx: int, pending_matrix: np.ndarray) -> np.ndarray:
+        """
+        Builds the local observation vector for a single warehouse by extracting raw
+        per-SKU features, optionally applying ratio normalization, computing aggregate
+        features, and concatenating everything into a flat vector.
+
+        Args:
+            warehouse_idx (int): Index of the warehouse in the agents list.
+            pending_matrix (np.ndarray): Precomputed total pending orders across all
+                arrival timesteps. Shape: (n_warehouses, n_skus).
+
+        Returns:
+            local (np.ndarray): Flat local observation vector. Shape: (local_obs_dim,).
+        """
+
+        use_ratio_norm = self.obs_normalization == "ratio"
+        eps = 1e-8
+
+        # Extract raw per-SKU features for this warehouse
+        sku_inventory = self.inventory[warehouse_idx, :].copy()
+        sku_pending = pending_matrix[warehouse_idx, :].copy()
+        demand_home = self._incoming_demand_home[warehouse_idx, :]
+        shipped_home = self._units_shipped_home[warehouse_idx, :]
+        shipped_away = self._units_shipped_away[warehouse_idx, :]
+        stockout = self._stockout[warehouse_idx, :]
+        rolling_mean = self._rolling_demand_mean_home[warehouse_idx, :]
+        demand_forecast = self._demand_forecast_home[warehouse_idx, :]
+
+        # Precompute totals used for ratio normalization and aggregate features
+        inventory_total = sku_inventory.sum()
+        pending_total = sku_pending.sum()
+        demand_home_total = demand_home.sum()
+        shipped_total = (shipped_home + shipped_away).sum()
+        rolling_mean_total = rolling_mean.sum()
+        demand_forecast_total = demand_forecast.sum()
+
+        # Concatenate feature blocks into a single local observation vector
+        # Each feature group: per-SKU features (optionally ratio-normed) + optional aggregate scalar
+        local = np.concatenate([
+            # Inventory: per-SKU + log1p aggregate
+            self._feature_block(sku_inventory, inventory_total, np.log1p(inventory_total),                        use_ratio_norm, eps),
+            # Pending orders: per-SKU + log1p aggregate
+            self._feature_block(sku_pending, pending_total, np.log1p(pending_total),                          use_ratio_norm, eps),
+            # Incoming demand (home): per-SKU + log1p aggregate
+            self._feature_block(demand_home, demand_home_total, np.log1p(demand_home_total),                      use_ratio_norm, eps),
+            # Units shipped (home): per-SKU only (no aggregate)
+            self._feature_block(shipped_home, demand_home_total, None,                                             use_ratio_norm, eps),
+            # Units shipped (away): per-SKU + ratio aggregate
+            self._feature_block(shipped_away, shipped_total, shipped_away.sum() / (shipped_total + eps),        use_ratio_norm, eps),
+            # Stockout: per-SKU only (no aggregate)
+            self._feature_block(stockout, demand_home_total, None,                                             use_ratio_norm, eps),
+            # Rolling demand mean: per-SKU + log1p aggregate
+            self._feature_block(rolling_mean, rolling_mean_total, np.log1p(rolling_mean_total),                     use_ratio_norm, eps),
+            # Demand forecast: per-SKU + log1p aggregate
+            self._feature_block(demand_forecast, demand_forecast_total, np.log1p(demand_forecast_total),                  use_ratio_norm, eps),
+        ]).astype(np.float32)
+
+        # Apply meanstd_custom normalization to the local observation vector
+        if self.obs_normalization == "meanstd_custom" and self.obs_stats is not None:
+            obs_mean, obs_std = self.obs_stats
+            local = (local - obs_mean) / obs_std
+
+        # Prepend one-hot warehouse identifier when parameter sharing is enabled (include_warehouse_id is True)
+        if self.include_warehouse_id:
+            warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
+            warehouse_id_onehot[warehouse_idx] = 1.0
+            local = np.concatenate([warehouse_id_onehot, local])
+
+        return local
+
+    def _feature_block(
+        self,
+        sku_features: np.ndarray,
+        ratio_denom: float,
+        agg_value: Optional[float],
+        use_ratio_norm: bool,
+        eps: float,
+    ) -> np.ndarray:
+        """
+        Builds one observation feature block consisting of per-SKU features (optionally
+        ratio-normalized) followed by an optional scalar aggregate.
+
+        Args:
+            sku_features (np.ndarray): Raw per-SKU feature values. Shape: (n_skus,).
+            ratio_denom (float): Denominator for ratio normalization (total across SKUs).
+            agg_value (Optional[float]): Scalar aggregate to append, or None to omit.
+            use_ratio_norm (bool): If True, divide sku_features by (ratio_denom + eps).
+            eps (float): Small constant to avoid division by zero.
+
+        Returns:
+            block (np.ndarray): Per-SKU features with optional appended aggregate.
+        """
+
+        # Apply ratio normalization if enabled
+        if use_ratio_norm:
+            normed = sku_features / (ratio_denom + eps)
+        else:
+            normed = sku_features
+
+        # Append aggregate scalar if provided
+        if agg_value is not None:
+            normed = np.concatenate([normed, [np.float32(agg_value)]])
+
+        return normed
 
     def _update_observations(
         self, 
@@ -604,7 +656,14 @@ class InventoryEnvironment(ParallelEnv):
 
     def _rescale_actions_to_quantities(self, actions: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         """
-        Rescales normalized actions from a [-1, 1] range to integer order quantities in the range [0, max_order_quantities].
+        Rescales normalized actions from a [-1, 1] range to integer order quantities
+        according to the configured action_space_type:
+
+            - "direct": maps [-1, 1] → [0, max_order_quantities] via linear scaling.
+            - "demand_centered": maps [-1, 1] → [-max_quantity_adjustment, max_quantity_adjustment],
+              then adds incoming home demand and clips to non-negative.
+            - "base_stock": maps [-1, 1] → [0, max_stock_level] as target stock level,
+              then subtracts incoming home demand and pending orders and clips to non-negative.
         
         Args:
             actions (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to normalized action array. 
@@ -620,10 +679,32 @@ class InventoryEnvironment(ParallelEnv):
         
         # Rescale actions to quantities for each warehouse (element-wise per SKU)
         for agent_id, action in actions.items():
-            scaled = (action + 1.0) / 2.0 * self.max_order_quantities
-            integer_action = np.round(scaled).astype(int)
-            integer_action = np.clip(integer_action, 0, self.max_order_quantities)
-            quantities[agent_id] = integer_action.astype(float)
+            # Get the warehouse index
+            warehouse_idx = self.agents.index(agent_id)
+
+            # Rescale actions to quantities for direct action space
+            if self.action_space_type == "direct":
+                scaled = (action + 1.0) / 2.0 * self.max_order_quantities
+                integer_action = np.round(scaled).astype(int)
+                integer_action = np.clip(integer_action, 0, self.max_order_quantities)
+                quantities[agent_id] = integer_action.astype(float)
+
+            # Rescale actions to quantities for demand-centered action space
+            elif self.action_space_type == "demand_centered":
+                adjustment = np.round(self.max_quantity_adjustment * action).astype(int)
+                demand = self._incoming_demand_home[warehouse_idx].astype(int)
+                order_qty = np.maximum(0, adjustment + demand)
+                quantities[agent_id] = order_qty.astype(float)
+
+            # Rescale actions to quantities for base-stock action space
+            elif self.action_space_type == "base_stock":
+                target = (action + 1.0) / 2.0 * self.max_stock_level
+                demand = self._incoming_demand_home[warehouse_idx]
+                sku_pending = np.zeros(self.n_skus, dtype=np.float32)
+                for orders_array in self.pending_orders.values():
+                    sku_pending += orders_array[warehouse_idx, :]
+                order_qty = np.maximum(0, np.round(target - demand - sku_pending)).astype(int)
+                quantities[agent_id] = order_qty.astype(float)
 
         return quantities
 

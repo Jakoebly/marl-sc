@@ -194,8 +194,8 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
     # Calculate home regions for each warehouse
     home_regions = np.argmin(distances, axis=1)                     # Shape:(n_warehouses,)
 
-    # Extract max order quantities
-    max_qty = np.array(env_config.max_order_quantities, dtype=float)
+    # Extract max order quantities (baselines assume "direct" action space)
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
     # Initialize base-stock levels for each warehouse-SKU pair
     base_stock = np.zeros((n_warehouses, n_skus))
@@ -474,7 +474,7 @@ def main():
 
     # Load environment config
     env_config = load_environment_config(args.env_config)
-    max_qty = np.array(env_config.max_order_quantities, dtype=float)
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
     # Derive eval_seed via SeedManager (same derivation as EvaluationRunner)
     seed_manager = SeedManager(root_seed=args.root_seed, seed_registry=EXPERIMENT_SEEDS)

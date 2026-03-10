@@ -10,6 +10,7 @@ from src.algorithms.registry import get_algorithm
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.utils.wandb import log_wandb_metrics
 from src.utils.seed_manager import SeedManager
+from src.utils.obs_stats import compute_obs_statistics
 
 
 class ExperimentRunner:
@@ -34,10 +35,11 @@ class ExperimentRunner:
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict (project, name, tags, etc.)
         """
 
-        # Derive train / eval seeds from the SeedManager
+        # Derive train / eval / obs_stats seeds from the SeedManager
         self.seed_manager = seed_manager
         self.train_seed = seed_manager.get_seed_int('train') if seed_manager else None
         self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
+        self.obs_stats_seed = seed_manager.get_seed_int('obs_stats') if seed_manager else None
 
         # Store configs
         self.env_config = env_config
@@ -48,6 +50,10 @@ class ExperimentRunner:
         
         # Initialize environment (template only; actual train/eval envs are created by RLlib)
         self.env = InventoryEnvironment(self.env_config)
+
+        # Precompute observation statistics for meanstd_custom normalization
+        if algorithm_config.algorithm_specific.obs_normalization == "meanstd_custom":
+            self.env.obs_stats = compute_obs_statistics(env_config, n_episodes=50, seed=self.obs_stats_seed)
         
         # Initialize algorithm with separate train and eval seeds
         self.algorithm = get_algorithm(
@@ -166,9 +172,10 @@ class EvaluationRunner:
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
-        # Derive eval seed from SeedManager
+        # Derive eval / obs_stats seeds from SeedManager
         self.seed_manager = seed_manager
         self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
+        self.obs_stats_seed = seed_manager.get_seed_int('obs_stats') if seed_manager else None
 
         # Store evaluation parameters
         self.eval_episodes = eval_episodes
@@ -184,6 +191,10 @@ class EvaluationRunner:
 
         # Create template environment (seed=None; eval envs get eval_seed via evaluation_config)
         self.env = InventoryEnvironment(self.env_config)
+
+        # Precompute observation statistics for meanstd_custom normalization
+        if algorithm_config.algorithm_specific.obs_normalization == "meanstd_custom":
+            self.env.obs_stats = compute_obs_statistics(env_config, n_episodes=10, seed=self.obs_stats_seed)
 
         # Initialize algorithm with eval_seed only (no training in evaluation mode)
         self.algorithm = get_algorithm(
@@ -227,6 +238,7 @@ class EvaluationRunner:
             rollout_env_meta = {
                 "data_mode": "val",
                 "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
+                "obs_stats": getattr(self.algorithm, "obs_stats", None),
             }
             if self.algorithm_config.algorithm_specific.parameter_sharing:
                 rollout_env_meta["include_warehouse_id"] = True
