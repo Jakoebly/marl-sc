@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-8%9                          # Array for 18 jobs (indices 0-17) with 1 job at once per node
+#SBATCH --array=0-9%10                          # Array for 18 jobs (indices 0-17) with 1 job at once per node
 
 
 ##############################
@@ -74,18 +74,19 @@ export PYTHONUNBUFFERED=1
 ID=${SLURM_ARRAY_TASK_ID}
 
 case $ID in
-    0) MAX_QTY=20; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    1) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    2) MAX_QTY=40; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    3) MAX_QTY=30; SCALE=0.001; HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    4) MAX_QTY=30; SCALE=0.01;  HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    5) MAX_QTY=30; SCALE=1;     HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    6) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
-    7) MAX_QTY=30; SCALE=1;     HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
-    8) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
+    0) X=10; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    1) X=15; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    2) X=20; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    3) X=15; SCALE=1.00;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    4) X=15; SCALE=0.001; HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    5) X=15; SCALE=0.01;  HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    6) X=15; SCALE=1.00;  HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    7) X=15; SCALE=0.01;  HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
+    8) X=15; SCALE=1.00;  HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
+    9) X=15; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
 esac
 
-echo "Task $ID -> action=direct, max_qty=$MAX_QTY, scale=$SCALE, hcost=$HCOST, obs=$OBS_NORM, std=$STD_TYPE"
+echo "Task $ID -> action=demand_centered, adj_x=$X, scale=$SCALE, hcost=$HCOST, obs=$OBS_NORM, std=$STD_TYPE"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -107,7 +108,7 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-MAX_QTY = $MAX_QTY
+X = $X
 SCALE = $SCALE
 HCOST = $HCOST
 OBS_NORM = "$OBS_NORM"
@@ -118,8 +119,8 @@ with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
     env_cfg = yaml.safe_load(f)
 
 n_skus = env_cfg["environment"]["n_skus"]
-env_cfg["environment"]["action_space"]["type"] = "direct"
-env_cfg["environment"]["action_space"]["params"]["max_order_quantities"] = [MAX_QTY] * n_skus
+env_cfg["environment"]["action_space"]["type"] = "demand_centered"
+env_cfg["environment"]["action_space"]["params"]["max_quantity_adjustment"] = [X] * n_skus
 env_cfg["environment"]["cost_structure"]["holding_cost"] = HCOST
 env_cfg["environment"]["components"]["reward_calculator"]["params"]["scale_factor"] = SCALE
 
@@ -267,14 +268,14 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2.2"
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxAdj${X}_Scale${SCALE_LABEL}"
 
 if [ "$HCOST" -eq 3 ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_HCOST${HCOST}"
-elif [ "$OBS_NORM" = "custom_meanstd" ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_OBS${OBS_NORM}"
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_HCOST${HCOST}"
+elif [ "$OBS_NORM" = "meanstd_custom" ]; then
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_OBSMeanStdCustom"
 elif [ "$STD_TYPE" = "mu_sigma" ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_STD${STD_TYPE}"
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_STDMuSigmaHead"
 fi
 
 python src/experiments/run_experiment.py \
