@@ -80,8 +80,8 @@ case $ID in
     3) MAX_QTY=30; SCALE=0.001; HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
     4) MAX_QTY=30; SCALE=0.01;  HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
     5) MAX_QTY=30; SCALE=1;     HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    6) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="custom_meanstd"; STD_TYPE="free" ;;
-    7) MAX_QTY=30; SCALE=1;     HCOST=1;   OBS_NORM="custom_meanstd"; STD_TYPE="free" ;;
+    6) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
+    7) MAX_QTY=30; SCALE=1;     HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
     8) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
 esac
 
