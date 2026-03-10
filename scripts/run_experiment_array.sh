@@ -42,32 +42,50 @@ export PYTHONUNBUFFERED=1
 
 
 ##############################
-# Map SLURM_ARRAY_TASK_ID -> (max_qty, entropy_coeff)
+# Map SLURM_ARRAY_TASK_ID -> run parameters
 ##############################
 
-# Define possible values for max quantity and entropy coefficient
-MAX_QTYS=(20 30 40)
-LEARNING_RATES=(0.0003 0.001)
-VF_CLIP_PARAMS=(30000 100000 10000000000)
+# #### INDEX ARITHMETICS ####
+# # Define possible values for max quantity and entropy coefficient
+# MAX_QTYS=(20 30 40)
+# LEARNING_RATES=(0.0003 0.001)
+# VF_CLIP_PARAMS=(30000 100000 10000000000)
 
-# Get the number of possible values for max quantity and entropy coefficient
-N_QTYS=${#MAX_QTYS[@]}
-N_LRS=${#LEARNING_RATES[@]}
-N_VFCLIPS=${#VF_CLIP_PARAMS[@]}
+# # Get the number of possible values for max quantity and entropy coefficient
+# N_QTYS=${#MAX_QTYS[@]}
+# N_LRS=${#LEARNING_RATES[@]}
+# N_VFCLIPS=${#VF_CLIP_PARAMS[@]}
 
-# Get the ID of the current task for indexing the MAX_QTYS and ENTROPY_COEFFS arrays
+# # Get the ID of the current task for indexing the MAX_QTYS and ENTROPY_COEFFS arrays
+# ID=${SLURM_ARRAY_TASK_ID}
+# QTY_IDX=$(( ID % N_QTYS ))
+# LR_IDX=$(( (ID / N_QTYS) % N_LRS ))
+# VFC_IDX=$(( (ID / ( N_QTYS*N_LRS )) ))
+
+# # Get the max quantity and entropy coefficient for this task
+# MAX_QTY=${MAX_QTYS[$QTY_IDX]}
+# LEARNING_RATE=${LEARNING_RATES[$LR_IDX]}
+# VF_CLIP_PARAM=${VF_CLIP_PARAMS[$VFC_IDX]}
+
+# echo "Task $ID -> max_qty=$MAX_QTY, learning_rate=$LEARNING_RATE, vf_clip_param=$VF_CLIP_PARAM"
+
+#### CASE LOOKUP ####
+
 ID=${SLURM_ARRAY_TASK_ID}
-QTY_IDX=$(( ID % N_QTYS ))
-LR_IDX=$(( (ID / N_QTYS) % N_LRS ))
-VFC_IDX=$(( (ID / ( N_QTYS*N_LRS )) ))
 
-# Get the max quantity and entropy coefficient for this task
-MAX_QTY=${MAX_QTYS[$QTY_IDX]}
-LEARNING_RATE=${LEARNING_RATES[$LR_IDX]}
-VF_CLIP_PARAM=${VF_CLIP_PARAMS[$VFC_IDX]}
+case $ID in
+    0) MAX_QTY=20; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    1) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    2) MAX_QTY=40; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    3) MAX_QTY=30; SCALE=0.001; HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    4) MAX_QTY=30; SCALE=0.01;  HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    5) MAX_QTY=30; SCALE=1;     HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    6) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="custom_meanstd"; STD_TYPE="free" ;;
+    7) MAX_QTY=30; SCALE=1;     HCOST=1;   OBS_NORM="custom_meanstd"; STD_TYPE="free" ;;
+    8) MAX_QTY=30; SCALE=0.01;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
+esac
 
-echo "Task $ID -> max_qty=$MAX_QTY, learning_rate=$LEARNING_RATE, vf_clip_param=$VF_CLIP_PARAM"
-
+echo "Task $ID -> action=direct, max_qty=$MAX_QTY, scale=$SCALE, hcost=$HCOST, obs=$OBS_NORM, std=$STD_TYPE"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -88,17 +106,22 @@ import yaml
 ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
-# Set max quantity and entropy coefficient
+# Set run parameters
 MAX_QTY = $MAX_QTY
-LEARNING_RATE = $LEARNING_RATE
-VF_CLIP_PARAM = $VF_CLIP_PARAM
+SCALE = $SCALE
+HCOST = $HCOST
+OBS_NORM = "$OBS_NORM"
+STD_TYPE = "$STD_TYPE"
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
     env_cfg = yaml.safe_load(f)
 
 n_skus = env_cfg["environment"]["n_skus"]
-env_cfg["environment"]["max_order_quantities"] = [MAX_QTY] * n_skus
+env_cfg["environment"]["action_space"]["type"] = "direct"
+env_cfg["environment"]["action_space"]["params"]["max_order_quantities"] = [MAX_QTY] * n_skus
+env_cfg["environment"]["cost_structure"]["holding_cost"] = HCOST
+env_cfg["environment"]["components"]["reward_calculator"]["params"]["scale_factor"] = SCALE
 
 with open("$TEMP_ENV_CONFIG", "w") as f:
     yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
@@ -107,8 +130,11 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["shared"]["learning_rate"] = LEARNING_RATE
-algo_cfg["algorithm"]["algorithm_specific"]["vf_clip_param"] = VF_CLIP_PARAM
+algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = OBS_NORM
+if STD_TYPE == "mu_sigma":
+    algo_cfg["algorithm"]["algorithm_specific"]["use_mu_sigma_head"] = True
+else:
+    algo_cfg["algorithm"]["algorithm_specific"]["use_mu_sigma_head"] = False
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -232,20 +258,24 @@ ray start --head \
 ##############################
 
 # Format learning rate and vf_clip_param for experiment name
-LR_LABEL=$(printf "%.0e" "$LEARNING_RATE" | sed 's/e-0/e-/; s/e+0/e+/')
-if [ "$VF_CLIP_PARAM" = "10000000000" ]; then
-    VFC_LABEL="Off"
-else
-    VFC_LABEL=$(printf "%.0e" "$VF_CLIP_PARAM" | sed 's/e+0/e/; s/e+/e/; s/e-0/e-/')
-fi
+SCALE_LABEL=$(printf "%.0e" "$SCALE" | sed 's/e-0/e-/; s/e+0/e+/')
 
 # Set output directory and experiment name
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2"
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2.2"
 fi
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_LR${LR_LABEL}_VfC${VFC_LABEL}"
+
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}"
+
+if [ "$HCOST" -eq 3 ]; then
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_HCOST${HCOST}"
+elif [ "$OBS_NORM" = "custom_meanstd" ]; then
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_OBS${OBS_NORM}"
+elif [ "$STD_TYPE" = "mu_sigma" ]; then
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${MAX_QTY}_Scale${SCALE_LABEL}_STD${STD_TYPE}"
+fi
 
 python src/experiments/run_experiment.py \
     --mode single \
