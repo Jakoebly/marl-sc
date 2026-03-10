@@ -30,11 +30,11 @@ export PYTHONUNBUFFERED=1
 # Run baselines (no Ray needed)
 ##############################
 
-EXPERIMENT_NAME="BASELINES_single_1WH_1SKU_SingleAgent"
+EXPERIMENT_NAME="BASELINES_Single_1WH_1SKU_SingleAgent_Scale1e-2"
 
 python src/experiments/run_baselines.py \
     --env-config ./config_files/environments/env_simplified_single.yaml \
-    --output-dir ./experiment_outputs/WorkingConfig_Phase1.2 \
+    --output-dir ./experiment_outputs/WorkingConfig_Phase1.2.2 \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 10 \
     --root-seed 42
