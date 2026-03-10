@@ -120,7 +120,7 @@ with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
 
 n_skus = env_cfg["environment"]["n_skus"]
 env_cfg["environment"]["action_space"]["type"] = "demand_centered"
-env_cfg["environment"]["action_space"]["params"]["max_quantity_adjustment"] = [X] * n_skus
+env_cfg["environment"]["action_space"]["params"] = {"max_quantity_adjustment": [X] * n_skus}
 env_cfg["environment"]["cost_structure"]["holding_cost"] = HCOST
 env_cfg["environment"]["components"]["reward_calculator"]["params"]["scale_factor"] = SCALE
 
@@ -271,11 +271,11 @@ fi
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxAdj${X}_Scale${SCALE_LABEL}"
 
 if [ "$HCOST" -eq 3 ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_HCOST${HCOST}"
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxAdj${X}_Scale${SCALE_LABEL}_HCOST${HCOST}"
 elif [ "$OBS_NORM" = "meanstd_custom" ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_OBSMeanStdCustom"
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxAdj${X}_Scale${SCALE_LABEL}_OBSMeanStdCustom"
 elif [ "$STD_TYPE" = "mu_sigma" ]; then
-  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxQty${X}_Scale${SCALE_LABEL}_STDMuSigmaHead"
+  EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_MaxAdj${X}_Scale${SCALE_LABEL}_STDMuSigmaHead"
 fi
 
 python src/experiments/run_experiment.py \
