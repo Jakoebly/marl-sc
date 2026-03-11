@@ -74,28 +74,26 @@ export PYTHONUNBUFFERED=1
 ID=${SLURM_ARRAY_TASK_ID}
 
 case $ID in
-    0) X=10;  SCALE=1.00;  OBS_NORM="ratio";           STD_TYPE="free" ;;
-    1) X=10;  SCALE=0.01;  OBS_NORM="ratio";           STD_TYPE="free" ;;
-    2) X=15;  SCALE=1.00;  OBS_NORM="ratio";           STD_TYPE="free" ;;
-    3) X=15;  SCALE=0.01;  OBS_NORM="ratio";           STD_TYPE="free" ;;
-    4) X=10;  SCALE=1.00;  OBS_NORM="meanstd_custom";  STD_TYPE="free" ;;
-    5) X=10;  SCALE=1.00;  OBS_NORM="meanstd_custom";  STD_TYPE="mu_sigma" ;;
-    6) X=15;  SCALE=1.00;  OBS_NORM="meanstd_custom";  STD_TYPE="free" ;;
-    7) X=15;  SCALE=1.00;  OBS_NORM="meanstd_custom";  STD_TYPE="mu_sigma" ;;
-    8) X=10;  SCALE=0.01;  OBS_NORM="meanstd_custom";  STD_TYPE="free" ;;
-    9) X=10;  SCALE=0.01;  OBS_NORM="meanstd_custom";  STD_TYPE="mu_sigma" ;;
-    10) X=15; SCALE=0.01;  OBS_NORM="meanstd_custom";  STD_TYPE="free" ;;
-    11) X=15; SCALE=0.01;  OBS_NORM="meanstd_custom";  STD_TYPE="mu_sigma" ;;
+    0) BSL=80;   SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    1) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    2) BSL=150;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    3) BSL=100;  SCALE=1.00;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    4) BSL=100;  SCALE=0.001;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    5) BSL=100;  SCALE=0.01;   HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    6) BSL=100;  SCALE=1.00;   HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
+    7) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
+    8) BSL=100;  SCALE=1.00;   HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
+    9) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
 esac
 
-echo "Task $ID -> action=demand_centered, adj_x=$X, scale=$SCALE, obs=$OBS_NORM, std=$STD_TYPE"
+echo "Task $ID -> action=demand_centered, BSL=$BSL, scale=$SCALE, hcost=$HCOST, obs=$OBS_NORM, std=$STD_TYPE"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
 ##############################
 
 # Set environment and algorithm name
-ENV_NAME="env_simplified_single"
+ENV_NAME="env_simplified_symmetric"
 ALGO_NAME="ippo"
 
 # Create temporary config files
@@ -110,8 +108,9 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-X = $X
+BSL = $BSL
 SCALE = $SCALE
+HCOST = $HCOST
 OBS_NORM = "$OBS_NORM"
 STD_TYPE = "$STD_TYPE"
 
@@ -120,9 +119,10 @@ with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
     env_cfg = yaml.safe_load(f)
 
 n_skus = env_cfg["environment"]["n_skus"]
-env_cfg["environment"]["action_space"]["type"] = "demand_centered"
-env_cfg["environment"]["action_space"]["params"] = {"max_quantity_adjustment": [X] * n_skus}
+env_cfg["environment"]["action_space"]["type"] = "base_stock"
+env_cfg["environment"]["action_space"]["params"] = {"max_stock_level": [BSL] * n_skus}
 env_cfg["environment"]["components"]["reward_calculator"]["params"]["scale_factor"] = SCALE
+env_cfg["environment"]["cost_structure"]["holding_cost"] = HCOST
 
 with open("$TEMP_ENV_CONFIG", "w") as f:
     yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
@@ -265,11 +265,14 @@ SCALE_LABEL=$(printf "%.0e" "$SCALE" | sed 's/e-0/e-/; s/e+0/e+/')
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.2.2"
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.3"  
 fi
 
-EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent_MaxAdj${X}_Scale${SCALE_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_BSL${BSL}_Scale${SCALE_LABEL}"
 
+if [ "$HCOST" -eq 3 ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_HCOST${HCOST}"
+fi
 if [ "$OBS_NORM" = "meanstd_custom" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSMeanStdCustom"
 fi
