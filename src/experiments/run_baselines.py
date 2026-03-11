@@ -23,10 +23,27 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config.loader import load_environment_config
-from src.config.schema import EnvironmentConfig
+from src.config.schema import (
+    ActionSpaceBaseStock,
+    ActionSpaceDemandCentered,
+    ActionSpaceDirect,
+    EnvironmentConfig,
+)
 from src.environment.envs.multi_env import InventoryEnvironment
 from src.experiments.visualization import generate_visualizations
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
+
+
+def _get_max_quantity_param(env_config: EnvironmentConfig) -> np.ndarray:
+    """Get max quantity parameter based on action space type."""
+    asp = env_config.action_space
+    if isinstance(asp, ActionSpaceDirect):
+        return np.array(asp.params.max_order_quantities, dtype=float)
+    elif isinstance(asp, ActionSpaceDemandCentered):
+        return np.array(asp.params.max_quantity_adjustment, dtype=float)
+    elif isinstance(asp, ActionSpaceBaseStock):
+        return np.array(asp.params.max_stock_level, dtype=float)
+    raise ValueError(f"Unknown action space type: {type(asp).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -129,19 +146,31 @@ def make_constant_action_fn(quantity: float):
     """
     Makes every warehouse-SKU pair order the same fixed quantity each timestep.
 
+    For "direct" and "base_stock": quantity is the order amount / target level.
+    For "demand_centered": quantity is the adjustment (can be negative).
+
     Args:
-        quantity (float): Fixed quantity to order for each warehouse-SKU pair.
+        quantity (float): Fixed quantity (or adjustment for demand_centered).
 
     Returns:
         action_fn (Callable): Callable(env, obs) -> Dict[agent_id, np.ndarray] returning
             actions in [-1, 1] for each agent.
     """
 
-    # Define action function for constant orders
     def action_fn(env, obs):
-        action = 2.0 * quantity / env.max_order_quantities - 1.0
+        if env.action_space_type == "direct":
+            max_val = env.max_order_quantities
+            action = 2.0 * quantity / max_val - 1.0
+        elif env.action_space_type == "demand_centered":
+            max_val = env.max_quantity_adjustment
+            action = quantity / max_val  # quantity is adjustment in [-max, max]
+        elif env.action_space_type == "base_stock":
+            max_val = env.max_stock_level
+            action = 2.0 * quantity / max_val - 1.0
+        else:
+            raise ValueError(f"Unknown action space type: {env.action_space_type}")
         actions = {
-            agent_id: action.astype(np.float32)
+            agent_id: np.clip(action, -1.0, 1.0).astype(np.float32)
             for agent_id in env.agents
         }
         return actions
@@ -194,8 +223,17 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
     # Calculate home regions for each warehouse
     home_regions = np.argmin(distances, axis=1)                     # Shape:(n_warehouses,)
 
-    # Extract max order quantities (baselines assume "direct" action space)
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+    # Extract max quantity parameter based on action space type
+    max_qty = _get_max_quantity_param(env_config)
+
+    # Compute expected demand per warehouse-SKU for demand_centered/base_stock action conversion
+    E_D_per_wh_sku = np.zeros((n_warehouses, n_skus))
+    for wh in range(n_warehouses):
+        home = home_regions[wh]
+        for sku in range(n_skus):
+            E_D_per_wh_sku[wh, sku] = (
+                lambda_orders[home] * probability_skus[home] * lambda_quantity[home, sku]
+            )
 
     # Initialize base-stock levels for each warehouse-SKU pair
     base_stock = np.zeros((n_warehouses, n_skus))
@@ -222,6 +260,8 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
     for wh in range(n_warehouses):
         print(f"    WH {wh}: {base_stock[wh].round(1)}")
 
+    action_space_type = env_config.action_space.type
+
     # Define action function for heuristic base-stock orders
     def action_fn(env, obs):
         # Extract inventory and pipeline for each warehouse
@@ -233,12 +273,22 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
         # Compute actions for each warehouse based on base-stock levels
         actions = {}
         for wh_idx, agent_id in enumerate(env.agents):
-            qty = np.clip(
+            order = np.clip(
                 base_stock[wh_idx] - inventory[wh_idx] - pipeline[wh_idx],
                 0.0,
                 max_qty,
             )
-            action = 2.0 * qty / max_qty - 1.0
+            if action_space_type == "direct":
+                action = 2.0 * order / max_qty - 1.0
+            elif action_space_type == "demand_centered":
+                adjustment = order - E_D_per_wh_sku[wh_idx]
+                action = np.clip(adjustment / max_qty, -1.0, 1.0)
+            elif action_space_type == "base_stock":
+                target = order + E_D_per_wh_sku[wh_idx] + pipeline[wh_idx]
+                target = np.clip(target, 0.0, max_qty)
+                action = 2.0 * target / max_qty - 1.0
+            else:
+                raise ValueError(f"Unknown action space type: {action_space_type}")
             actions[agent_id] = action.astype(np.float32)
         return actions
 
@@ -474,7 +524,8 @@ def main():
 
     # Load environment config
     env_config = load_environment_config(args.env_config)
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+    max_qty = _get_max_quantity_param(env_config)
+    action_space_type = env_config.action_space.type
 
     # Derive eval_seed via SeedManager (same derivation as EvaluationRunner)
     seed_manager = SeedManager(root_seed=args.root_seed, seed_registry=EXPERIMENT_SEEDS)
@@ -525,9 +576,15 @@ def main():
 
     print("\n[2/3] Running Constant Order baseline sweep...")
     step_size = 1
-    # sweep_max = int(max_qty.min())
-    sweep_max = 30
-    constant_amounts = list(range(step_size, sweep_max + 1, step_size))
+    sweep_max = min(int(max_qty.min()), 30)
+    if action_space_type == "demand_centered":
+        constant_amounts = list(range(-sweep_max, sweep_max + 1, step_size))
+        x_label = "Adjustment"
+        sweep_title = "Constant Adjustment Baseline — Sweep over Adjustment"
+    else:
+        constant_amounts = list(range(step_size, sweep_max + 1, step_size))
+        x_label = "Order Quantity"
+        sweep_title = "Constant Order Baseline — Sweep over Order Quantity"
 
     const_sweep_stats: List[Dict[str, float]] = []
     best_const_idx = 0
@@ -539,7 +596,7 @@ def main():
         eps = baseline_rollout(env, make_constant_action_fn(float(amount)), args.num_episodes)
         agg = aggregate_costs(eps)
         const_sweep_stats.append(agg)
-        print_sweep_row(f"qty={amount:3d}", agg)
+        print_sweep_row(f"{x_label}={amount:3d}", agg)
         if agg["reward"] > best_const_reward:
             best_const_reward = agg["reward"]
             best_const_idx = idx
@@ -547,15 +604,15 @@ def main():
 
     best_amount = constant_amounts[best_const_idx]
     print_summary_block(
-        f"Best Constant Baseline (qty={best_amount})",
+        f"Best Constant Baseline ({x_label}={best_amount})",
         const_sweep_stats[best_const_idx],
     )
     generate_visualizations(best_const_episodes, str(viz_dir / f"constant_best_{best_amount}"))
     plot_sweep_curve(
         x_values=constant_amounts,
         sweep_stats=const_sweep_stats,
-        x_label="Order Quantity",
-        title="Constant Order Baseline — Sweep over Order Quantity",
+        x_label=x_label,
+        title=sweep_title,
         output_path=viz_dir / "sweep_constant.png",
         best_idx=best_const_idx,
     )
