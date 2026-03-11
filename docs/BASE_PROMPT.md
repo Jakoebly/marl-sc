@@ -21,13 +21,29 @@ The supply chain is a **single-echelon distribution network** consisting of:
 
 - **Warehouses** (typically 3): Peer-level facilities that hold inventory and fulfill customer demand. There is no upstream manufacturer or multi-tier hierarchy modeled explicitly — replenishment orders are placed to an implicit external supplier with no capacity constraints.
 - **Demand regions** (typically 3, one per warehouse): Geographic areas where customer orders originate. Each warehouse has a "home region" (its closest region by distance), but any warehouse can ship to any region.
-- **SKUs** (typically 3): Distinct product types, each with its own weight, demand patterns, and cost characteristics.
+- **SKUs** (typically 2–3): Distinct product types, each with its own weight, demand patterns, and cost characteristics.
 
-The environment configurations model realistic geographic setups, e.g., two European warehouses and one US warehouse ("2EU_1US"), or three European warehouses ("3EU"), with distances and shipment costs reflecting the geographic separation.
+The environment configurations model realistic geographic setups, e.g., two European warehouses and one US warehouse ("2EU_1US"), or three European warehouses ("3EU"), with distances and shipment costs reflecting the geographic separation. A simplified symmetric configuration also exists for controlled experiments (see Experiments).
 
 ### Agent Decisions
 
-Each warehouse agent makes exactly one type of decision per timestep: **how many units of each SKU to order from its external supplier**. The action is a continuous vector (one value per SKU) that gets rescaled from the neural network's output range to integer order quantities between zero and a configured maximum. There are no production, pricing, or routing decisions — the agents only control replenishment.
+Each warehouse agent makes exactly one type of decision per timestep: **how many units of each SKU to order from its external supplier**. The action is a continuous vector (one value per SKU) in the range `[-1, 1]` that gets interpreted according to the configured action space type (see Action Space). There are no production, pricing, or routing decisions — the agents only control replenishment.
+
+### Action Space
+
+The environment supports three configurable action space formulations, controlled by the `action_space.type` parameter. All three use continuous actions in `[-1, 1]` from the actor network but differ in how the environment interprets and converts them to integer order quantities:
+
+1. **Direct** (`type: "direct"`): The standard formulation. Actions are linearly scaled from `[-1, 1]` to `[0, max_order_quantities]`, then rounded to integers.
+   - Config parameter: `max_order_quantities` (per-SKU list).
+   - Action `0` maps to `max_order_quantities / 2`.
+
+2. **Demand-centered** (`type: "demand_centered"`): Actions represent adjustments relative to the current timestep's incoming demand. The action is scaled to `[-max_quantity_adjustment, +max_quantity_adjustment]`, added to the observed incoming home-region demand, then clipped to non-negative and rounded.
+   - Config parameter: `max_quantity_adjustment` (scalar or per-SKU).
+   - Action `0` maps to ordering exactly the observed demand (a pure replenishment-of-consumption policy).
+
+3. **Base-stock** (`type: "base_stock"`): Actions specify a target inventory level. The action is scaled from `[-1, 1]` to `[0, max_stock_level]`. The environment computes `order_qty = max(0, target − demand − pending_pipeline)`, where pending_pipeline is the sum of all in-transit orders.
+   - Config parameter: `max_stock_level` (scalar or per-SKU).
+   - Action `0` maps to a target level of `max_stock_level / 2`.
 
 ### Demand Model
 
@@ -35,7 +51,7 @@ Customer demand is stochastic and generated independently for each region at eve
 
 1. **Poisson (synthetic):** For each region, the number of customer orders per timestep is drawn from a Poisson distribution. Each order includes a random subset of SKUs (each SKU included independently with a configured probability), and the quantity per SKU is drawn from a SKU-specific Poisson distribution. The Poisson rate parameters differ across regions and SKUs, creating heterogeneous demand patterns.
 
-2. **Empirical (real-world):** Historical order data from a CSV is replayed. A random contiguous time window is sampled at the start of each episode, and the corresponding historical orders are fed to the environment timestep by timestep. Note that this mode exists for evaluation purposes only since the real-world data does not contain sufficient timesteps for meaningful learning.
+2. **Empirical (real-world):** Historical order data from a CSV is replayed. A random contiguous time window is sampled at the start of each episode, and the corresponding historical orders are fed to the environment timestep by timestep.
 
 An important modeling nuance: demand arrives as individual customer orders (each requesting potentially multiple SKUs), not as aggregate demand per SKU. This matters because fulfillment and shipment costs are computed at the order level.
 
@@ -72,6 +88,8 @@ The reward signal is computed by a pluggable reward calculator. The available op
 
 4. **Inbound shipment cost:** Incurred when receiving replenishment orders from the external supplier. Also has fixed and variable components, configured per (warehouse, SKU) pair.
 
+The reward calculator supports a configurable `scale_factor` that multiplies the computed costs before converting them to rewards. This is used to bring the reward magnitude into a range that is more amenable to value function learning.
+
 The reward can operate in two scopes:
 - **Team (cooperative):** All warehouses receive the same reward, equal to the negative sum of all warehouses' costs. This encourages globally optimal behavior.
 - **Agent (individual):** Each warehouse receives only its own negative cost as reward.
@@ -106,7 +124,30 @@ Additionally, **aggregate features** are available for most feature groups (inve
 
 The **global observation** is the concatenation of all warehouses' local observations, providing full system visibility. In IPPO, the critic only sees local observations. In MAPPO, the critic sees the global observation (CTDE paradigm) while the actor still only sees local observations.
 
-Observation normalization options include ratio normalization (per-SKU features expressed as fractions of their totals, with aggregate features log-scaled) and mean-std normalization.
+### Observation Normalization
+
+Four modes are supported, selected via the algorithm config:
+
+1. **Off** (`"off"`): Raw observation values, no normalization applied.
+2. **Ratio** (`"ratio"`): Per-SKU features are expressed as fractions of their total across SKUs (i.e., the proportion of inventory held in each SKU). Aggregate features are log-scaled. This preserves relative magnitudes between SKUs.
+3. **Mean-std** (`"meanstd"`): Raw features are passed to RLlib, which applies its built-in running mean/std normalization filter. This can destroy inter-SKU relationships since each feature is normalized independently.
+4. **Custom mean-std** (`"meanstd_custom"`): At the start of training, a short random-policy rollout is used to estimate feature means and standard deviations. These fixed statistics are then used to normalize observations as `(obs - mean) / std` throughout training. This avoids the non-stationarity of a running filter while still normalizing feature scales.
+
+### Neural Network Architecture
+
+Both IPPO and MAPPO use an actor-critic architecture with separate actor and critic networks:
+
+- **Actor:** An MLP backbone (default: 2 hidden layers of 256 units, ReLU activation) producing one output per SKU. For continuous action spaces, the output represents the mean of a diagonal Gaussian distribution.
+- **Critic:** An MLP backbone with the same architecture, producing a single scalar value estimate. In MAPPO, the critic receives the global observation; in IPPO, it receives only local observations.
+
+The standard deviation of the Gaussian policy can be parameterized in two ways:
+
+1. **Free log_std parameter** (default): A state-independent learnable parameter vector, one per action dimension. Initialized to `-1.0` (std ≈ 0.37) and clamped at a floor of `-2.0` (std ≈ 0.14) to prevent entropy collapse.
+2. **Mu-sigma head** (`use_mu_sigma_head: true`): The actor backbone feeds into two separate linear heads — one for the mean (mu) and one for the log standard deviation (log_std). This makes the standard deviation state-dependent, allowing the agent to modulate exploration based on the current observation. The log_std output is clamped to `[-4.6, 4.6]`.
+
+Optional `output_activation` (e.g., `tanh`) can be applied to the actor backbone output before the Gaussian parameterization. When `null`, the raw linear output is used and RLlib handles action clipping.
+
+Shared layers (e.g., GRU) between actor and critic are architecturally supported but not currently used.
 
 ### Pluggable Components Summary
 
@@ -118,9 +159,37 @@ The environment is modular — key dynamics are governed by interchangeable comp
 | **Demand allocator** | Greedy (cheapest-first with order splitting) |
 | **Lead time sampler** | Uniform (stochastic per-SKU), Custom (deterministic per warehouse-SKU pair) |
 | **Lost sales handler** | Closest warehouse, Shipment-proportional, Cost-based softmax |
-| **Reward calculator** | Cost-based (with configurable cost weights, team or agent scope) |
+| **Reward calculator** | Cost-based (with configurable cost weights, scale factor, team or agent scope) |
 
 This modularity allows systematic ablation studies to understand how each modeling choice affects learned policies.
+
+---
+
+## Repository Structure
+
+```
+marl-sc/
+├── config_files/
+│   ├── algorithms/          # Algorithm configs (ippo.yaml, mappo.yaml)
+│   └── environments/        # Environment configs (simplified, 3EU, 2EU_1US, ...)
+├── docs/                    # Documentation (BASE_PROMPT.md, EXPERIMENTS.md)
+├── scripts/                 # SLURM/shell scripts for running experiments
+│   ├── run_experiment.sh    # Single experiment
+│   ├── run_experiment_array.sh  # Batch array experiments
+│   ├── run_baselines.sh     # Baseline policies
+│   └── run_evaluation.sh    # Evaluation
+├── src/
+│   ├── algorithms/          # IPPO, MAPPO wrappers, model registry
+│   │   └── models/          # RLModules (actor-critic), architectures (MLP, GRU, MuSigmaHead)
+│   ├── config/              # Pydantic schema, YAML loader, validation
+│   ├── data/                # Data generator, preprocessor (for empirical demand)
+│   ├── environment/
+│   │   ├── envs/            # InventoryEnvironment (PettingZoo ParallelEnv)
+│   │   └── components/      # Demand sampler, allocator, lead times, lost sales, rewards
+│   ├── experiments/         # Training runner, evaluation runner, baselines, visualization
+│   └── utils/               # Seed manager, obs stats, cost generator
+└── tests/
+```
 
 ---
 
@@ -131,4 +200,6 @@ This modularity allows systematic ablation studies to understand how each modeli
 - **Demand uncertainty and lead times:** Agents must manage the classic newsvendor-type tradeoff between overstocking (holding costs) and understocking (penalty costs), compounded by multi-day lead times that delay inventory replenishment.
 - **Transshipment dynamics:** The greedy allocator creates coupling between agents — one warehouse's inventory decision affects which orders get routed to other warehouses. Agents must learn to account for these spillover effects.
 - **Heterogeneous demand across regions:** Demand patterns vary significantly across regions (e.g., one region may have very low demand), requiring agents to learn region-specific stocking strategies.
+- **Action space design:** The choice of action space formulation (direct quantity, demand-centered adjustment, or base-stock target) has significant implications for the learnability of the problem due to initialization bias and gradient dynamics (see Experiments).
+- **Reward scale and value function stability:** Large raw cost magnitudes (thousands per episode) create value function instability that hampers policy learning (see Experiments).
 - **Scalability:** Does the approach scale gracefully as the number of warehouses, SKUs, or regions increases?
