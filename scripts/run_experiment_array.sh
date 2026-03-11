@@ -271,10 +271,10 @@ fi
 EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent_MaxAdj${X}_Scale${SCALE_LABEL}"
 
 if [ "$OBS_NORM" = "meanstd_custom" ]; then
-  EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent_MaxAdj${X}_Scale${SCALE_LABEL}_OBSMeanStdCustom"
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSMeanStdCustom"
 fi
 if [ "$STD_TYPE" = "mu_sigma" ]; then
-  EXPERIMENT_NAME="PPO_Single_1WH_1SKU_SingleAgent_MaxAdj${X}_Scale${SCALE_LABEL}_STDMuSigmaHead"
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_STDMuSigmaHead"
 fi
 
 python src/experiments/run_experiment.py \
