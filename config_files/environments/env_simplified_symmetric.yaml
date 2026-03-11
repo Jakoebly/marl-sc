@@ -21,7 +21,7 @@ environment:
         - [40, 40]
         - [40, 40]
   cost_structure:
-    holding_cost: 1.0
+    holding_cost: 3.0
     penalty_cost:
       - 5
       - 5
@@ -83,7 +83,7 @@ environment:
       type: "cost"
       params:
         scope: "agent"
-        scale_factor: 0.01
+        scale_factor: 1.0
         cost_weights:
           - 0.25
           - 0.25
