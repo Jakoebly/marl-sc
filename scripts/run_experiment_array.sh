@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-9%10                          # Array for 10 jobs (indices 0-9) with 1 job at once per node
+#SBATCH --array=0-2%3                          # Array for 10 jobs (indices 0-9) with 1 job at once per node
 
 
 ##############################
@@ -74,24 +74,19 @@ export PYTHONUNBUFFERED=1
 ID=${SLURM_ARRAY_TASK_ID}
 
 case $ID in
-    0) ActSp="direct";           MaxVal=30;   LOGSTD="detached";    LOGSTDFLOOR=-2.0;   ENTCOEF=0.01 ;;
-    1) ActSp="direct";           MaxVal=30;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.10 ;;
-    2) ActSp="direct";           MaxVal=30    LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.20 ;;
-    3) ActSp="direct";           MaxVal=30;   LOGSTD="learnable";   LOGSTDFLOOR=-0.7;   ENTCOEF=0.01 ;;
-    4) ActSp="demand_centered";  MaxVal=15;   LOGSTD="detached";    LOGSTDFLOOR=-2.0;   ENTCOEF=0.01 ;;
-    5) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.10 ;;
-    6) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.20 ;;
-    7) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-0.7;   ENTCOEF=0.01 ;;
+    0) HIDDEN_SIZES=[64] ;;
+    1) HIDDEN_SIZES=[128] ;;
+    2) HIDDEN_SIZES=[] ;;
 esac
 
-echo "Task $ID -> action=$ActSp, MaxVal=$MaxVal, LOGSTD=$LOGSTD, LOGSTDFLOOR=$LOGSTDFLOOR, ENTCOEF=$ENTCOEF"
+echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
 ##############################
 
 # Set environment and algorithm name
-ENV_NAME="env_simplified_symmetric"
+ENV_NAME="env_simplified_single"
 ALGO_NAME="ippo"
 
 # Create temporary config files
@@ -106,34 +101,14 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-ActSp = $ActSp
-MaxVal = $MaxVal
-LOGSTD = $LOGSTD
-LOGSTDFLOOR = $LOGSTDFLOOR  
-ENTCOEF = $ENTCOEF
-
-# --- Environment config ---
-with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
-    env_cfg = yaml.safe_load(f)
-
-n_skus = env_cfg["environment"]["n_skus"]
-env_cfg["environment"]["action_space"]["type"] = "base_stock"
-env_cfg["environment"]["action_space"]["params"] = {"max_stock_level": [BSL] * n_skus}
-env_cfg["environment"]["components"]["reward_calculator"]["params"]["scale_factor"] = SCALE
-env_cfg["environment"]["cost_structure"]["holding_cost"] = HCOST
-
-with open("$TEMP_ENV_CONFIG", "w") as f:
-    yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
+hidden_sizes = $HIDDEN_SIZES
 
 # --- Algorithm config ---
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = OBS_NORM
-if STD_TYPE == "mu_sigma":
-    algo_cfg["algorithm"]["algorithm_specific"]["networks"]["use_mu_sigma_head"] = True
-else:
-    algo_cfg["algorithm"]["algorithm_specific"]["networks"]["use_mu_sigma_head"] = False
+algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes
+algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -256,27 +231,23 @@ ray start --head \
 # Run training + evaluation
 ##############################
 
-# Format learning rate and vf_clip_param for experiment name
-SCALE_LABEL=$(printf "%.0e" "$SCALE" | sed 's/e-0/e-/; s/e+0/e+/')
-
 # Set output directory and experiment name
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.3"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.4"  
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSFalse_BSL${BSL}_Scale${SCALE_LABEL}"
+if [ "$HIDDEN_SIZES" = "[64]" ]; then
+  HIDDEN_SIZES_LABEL="64"
+elif [ "$HIDDEN_SIZES" = "[128]" ]; then
+  HIDDEN_SIZES_LABEL="128"
+else
+  HIDDEN_SIZES_LABEL="None"
+fi
 
-if [ "$HCOST" -eq 3 ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_HCOST${HCOST}"
-fi
-if [ "$OBS_NORM" = "meanstd_custom" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSMeanStdCustom"
-fi
-if [ "$STD_TYPE" = "mu_sigma" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_STDMuSigmaHead"
-fi
+EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_LogStdFloor-0.7_NN${HIDDEN_SIZES_LABEL}"
+
 
 python src/experiments/run_experiment.py \
     --mode single \
