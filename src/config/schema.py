@@ -811,7 +811,7 @@ ActivationName = Literal[
 class MLPConfig(BaseModel):
     """Configuration for MLP config."""
 
-    hidden_sizes: List[PositiveInt] = Field(min_length=1)
+    hidden_sizes: List[PositiveInt] = Field(min_length=0)
     activation: ActivationName
     output_activation: Optional[ActivationName] = None
     output_activation_mu: Optional[ActivationName] = None
