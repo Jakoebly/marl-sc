@@ -4,16 +4,16 @@
 # SBATCH directives
 ##############################
 
-#SBATCH --job-name=marl-eval-batch           # Name of the job
-#SBATCH --partition=mit_normal               # Partition
-#SBATCH --nodes=1                            # Number of nodes
-#SBATCH --ntasks-per-node=1                  # Number of tasks per node
-#SBATCH --cpus-per-task=8                    # CPU cores per task
-#SBATCH --mem=32G                            # Memory allocation
-#SBATCH --time=24:00:00                      # Maximum walltime (hh:mm:ss) - longer for batch
+#SBATCH --job-name=marl-eval                    # Name of the job
+#SBATCH --partition=mit_normal                  # Partition
+#SBATCH --nodes=1                               # Number of nodes
+#SBATCH --ntasks-per-node=1                     # Number of tasks per node 
+#SBATCH --cpus-per-task=8                       # CPU cores per task
+#SBATCH --mem=32G                               # Memory allocation
+#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
-#SBATCH --output=scripts/logs/%x_%j.out      # Standard output
-#SBATCH --error=scripts/logs/%x_%j.err       # Standard error
+#SBATCH --output=scripts/logs/%x_%j.out         # Standard output
+#SBATCH --error=scripts/logs/%x_%j.err          # Standard error
 
 ##############################
 # Parse arguments
