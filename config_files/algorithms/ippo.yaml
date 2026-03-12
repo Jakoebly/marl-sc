@@ -39,14 +39,14 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [256,256]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: "tanh"
           # output_dim: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [256,256]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
           # output_dim: null
