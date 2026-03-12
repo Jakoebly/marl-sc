@@ -20,12 +20,13 @@
 ##############################
 
 # Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]
-# Example: sbatch run_evaluation_batch.sh experiment_outputs/WorkingConfig_Phase1.4
+# Example: sbatch run_evaluation_batch.sh WorkingConfig_Phase1.4
 # Example: sbatch run_evaluation_batch.sh experiment_outputs/WorkingConfig_Phase1.4 50
 
 PARENT_DIR=${1:?"Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]
 
-  ParentFolder:     Folder containing experiment subfolders (e.g. experiment_outputs/WorkingConfig_Phase1.4)
+  ParentFolder:     Folder containing experiment subfolders. Can be a bare name (e.g. WorkingConfig_Phase1.4)
+                    which is resolved to experiment_outputs/<name>, or a full path.
   CheckpointNumber: Optional. E.g. 50 for checkpoint_50. Default: checkpoint_final
 
   Loops over each subfolder, runs manual evaluation with --visualize for each."}
@@ -40,9 +41,16 @@ else
     CHECKPOINT_DIR="checkpoint_final"
 fi
 
+# Resolve path: if not found and name has no path separators, try under experiment_outputs
+# (e.g. WorkingConfig_Phase1.4 -> experiment_outputs/WorkingConfig_Phase1.4)
 if [ ! -d "${PARENT_DIR}" ]; then
-    echo "[ERROR] Parent directory does not exist: ${PARENT_DIR}"
-    exit 1
+    if [[ "${PARENT_DIR}" != */* ]] && [ -d "experiment_outputs/${PARENT_DIR}" ]; then
+        PARENT_DIR="experiment_outputs/${PARENT_DIR}"
+        echo "Resolved to: ${PARENT_DIR}"
+    else
+        echo "[ERROR] Parent directory does not exist: ${PARENT_DIR}"
+        exit 1
+    fi
 fi
 
 ##############################
