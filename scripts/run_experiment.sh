@@ -142,7 +142,7 @@ ray start --head \
 
 # Set output directory and experiment name
 OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.4"
-EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_NN128"
+EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_NN64"
 
 python src/experiments/run_experiment.py \
     --mode single \
