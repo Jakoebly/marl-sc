@@ -181,7 +181,6 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     "normalize_actions": False,
                     "use_worker_filter_stats": False,
                     "env_config": eval_env_config,
-                    "explore": False,
                 }
             )
         )
