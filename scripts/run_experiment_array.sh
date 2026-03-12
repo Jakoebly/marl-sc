@@ -103,6 +103,13 @@ ALGO_NAME = "$ALGO_NAME"
 # Set run parameters
 hidden_sizes = $HIDDEN_SIZES
 
+# --- Environment config ---
+with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
+    env_cfg = yaml.safe_load(f)
+
+with open("$TEMP_ENV_CONFIG", "w") as f:
+    yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
+
 # --- Algorithm config ---
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
