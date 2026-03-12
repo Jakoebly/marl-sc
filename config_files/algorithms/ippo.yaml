@@ -20,7 +20,7 @@ algorithm:
     gamma: 0.99
     use_kl_loss: null
     grad_clip: null
-    entropy_coeff: 0.2
+    entropy_coeff: 0.01
     vf_loss_coeff: 0.5
     clip_param: 0.2
     vf_clip_param: 10000000000
