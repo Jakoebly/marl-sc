@@ -253,7 +253,7 @@ else
   HIDDEN_SIZES_LABEL="None"
 fi
 
-EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_LogStdFloor-2_NN${HIDDEN_SIZES_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_LogStdFloor-0.7_NN${HIDDEN_SIZES_LABEL}_ExploreFalse"
 
 
 python src/experiments/run_experiment.py \
