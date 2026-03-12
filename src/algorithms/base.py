@@ -299,10 +299,12 @@ class BaseAlgorithmWrapper(ABC):
         """
         # Ray's restore_from_path uses PyArrow FileSystem.from_uri which requires a URI with scheme
         abs_path = Path(path).resolve()
-        print(f"[INFO] Absolute path: {abs_path}")
         uri = abs_path.as_uri()
-        print(f"[INFO] URI: {uri}")
         self.trainer.restore_from_path(uri)
+
+        # Explicitly sync learner weights to the local env runner
+        weights = self.trainer.learner_group.get_weights()
+        self.trainer.env_runner.set_weights(weights)
 
     def get_policy(self):
         """Gets trained policy.
