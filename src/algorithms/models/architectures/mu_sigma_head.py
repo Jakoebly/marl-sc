@@ -69,9 +69,6 @@ class MuSigmaHead(nn.Module):
         if self.mu_activation is not None:
             mu = self.mu_activation(mu)
 
-        # Clip mu to the action space
-        mu = torch.clamp(mu, self.action_low, self.action_high)
-
         # Forward through sigma head
         log_std = self.sigma_head(features)
 

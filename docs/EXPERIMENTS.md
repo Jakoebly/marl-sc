@@ -16,11 +16,11 @@ The simplified environment (`env_simplified_symmetric.yaml`) is designed to mini
 - **Symmetric distances:** Each warehouse is close to its home region (distance 50) and far from others (distance 500), making transshipment rare.
 - **Uniform demand:** All warehouses/regions/SKUs have identical Poisson demand parameters (`lambda_orders=4`, `probability_skus=0.667`, `lambda_quantity=5` per SKU), yielding expected demand of ~8 units per SKU per warehouse per timestep.
 - **Fixed lead times:** 3 timesteps for all (warehouse, SKU) pairs.
-- **Cost structure:** `holding_cost=1.0`, `penalty_cost=5` per SKU, `inbound_variable=1.0`, symmetric outbound costs.
+- **Cost structure:** `holding_cost=1.0`, `penalty_cost=5` per SKU, `inbound_variable=1.0`, symmetric outbound costs (`0.05` for home regions and `0.05` for others).
 - **Agent-scope rewards:** Each warehouse receives its own cost as reward (no team reward to complicate credit assignment).
 - **Episode length:** 100 timesteps.
 
-A single-agent variant (`env_simplified_single.yaml`) with 1 warehouse, 1 SKU, 1 region also exists for isolation testing.
+A single-agent variant with 1 warehouse, 1 SKU, 1 region also exists for isolation testing.
 
 ### Baselines (Phase 0)
 
@@ -156,10 +156,10 @@ Runs are in progress. Preliminary results suggest that none of the tested config
 | **Entropy collapse** (std collapses to near-zero, hiding the fact that the mean hasn't learned) | 1.1 | Mitigated via std floor (log_std init -1.0, clamp -2.0) |
 | **KL loss accidentally active** (RLlib default, not disabled in code) | 1.2 | Fixed (parameter now properly passed) |
 | **Initialization bias** (performance depends on max_order_qty, not learning) | 1.1 | Not resolved; demand-centered action space tested in 1.3 |
-| **Mean does not move** (actor output stays near initialization) | 1.1 | Root cause: VF instability + gradient asymmetry; reward scaling tested in 1.3 |
+| **Mean does not move** (actor output stays near initialization) | 1.1 | Not resolved; reward scaling tested in 1.3 |
 | **Value function instability** (VF loss in millions, noisy advantages) | 1.2 | Reward scaling (scale_factor=0.01) tested in 1.3 |
 | **Gradient asymmetry** (penalty signal 5× stronger than holding signal) | 1.2 | Holding cost increase tested in 1.3; demand-centered alignment tested in 1.3 |
-| **Tanh gradient saturation** (output activation squashes gradients at boundaries) | 1.1 | Fixed (removed tanh, using raw linear output) |
+| **Tanh gradient saturation** (output activation squashes gradients at boundaries) | 1.1 | Tested in 1.1 |
 
 ---
 
