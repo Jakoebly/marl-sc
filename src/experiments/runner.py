@@ -208,6 +208,22 @@ class EvaluationRunner:
         # Restore trained model weights from checkpoint
         self.algorithm.load_checkpoint(self.checkpoint_dir)
 
+        print("[DEBUG] Checking if modules match...")
+        import torch
+
+        # Get module from get_module (what rollout uses)
+        policy_id = "policy_warehouse_0"
+        env_runner_module = self.algorithm.trainer.get_module(module_id=policy_id)
+
+        # Get module from the learner (what restore_from_path should have restored)
+        learner_module = self.algorithm.trainer.learner_group._learner.module[policy_id]
+
+        # Compare
+        for name, param in env_runner_module.named_parameters():
+            learner_param = dict(learner_module.named_parameters())[name]
+            match = torch.equal(param.data, learner_param.data)
+            print(f"{'MATCH' if match else '*** MISMATCH ***'}: {name}")
+
         # Initialize WandB (if provided)
         self.wandb_config = wandb_config
         if wandb_config:
