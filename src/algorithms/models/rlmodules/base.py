@@ -458,7 +458,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         Returns:
             Concatenated [means, log_std] with the last dim doubled.
         """
-        log_std = self.log_std.detach()
+        log_std = self.log_std
         log_std = torch.clamp(log_std, min=-2.0)
         while log_std.dim() < actor_out.dim():
             log_std = log_std.unsqueeze(0)
