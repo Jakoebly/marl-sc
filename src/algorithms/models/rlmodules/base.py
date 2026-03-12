@@ -204,7 +204,8 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
             # Determine the backbone output dimension from the actor config
             if self.actor_type == "mlp":
-                backbone_dim = self.actor_config.get("hidden_sizes", [256])[-1]
+                hidden_sizes = self.actor_config.get("hidden_sizes", [256])
+                backbone_dim = hidden_sizes[-1] if hidden_sizes else actor_output_dim
             elif self.actor_type == "gru":
                 hidden_size = self.actor_config.get("hidden_size", 128)
                 bidirectional = self.actor_config.get("bidirectional", False)
@@ -459,7 +460,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             Concatenated [means, log_std] with the last dim doubled.
         """
         log_std = self.log_std
-        log_std = torch.clamp(log_std, min=-2)
+        log_std = torch.clamp(log_std, min=-0.7)
         while log_std.dim() < actor_out.dim():
             log_std = log_std.unsqueeze(0)
         log_std = log_std.expand_as(actor_out)
