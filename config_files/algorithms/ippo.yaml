@@ -41,7 +41,7 @@ algorithm:
         config:        
           hidden_sizes: [256, 256]
           activation: "relu"
-          output_activation: null
+          output_activation: "tanh"
           # output_dim: null
       critic:
         type: "mlp"

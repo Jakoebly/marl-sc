@@ -74,19 +74,17 @@ export PYTHONUNBUFFERED=1
 ID=${SLURM_ARRAY_TASK_ID}
 
 case $ID in
-    0) BSL=80;   SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    1) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    2) BSL=150;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    3) BSL=100;  SCALE=1.00;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    4) BSL=100;  SCALE=0.001;  HCOST=1;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    5) BSL=100;  SCALE=0.01;   HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    6) BSL=100;  SCALE=1.00;   HCOST=3;   OBS_NORM="ratio";          STD_TYPE="free" ;;
-    7) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
-    8) BSL=100;  SCALE=1.00;   HCOST=1;   OBS_NORM="meanstd_custom"; STD_TYPE="free" ;;
-    9) BSL=100;  SCALE=0.01;   HCOST=1;   OBS_NORM="ratio";          STD_TYPE="mu_sigma" ;;
+    0) ActSp="direct";           MaxVal=30;   LOGSTD="detached";    LOGSTDFLOOR=-2.0;   ENTCOEF=0.01 ;;
+    1) ActSp="direct";           MaxVal=30;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.10 ;;
+    2) ActSp="direct";           MaxVal=30    LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.20 ;;
+    3) ActSp="direct";           MaxVal=30;   LOGSTD="learnable";   LOGSTDFLOOR=-0.7;   ENTCOEF=0.01 ;;
+    4) ActSp="demand_centered";  MaxVal=15;   LOGSTD="detached";    LOGSTDFLOOR=-2.0;   ENTCOEF=0.01 ;;
+    5) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.10 ;;
+    6) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-2.0;   ENTCOEF=0.20 ;;
+    7) ActSp="demand_centered";  MaxVal=15;   LOGSTD="learnable";   LOGSTDFLOOR=-0.7;   ENTCOEF=0.01 ;;
 esac
 
-echo "Task $ID -> action=demand_centered, BSL=$BSL, scale=$SCALE, hcost=$HCOST, obs=$OBS_NORM, std=$STD_TYPE"
+echo "Task $ID -> action=$ActSp, MaxVal=$MaxVal, LOGSTD=$LOGSTD, LOGSTDFLOOR=$LOGSTDFLOOR, ENTCOEF=$ENTCOEF"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -108,11 +106,11 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-BSL = $BSL
-SCALE = $SCALE
-HCOST = $HCOST
-OBS_NORM = "$OBS_NORM"
-STD_TYPE = "$STD_TYPE"
+ActSp = $ActSp
+MaxVal = $MaxVal
+LOGSTD = $LOGSTD
+LOGSTDFLOOR = $LOGSTDFLOOR  
+ENTCOEF = $ENTCOEF
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
