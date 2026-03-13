@@ -181,7 +181,9 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                     "env": self.env_name, 
                     "clip_actions": True,
                     "normalize_actions": False,
+                    "use_worker_filter_stats": False,
                     "env_config": eval_env_config,
+                     "explore": False,
                 }
             )
         )
