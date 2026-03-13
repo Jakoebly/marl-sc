@@ -251,7 +251,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
             # Add a free (state-independent) log_std parameter for continuous action spaces
             if isinstance(self.action_space, Box):
-                self.log_std = nn.Parameter(torch.full((actor_output_dim,), -1.0))
+                self.log_std = nn.Parameter(torch.full((actor_output_dim,), 0.0))
 
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
