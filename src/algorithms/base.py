@@ -336,18 +336,13 @@ class BaseAlgorithmWrapper(ABC):
             # MultiAgentEnvRunner stores the pipeline as a private attribute
             pipeline = self.trainer.env_runner._env_to_module
             connectors_found = [type(c).__name__ for c in pipeline]
-            print(f"[FILTER DEBUG] env_to_module pipeline: {connectors_found}")
 
             for connector in pipeline:
                 if isinstance(connector, MeanStdFilterConnector):
                     if connector._filters is None:
-                        print("[FILTER DEBUG] Found MeanStdFilter but _filters is None")
                         return None
-                    print(f"[FILTER DEBUG] Found MeanStdFilter with keys: "
-                          f"{list(connector._filters.keys())}")
                     return connector._filters
 
-            print("[FILTER DEBUG] No MeanStdFilter found in pipeline")
         except Exception as e:
             print(f"[FILTER DEBUG] Error accessing pipeline: {type(e).__name__}: {e}")
 
