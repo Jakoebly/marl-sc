@@ -109,6 +109,8 @@ def load_environment_config(path: str, seed_manager: Optional['SeedManager'] = N
     # Extract 'environment' key if present
     if 'environment' in config_dict:
         config_dict = config_dict['environment']
+
+    config_dict = _migrate_env_config(config_dict)
     
     # Auto-generate synthetic data if data_source.type is "synthetic"
     if config_dict.get("data_source", {}).get("type") == "synthetic":
@@ -222,3 +224,30 @@ def load_tune_config(path: str) -> TuneConfig:
     
     return validated_config
 
+
+def _migrate_env_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Migrates the old environment config format to the new action_space schema.
+    The old format is max_order_quantities at the top level (scalar or list).
+    The new format is action_space.type and action_space.params.max_order_quantities.
+    """
+
+    
+    if "action_space" in config_dict and config_dict["action_space"] is not None:
+        return config_dict
+
+    max_qty = config_dict.pop("max_order_quantities", None)
+    if max_qty is None:
+        return config_dict
+
+    n_skus = config_dict.get("n_skus", 1)
+    if isinstance(max_qty, (int, float)):
+        max_order_quantities = [int(max_qty)] * n_skus
+    else:
+        max_order_quantities = [int(x) for x in max_qty]
+
+    config_dict["action_space"] = {
+        "type": "direct",
+        "params": {"max_order_quantities": max_order_quantities},
+    }
+    return config_dict

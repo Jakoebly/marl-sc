@@ -277,6 +277,7 @@ class EvaluationRunner:
                     "visualizations_dir": str(vizualization_dir),
                 }
             }
+            print(f"[INFO] >> MEAN TOTAL REWARD: {np.mean(total_rewards)}")
 
         # If visualize is False, run standard RLlib evaluation (aggregated metrics only)
         else:

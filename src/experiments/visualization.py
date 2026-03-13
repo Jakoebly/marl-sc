@@ -592,6 +592,7 @@ def plot_episode_summary(episodes_data: List[Dict[str, np.ndarray]], output_dir:
     total_outbound = np.array(total_outbound)
     total_inbound = np.array(total_inbound)
 
+
     # Create figure and axes
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
