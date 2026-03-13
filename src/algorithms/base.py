@@ -181,6 +181,7 @@ class BaseAlgorithmWrapper(ABC):
                         det_dist = dist.to_deterministic()
                         action_tensor = det_dist.sample()
                         action = action_tensor.squeeze(0).cpu().numpy()
+                        action = np.clip(action, -1.0, 1.0)
 
                         # Extract mu and std from action distribution inputs
                         # ACTION_DIST_INPUTS = [means, log_std] (log_std from nn.Parameter)
