@@ -7,8 +7,8 @@ environment:
     type: direct
     params:
       max_order_quantities:
-      - 40
-      - 40
+      - 30
+      - 30
   max_wh_capacities:
     - 10000000
     - 10000000

@@ -1,11 +1,11 @@
 algorithm:
   name: "ippo"
   shared:
-    num_iterations: 500
+    num_iterations: 300
     checkpoint_freq: 50
-    batch_size: 40000
-    num_epochs: 3
-    num_minibatches: 4
+    batch_size: 8000
+    num_epochs: 10
+    num_minibatches: 20
     learning_rate: 0.001
     num_env_runners: 4
     num_envs_per_env_runner: 10
@@ -39,13 +39,13 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [128]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [128]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
 

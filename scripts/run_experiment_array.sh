@@ -135,6 +135,9 @@ unset RAY_ADDRESS
 # Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
 
+# Get the memory from Slurm
+RAY_MEMORY_BYTES=$(( (${SLURM_MEM_PER_NODE:-32768} - 2048) * 1024 * 1024 ))
+
 # Determine array size and number of tasks
 MAX_TASK_ID=${SLURM_ARRAY_TASK_MAX:-${SLURM_ARRAY_TASK_ID}}
 N_TASKS=$((MAX_TASK_ID + 1))
@@ -231,6 +234,7 @@ ray start --head \
   --min-worker-port="${RAY_MIN_WORKER_PORT}" \
   --max-worker-port="${RAY_MAX_WORKER_PORT}" \
   --num-cpus="${CPUS}" \
+    --memory="${RAY_MEMORY_BYTES}" \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
