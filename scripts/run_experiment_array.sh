@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-5%6                          # Array for 6 jobs (indices 0-5) with 1 job at once per node
+#SBATCH --array=0-1%2                          # Array for 6 jobs (indices 0-5) with 1 job at once per node
 
 
 ##############################
@@ -76,10 +76,6 @@ ID=${SLURM_ARRAY_TASK_ID}
 case $ID in
     0) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
     1) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
-    2) HIDDEN_SIZES="[128]";  PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
-    3) HIDDEN_SIZES="[128]";  PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
-    4) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="ratio"         ;;
-    5) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="ratio"         ;;
 esac
 
 echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
@@ -268,7 +264,7 @@ else
   OBS_NORM_LABEL="MISSING"
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PS${PARAMETER_SHARING}_NN${HIDDEN_SIZES_LABEL}_OBSNORM${OBS_NORM_LABEL}"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PS${PARAMETER_SHARING}_NN${HIDDEN_SIZES_LABEL}_OBSNORM${OBS_NORM_LABEL}_LargeBatch"
 
 
 python src/experiments/run_experiment.py \
