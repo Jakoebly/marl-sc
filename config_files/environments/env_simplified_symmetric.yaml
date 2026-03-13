@@ -4,11 +4,11 @@ environment:
   n_regions: 3
   episode_length: 100
   action_space:
-    type: direct
+    type: demand_centered
     params:
-      max_order_quantities:
-        - 40
-        - 40
+      max_quantity_adjustment:
+        - 15
+        - 15
   max_wh_capacities:
     - 10000000
     - 10000000
@@ -83,7 +83,7 @@ environment:
       type: "cost"
       params:
         scope: "agent"
-        scale_factor: 0.01
+        scale_factor: 1
         cost_weights:
           - 0.25
           - 0.25
