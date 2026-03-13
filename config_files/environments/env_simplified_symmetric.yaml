@@ -4,11 +4,11 @@ environment:
   n_regions: 3
   episode_length: 100
   action_space:
-    type: demand_centered
+    type: direct
     params:
-      max_quantity_adjustment:
-        - 15
-        - 15
+      max_order_quantities:
+        - 40
+        - 40
   max_wh_capacities:
     - 10000000
     - 10000000
