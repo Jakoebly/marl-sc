@@ -74,22 +74,25 @@ export PYTHONUNBUFFERED=1
 ID=${SLURM_ARRAY_TASK_ID}
 
 case $ID in
-    0) HIDDEN_SIZES=[64] ;;
-    1) HIDDEN_SIZES=[128] ;;
-    2) HIDDEN_SIZES=[] ;;
+    0) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
+    1) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
+    2) HIDDEN_SIZES="[128]";  PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
+    3) HIDDEN_SIZES="[128]";  PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
+    4) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="ratio"         ;;
+    5) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="ratio"         ;;
 esac
 
-echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES"
+echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
 ##############################
 
 # Set environment and algorithm name
-ENV_NAME="env_simplified_single"
+ENV_NAME="env_simplified_symmetric"
 ALGO_NAME="ippo"
 
-# Create temporary config files
+# Create temporary config files 
 TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
 TEMP_ALGO_CONFIG=$(mktemp --suffix=.yaml)
 
@@ -102,6 +105,8 @@ ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
 hidden_sizes = $HIDDEN_SIZES
+parameter_sharing = $PARAMETER_SHARING
+obs_norm = "$OBS_NORM"
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
@@ -114,6 +119,8 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
+algo_cfg["algorithm"]["algorithm_specific"]["parameter_sharing"] = parameter_sharing
+algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = obs_norm
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes
 
@@ -242,7 +249,7 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.4"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.5"  
 fi
 
 if [ "$HIDDEN_SIZES" = "[64]" ]; then
@@ -250,10 +257,18 @@ if [ "$HIDDEN_SIZES" = "[64]" ]; then
 elif [ "$HIDDEN_SIZES" = "[128]" ]; then
   HIDDEN_SIZES_LABEL="128"
 else
-  HIDDEN_SIZES_LABEL="None"
+  HIDDEN_SIZES_LABEL="MISSING"
 fi
 
-EXPERIMENT_NAME="IPPO_Single_1WH_1SKUS_Agent_PSFalse_LogStdFloor-0.7_NN${HIDDEN_SIZES_LABEL}_ExploreFalse"
+if [ "$OBS_NORM" = "meanstd_custom" ]; then
+  OBS_NORM_LABEL="MeanStdCustom"
+elif [ "$OBS_NORM" = "ratio" ]; then
+  OBS_NORM_LABEL="Ratio"
+else
+  OBS_NORM_LABEL="MISSING"
+fi
+
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PS${PARAMETER_SHARING}_NN${HIDDEN_SIZES_LABEL}_OBSNORM${OBS_NORM_LABEL}"
 
 
 python src/experiments/run_experiment.py \
