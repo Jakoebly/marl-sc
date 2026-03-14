@@ -141,8 +141,8 @@ ray start --head \
 ##############################
 
 # Set output directory and experiment name
-OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.5"
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NN64_OBSNORMMeanStdCustom_LargeBatch"
+OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.6"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NN64_ObsTimeFraction"
 
 python src/experiments/run_experiment.py \
     --mode single \
