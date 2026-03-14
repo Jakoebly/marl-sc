@@ -318,7 +318,8 @@ class InventoryEnvironment(ParallelEnv):
     
     def observation_space(self, agent: str) -> Box:
         """
-        Returns the observation space for a warehouse consisting of 8 feature groups per warehouse w (S = n_skus):
+        Returns the observation space for a warehouse consisting of 8 feature groups per warehouse w (S = n_skus),
+        plus a timestep fraction scalar:
 
             - inventory              (S per-SKU + 1 aggregate = S+1)
             - pending orders         (S per-SKU + 1 aggregate = S+1)
@@ -328,6 +329,7 @@ class InventoryEnvironment(ParallelEnv):
             - stockout               (S per-SKU                = S)
             - rolling demand mean    (S per-SKU + 1 aggregate = S+1)
             - demand forecast        (S per-SKU + 1 aggregate = S+1)
+            - timestep fraction      (1 scalar = t / T)
 
         The observation is a flat vector that concatenates the local observation (this warehouse's
         features) followed by the global observation (all warehouses' features concatenated).
@@ -338,12 +340,12 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             observation_space (Box): Flat observation space for a warehouse.
-                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus + 6
+                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus + 7
                 and global_obs_dim = n_warehouses * local_obs_dim.
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 8 * self.n_skus + 6
+        local_obs_dim = 8 * self.n_skus + 7
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses  
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -361,11 +363,11 @@ class InventoryEnvironment(ParallelEnv):
         
         Returns:
             global_observation_space (Box): Box space for global observation space. 
-                Shape: (n_warehouses * (8 * n_skus + 6),).
+                Shape: (n_warehouses * (8 * n_skus + 7),).
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 8 * self.n_skus + 6
+        local_obs_dim = 8 * self.n_skus + 7
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses 
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -470,6 +472,7 @@ class InventoryEnvironment(ParallelEnv):
             6. Stockout:            S per-SKU                (S)
             7. Rolling demand mean: S per-SKU + 1 aggregate  (S+1)
             8. Demand forecast:     S per-SKU + 1 aggregate  (S+1)
+            9. Timestep fraction:   1 scalar (t / T)
         
         Returns:
             observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to flat 
@@ -516,6 +519,7 @@ class InventoryEnvironment(ParallelEnv):
             local (np.ndarray): Flat local observation vector. Shape: (local_obs_dim,).
         """
 
+        # Set ratio normalization flag and epsilon
         use_ratio_norm = self.obs_normalization == "ratio"
         eps = 1e-8
 
@@ -568,6 +572,10 @@ class InventoryEnvironment(ParallelEnv):
             warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
             warehouse_id_onehot[warehouse_idx] = 1.0
             local = np.concatenate([warehouse_id_onehot, local])
+
+        # Append timestep fraction 
+        timestep_frac = np.float32(self.timestep / self.episode_length)
+        local = np.concatenate([local, [timestep_frac]])
 
         return local
 

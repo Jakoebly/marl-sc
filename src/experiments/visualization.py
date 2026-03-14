@@ -446,11 +446,11 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     ]
 
     # Solve for n_skus and handle optional warehouse_id prefix (when parameter_sharing)
-    # Full local obs = [warehouse_onehot? | features]; features = 8*n_skus + 6
+    # Full local obs = [warehouse_onehot? | features | timestep_frac]; features = 8*n_skus + 6
     local_dim_full = obs_dim // (1 + n_warehouses)
-    n_skus = (local_dim_full - 6) // 8
+    n_skus = (local_dim_full - 7) // 8  # -7 = 6 aggregates + 1 timestep fraction
     base_local = 8 * n_skus + 6
-    warehouse_id_offset = local_dim_full - base_local  # 0 or n_warehouses when include_warehouse_id
+    warehouse_id_offset = local_dim_full - base_local - 1  # -1 for timestep; 0 or n_warehouses when include_warehouse_id
 
     if n_skus <= 0:
         return

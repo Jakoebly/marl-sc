@@ -11,12 +11,14 @@ def compute_obs_statistics(
     seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Computes per-feature mean and std of local observations by running a random
-    policy in the environment for ``n_episodes``.
+    Computes per-feature mean and std of the 8 core feature groups by running a
+    random policy in the environment for ``n_episodes``.
 
-    The returned arrays have shape ``(local_obs_dim,)`` where
-    ``local_obs_dim = 8 * n_skus + 6``. Features with near-zero std are set
-    to 1.0 to avoid division-by-zero during normalization.
+    The returned arrays have shape ``(feature_dim,)`` where
+    ``feature_dim = 8 * n_skus + 6`` (excludes the timestep fraction and
+    warehouse ID which are appended/prepended outside of normalization).
+    Features with near-zero std are set to 1.0 to avoid division-by-zero
+    during normalization.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
