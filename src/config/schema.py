@@ -291,45 +291,66 @@ DemandAllocatorConfig = Union[DemandAllocatorGreedy, DemandAllocatorLP]
 
 
 #  ---------- Lead time sampler ----------
-# Uniform sampler
-class LeadTimeSamplerUniform(BaseModel):
-    """Configuration for uniform lead time sampler."""
+
+class DeviationConfig(BaseModel):
+    """Configuration for lead time deviation distribution (stochastic sampler)."""
 
     type: Literal["uniform"]
-    params: Dict[Literal["min", "max"], NonNegativeInt]
+    max_deviation: Union[NonNegativeInt, List[NonNegativeInt]]
     model_config = ConfigDict(extra="forbid")
 
-    # Existence and shape of uniform parameters
-    @model_validator(mode="after")
-    def _check_uniform_keys(self):
-        mn = self.params.get("min")
-        mx = self.params.get("max")
-        if mn is None or mx is None:
-            raise ValueError("uniform params must contain min and max")
-        if mn > mx:
-            raise ValueError("uniform params must satisfy min <= max")
-        return self
 
-# Custom sampler
-class LeadTimeSamplerCustom(BaseModel):
-    """Configuration for fixed lead time sampler."""
+class FixedLeadTimeParams(BaseModel):
+    """Parameters for fixed (deterministic) lead time sampler."""
 
-    type: Literal["custom"]
-    params: Dict[Literal["values"], List[List[PositiveInt]]]
+    expected_lead_times: List[List[PositiveInt]]
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("params", mode="after")
+    @field_validator("expected_lead_times", mode="after")
     @classmethod
-    def _check_custom_value_is_rectangular(cls, v: Dict[str, Any]):
-        value = v["values"]
-        if not value or any(not row for row in value):
-            raise ValueError("custom params.values must be a non-empty 2D list")
-        if len({len(row) for row in value}) != 1:
-            raise ValueError("custom params.values must be rectangular (all rows same length)")
+    def _check_rectangular(cls, v: List[List[PositiveInt]]):
+        if not v or any(not row for row in v):
+            raise ValueError("expected_lead_times must be a non-empty 2D list")
+        if len({len(row) for row in v}) != 1:
+            raise ValueError("expected_lead_times must be rectangular (all rows same length)")
         return v
 
+
+class StochasticLeadTimeParams(BaseModel):
+    """Parameters for stochastic lead time sampler (expected + deviation)."""
+
+    expected_lead_times: List[List[PositiveInt]]
+    deviation: DeviationConfig
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("expected_lead_times", mode="after")
+    @classmethod
+    def _check_rectangular(cls, v: List[List[PositiveInt]]):
+        if not v or any(not row for row in v):
+            raise ValueError("expected_lead_times must be a non-empty 2D list")
+        if len({len(row) for row in v}) != 1:
+            raise ValueError("expected_lead_times must be rectangular (all rows same length)")
+        return v
+
+
+class LeadTimeSamplerFixed(BaseModel):
+    """Configuration for fixed (deterministic) lead time sampler."""
+
+    type: Literal["fixed"]
+    params: FixedLeadTimeParams
+    model_config = ConfigDict(extra="forbid")
+
+
+class LeadTimeSamplerStochastic(BaseModel):
+    """Configuration for stochastic lead time sampler (expected + deviation)."""
+
+    type: Literal["stochastic"]
+    params: StochasticLeadTimeParams
+    model_config = ConfigDict(extra="forbid")
+
+
 # Union of lead time sampler configurations
-LeadTimeSamplerConfig = Union[LeadTimeSamplerUniform, LeadTimeSamplerCustom]
+LeadTimeSamplerConfig = Union[LeadTimeSamplerFixed, LeadTimeSamplerStochastic]
 
 
 #  ---------- Lost sales handler ---------
@@ -704,20 +725,29 @@ class EnvironmentConfig(BaseModel):
                             f"length n_skus={ns}, got {len(row)}"
                         )
 
-        # Lead_time_sampler: custom params.values shape (n_warehouses, n_skus)
-        if isinstance(self.components.lead_time_sampler, LeadTimeSamplerCustom):
-            value = self.components.lead_time_sampler.params["values"]
-            if len(value) != nw:
+        # Lead_time_sampler: expected_lead_times shape (n_warehouses, n_skus)
+        lt = self.components.lead_time_sampler
+        elt = lt.params.expected_lead_times
+        if len(elt) != nw:
+            raise ValueError(
+                f"lead_time_sampler params.expected_lead_times must have {nw} rows "
+                f"(n_warehouses), got {len(elt)}"
+            )
+        for i, row in enumerate(elt):
+            if len(row) != ns:
                 raise ValueError(
-                    f"lead_time_sampler.custom params.values must have {nw} rows (n_warehouses), "
-                    f"got {len(value)}"
+                    f"lead_time_sampler params.expected_lead_times[{i}] must have "
+                    f"length n_skus={ns}, got {len(row)}"
                 )
-            for i, row in enumerate(value):
-                if len(row) != ns:
-                    raise ValueError(
-                        f"lead_time_sampler.custom params.values[{i}] must have length n_skus={ns}, "
-                        f"got {len(row)}"
-                    )
+
+        # Lead_time_sampler: stochastic deviation.max_deviation per-SKU length
+        if isinstance(lt, LeadTimeSamplerStochastic):
+            md = lt.params.deviation.max_deviation
+            if isinstance(md, list) and len(md) != ns:
+                raise ValueError(
+                    f"lead_time_sampler deviation.max_deviation list must have "
+                    f"length n_skus={ns}, got {len(md)}"
+                )
 
         # SKU_weights: optional (n_skus,) for synthetic mode
         sw = self.cost_structure.sku_weights

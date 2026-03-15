@@ -47,9 +47,9 @@ environment:
       params:
         max_splits: "default"
     lead_time_sampler:
-      type: "custom"
+      type: "fixed"
       params:
-        values:
+        expected_lead_times:
           - [3]
     lost_sales_handler:
       type: "shipment"

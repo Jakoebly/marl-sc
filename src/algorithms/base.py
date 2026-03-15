@@ -230,8 +230,10 @@ class BaseAlgorithmWrapper(ABC):
                 # Check if episode is done
                 done = all(truncs.values()) or all(terms.values())
 
-            # Convert all lists to numpy arrays
+            # Convert all lists to numpy arrays and add env metadata for visualization
             episode_data = {k: np.array(v) for k, v in episode_data.items()}
+            episode_data["n_skus"] = env.n_skus
+            episode_data["max_expected_lead_time"] = env.max_expected_lead_time
             all_episodes.append(episode_data)
 
         # Disable step info collection after rollout

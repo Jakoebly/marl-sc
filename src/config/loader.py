@@ -170,8 +170,8 @@ def _apply_synthetic_data(config_dict: Dict[str, Any], seed_manager: Optional['S
     config_dict["cost_structure"]["shipment_cost"]["inbound_fixed"] = data["inbound_fixed"]
     config_dict["cost_structure"]["shipment_cost"]["inbound_variable"] = data["inbound_variable"]
     config_dict["components"]["lead_time_sampler"] = {
-        "type": "custom",
-        "params": {"values": data["lead_times"]},
+        "type": "fixed",
+        "params": {"expected_lead_times": data["lead_times"]},
     }
 
     return config_dict
