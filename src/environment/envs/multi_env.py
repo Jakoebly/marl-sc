@@ -561,13 +561,13 @@ class InventoryEnvironment(ParallelEnv):
 
         # Concatenate feature blocks into a single local observation vector
         local = np.concatenate([
-            # 1. Inventory: per-SKU + log1p aggregate
-            self._feature_block(sku_inventory, inventory_total, np.log1p(inventory_total),
+            # 1. Inventory: per-SKU + total aggregate
+            self._feature_block(sku_inventory, inventory_total, inventory_total,
                                 use_ratio_norm, eps),
-            # 2. Pipeline: L*S per-slot-per-SKU + log1p aggregate
-            np.append(pipeline_normed, np.log1p(pending_total)),
-            # 3. Incoming demand (home): per-SKU + log1p aggregate
-            self._feature_block(demand_home, demand_home_total, np.log1p(demand_home_total),
+            # 2. Pipeline: L*S per-slot-per-SKU + total aggregate
+            np.append(pipeline_normed, pending_total),
+            # 3. Incoming demand (home): per-SKU + total aggregate
+            self._feature_block(demand_home, demand_home_total, demand_home_total,
                                 use_ratio_norm, eps),
             # 4. Units shipped (home): per-SKU only
             self._feature_block(shipped_home, demand_home_total, None,
@@ -578,16 +578,16 @@ class InventoryEnvironment(ParallelEnv):
             # 6. Stockout: per-SKU only
             self._feature_block(stockout, demand_home_total, None,
                                 use_ratio_norm, eps),
-            # 7. Rolling demand mean: per-SKU + log1p aggregate
-            self._feature_block(rolling_mean, rolling_mean_total, np.log1p(rolling_mean_total),
+            # 7. Rolling demand mean: per-SKU + total aggregate
+            self._feature_block(rolling_mean, rolling_mean_total, rolling_mean_total,
                                 use_ratio_norm, eps),
-            # 8. Demand forecast: per-SKU + log1p aggregate
-            self._feature_block(demand_forecast, demand_forecast_total, np.log1p(demand_forecast_total),
+            # 8. Demand forecast: per-SKU + total aggregate
+            self._feature_block(demand_forecast, demand_forecast_total, demand_forecast_total,
                                 use_ratio_norm, eps),
         ]).astype(np.float32)
 
-        # Apply meanstd_custom normalization to the local observation vector if enabled
-        if self.obs_normalization == "meanstd_custom" and self.obs_stats is not None:
+        # Apply meanstd_custom or meanstd_grouped normalization if enabled
+        if self.obs_normalization in ("meanstd_custom", "meanstd_grouped") and self.obs_stats is not None:
             obs_mean, obs_std = self.obs_stats
             local = (local - obs_mean) / obs_std
 
@@ -598,8 +598,8 @@ class InventoryEnvironment(ParallelEnv):
             local = np.concatenate([warehouse_id_onehot, local])
 
         # Append timestep fraction 
-        timestep_frac = np.float32(self.timestep / self.episode_length)
-        local = np.concatenate([local, [timestep_frac]])
+        # timestep_frac = np.float32(self.timestep / self.episode_length)
+        # local = np.concatenate([local, [timestep_frac]])
 
         return local
 
@@ -793,7 +793,7 @@ class InventoryEnvironment(ParallelEnv):
                     )
 
         # Get the actual ordered quantities (including the ones that arrive after the episode ends)
-        ordered_skus = np.where(quantity_mask, actions_matrix, 0.0)
+        ordered_skus = np.where(valid_mask, actions_matrix, 0.0)
         
         return ordered_skus
 

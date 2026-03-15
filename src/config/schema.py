@@ -1031,7 +1031,7 @@ class PPOConfig(BaseModel):
 class IPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
@@ -1057,7 +1057,7 @@ class IPPOConfig(BaseModel):
 class MAPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
