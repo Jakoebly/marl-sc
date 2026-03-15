@@ -597,9 +597,9 @@ class InventoryEnvironment(ParallelEnv):
             warehouse_id_onehot[warehouse_idx] = 1.0
             local = np.concatenate([warehouse_id_onehot, local])
 
-        # # Append timestep fraction 
-        # timestep_frac = np.float32(self.timestep / self.episode_length)
-        # local = np.concatenate([local, [timestep_frac]])
+        # Append timestep fraction 
+        timestep_frac = np.float32(self.timestep / self.episode_length)
+        local = np.concatenate([local, [timestep_frac]])
 
         return local
 
@@ -769,8 +769,11 @@ class InventoryEnvironment(ParallelEnv):
         actual_arrivals = self.timestep + actual_lead_times.astype(int)    # Shape: (n_warehouses, n_skus)
         expected_arrivals = self.timestep + expected_lead_times.astype(int) # Shape: (n_warehouses, n_skus)
 
+        # Create a mask for orders that contain quantities
+        quantity_mask = actions_matrix > 0
+
         # Create valid mask for orders that contain quantities and will arrive before the episode ends
-        valid_mask = (actions_matrix > 0) & (actual_arrivals < self.episode_length)
+        valid_mask = quantity_mask & (actual_arrivals < self.episode_length)
 
         # If no valid orders, return empty array
         if not np.any(valid_mask):
@@ -789,8 +792,8 @@ class InventoryEnvironment(ParallelEnv):
                         )
                     )
 
-        # Get the actual ordered quantities
-        ordered_skus = np.where(valid_mask, actions_matrix, 0.0)
+        # Get the actual ordered quantities (including the ones that arrive after the episode ends)
+        ordered_skus = np.where(quantity_mask, actions_matrix, 0.0)
         
         return ordered_skus
 
