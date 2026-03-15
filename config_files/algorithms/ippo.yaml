@@ -24,7 +24,7 @@ algorithm:
     vf_loss_coeff: 0.5
     clip_param: 0.2
     vf_clip_param: 300
-    obs_normalization: "meanstd_custom"
+    obs_normalization: "meanstd_grouped"
     parameter_sharing: true
     networks:
       shared_layers: null
