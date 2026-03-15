@@ -419,41 +419,44 @@ def plot_shipment_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> N
 def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
     Plots the normalized local observation features over time for each warehouse.
-    Creates one figure per warehouse with a subplot for each of the 8 feature groups,
+    Creates one figure per warehouse with a subplot for each feature group,
     each showing one line per SKU plus aggregate features where present.
 
     Args:
-        episode (Dict[str, np.ndarray]): Episode data dict.
+        episode (Dict[str, np.ndarray]): Episode data dict (must include
+            ``obs_normalized``, ``n_skus``, and ``max_expected_lead_time``).
         output_dir (Path): Directory to save the plot.
     """
     obs_norm = episode.get("obs_normalized")  # (T, n_warehouses, obs_dim)
     if obs_norm is None:
         return
 
+    n_skus = int(episode.get("n_skus", 0))
+    max_lt = int(episode.get("max_expected_lead_time", 0))
+    if n_skus <= 0 or max_lt <= 0:
+        return
+
     T, n_warehouses, obs_dim = obs_norm.shape
     timesteps = np.arange(T)
 
-    # Feature groups: (name, has_aggregate)
+    # Feature groups: (name, n_sku_columns, has_aggregate)
+    # Pipeline uses L*S columns instead of S
     feature_groups = [
-        ("Inventory",              True),
-        ("Pending Orders",         True),
-        ("Incoming Demand (Home)", True),
-        ("Shipped (Home)",         False),
-        ("Shipped (Away)",         True),
-        ("Stockout",               False),
-        ("Rolling Demand Mean",    True),
-        ("Demand Forecast",        True),
+        ("Inventory",              n_skus,          True),
+        ("Pipeline",               max_lt * n_skus, True),
+        ("Incoming Demand (Home)", n_skus,          True),
+        ("Shipped (Home)",         n_skus,          False),
+        ("Shipped (Away)",         n_skus,          True),
+        ("Stockout",               n_skus,          False),
+        ("Rolling Demand Mean",    n_skus,          True),
+        ("Demand Forecast",        n_skus,          True),
     ]
 
-    # Solve for n_skus and handle optional warehouse_id prefix (when parameter_sharing)
-    # Full local obs = [warehouse_onehot? | features | timestep_frac]; features = 8*n_skus + 6
+    # local obs = [warehouse_onehot? | features | timestep_frac]
+    # features = (7 + L) * n_skus + 6
+    base_local = (7 + max_lt) * n_skus + 6
     local_dim_full = obs_dim // (1 + n_warehouses)
-    n_skus = (local_dim_full - 7) // 8  # -7 = 6 aggregates + 1 timestep fraction
-    base_local = 8 * n_skus + 6
-    warehouse_id_offset = local_dim_full - base_local - 1  # -1 for timestep; 0 or n_warehouses when include_warehouse_id
-
-    if n_skus <= 0:
-        return
+    warehouse_id_offset = local_dim_full - base_local - 1  # -1 for timestep
 
     sku_colors = plt.cm.tab10.colors
     n_subplots = len(feature_groups)
@@ -461,17 +464,27 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     for wh in range(n_warehouses):
         fig, axes = plt.subplots(n_subplots, 1, figsize=(14, 2.5 * n_subplots), sharex=True)
 
-        # Skip warehouse_id one-hot if present; use only feature dimensions
-        local_obs = obs_norm[:, wh, warehouse_id_offset:warehouse_id_offset + base_local]  # (T, base_local)
+        local_obs = obs_norm[:, wh, warehouse_id_offset:warehouse_id_offset + base_local]
 
         offset = 0
-        for feat_idx, (feat_name, has_agg) in enumerate(feature_groups):
+        for feat_idx, (feat_name, n_cols, has_agg) in enumerate(feature_groups):
             ax = axes[feat_idx]
-            for sku in range(n_skus):
-                ax.plot(timesteps, local_obs[:, offset + sku],
-                        label=f"SKU {sku}", linewidth=1.0,
-                        color=sku_colors[sku % len(sku_colors)], alpha=0.85)
-            offset += n_skus
+
+            if feat_name == "Pipeline":
+                for slot in range(max_lt):
+                    slot_total = np.zeros(T)
+                    for sku in range(n_skus):
+                        col = offset + slot * n_skus + sku
+                        slot_total += local_obs[:, col]
+                    ax.plot(timesteps, slot_total,
+                            label=f"Slot t+{slot+1}", linewidth=1.0,
+                            color=sku_colors[slot % len(sku_colors)], alpha=0.85)
+            else:
+                for sku in range(n_cols):
+                    ax.plot(timesteps, local_obs[:, offset + sku],
+                            label=f"SKU {sku}", linewidth=1.0,
+                            color=sku_colors[sku % len(sku_colors)], alpha=0.85)
+            offset += n_cols
 
             if has_agg:
                 ax.plot(timesteps, local_obs[:, offset],
@@ -481,7 +494,7 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
 
             ax.set_ylabel("Value", fontsize=7)
             ax.set_title(f"{feat_name}", fontsize=9, loc="left")
-            ax.legend(fontsize=6, ncol=min(n_skus + 1, 8), loc="upper right")
+            ax.legend(fontsize=6, ncol=min(max(n_skus, max_lt) + 1, 8), loc="upper right")
             ax.grid(True, alpha=0.2)
 
         axes[-1].set_xlabel("Timestep")

@@ -1,5 +1,5 @@
-from collections import deque
-from typing import Dict, List, Optional, Tuple, Any
+from collections import defaultdict, deque
+from typing import Dict, List, NamedTuple, Optional, Tuple, Any
 
 import numpy as np
 from gymnasium.spaces import Box
@@ -19,6 +19,22 @@ from src.environment.components.demand_allocator import AllocationResult
 from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEEDS, STOCHASTIC_SEEDS
 
 
+class PendingOrder(NamedTuple):
+    """
+    Defines a single in-transit order for one (warehouse, SKU) pair.
+    
+    Attributes:
+        quantity (float): Quantity of the order.
+        actual_arrival (int): Actual arrival timestep.
+        expected_arrival (int): Expected arrival timestep.
+    """
+
+    # Order parameters
+    quantity: float
+    actual_arrival: int
+    expected_arrival: int
+
+
 class InventoryEnvironment(ParallelEnv):
     """
     Implements a multi-agent inventory management environment compatible with PettingZoo. The environment 
@@ -31,8 +47,9 @@ class InventoryEnvironment(ParallelEnv):
         n_regions (int): Number of demand regions.
         episode_length (int): Maximum number of timesteps per episode.
         inventory (np.ndarray): Current inventory levels. Shape: (n_warehouses, n_skus).
-        pending_orders (Dict[int, np.ndarray]): Orders scheduled to arrive at a given timestep. 
-            Shape: {arrival_timestep: (n_warehouses, n_skus)}.
+        pending_orders (Dict[tuple, List[PendingOrder]]): In-transit orders keyed by
+            (warehouse_idx, sku_idx). Each entry stores quantity, actual arrival, and
+            expected arrival timesteps.
         timestep (int): Current timestep in the episode.
     """
     
@@ -106,6 +123,10 @@ class InventoryEnvironment(ParallelEnv):
         self.lost_sales_handler = get_lost_sales_handler(env_config, context=context)
         self.reward_calculator = get_reward_calculator(env_config, context=context)
         
+        # Store expected lead times and max pipeline horizon from lead time sampler
+        self.expected_lead_times = self.lead_time_sampler.get_expected()  # Shape: (n_warehouses, n_skus)
+        self.max_expected_lead_time = self.lead_time_sampler.get_max_expected()
+
         # Store cost structure and initial inventory config
         self.cost_structure = env_config.cost_structure
         self.initial_inventory_config = env_config.initial_inventory
@@ -138,7 +159,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # Initialize state
         self.inventory = None  # Shape: (n_warehouses, n_skus)
-        self.pending_orders = {}  # Shape: {arrival_timestep: (n_warehouses, n_skus)}
+        self.pending_orders: Dict[tuple, List[PendingOrder]] = defaultdict(list)
         self.timestep = 0
 
         # Observation feature buffers (initialized in reset)
@@ -181,7 +202,7 @@ class InventoryEnvironment(ParallelEnv):
 
         # Reset state and observation feature buffers
         self.inventory = self._initialize_inventory(rng=self.seed_manager.get_rng('inventory'))
-        self.pending_orders = {}
+        self.pending_orders = defaultdict(list)
         self._incoming_demand_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
         self._units_shipped_home = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
         self._units_shipped_away = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
@@ -231,9 +252,7 @@ class InventoryEnvironment(ParallelEnv):
         # Capture pre-step state for visualization (before any modifications)
         if self.collect_step_info:
             inventory_before = self.inventory.copy()
-            pending_total = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
-            for arr in self.pending_orders.values():
-                pending_total += arr
+            pending_total = self._compute_pending_matrix()
 
         # 1. Rescale normalized actions to order quantities and place replenishment orders
         order_quantities = self._rescale_actions_to_quantities(actions)
@@ -318,17 +337,17 @@ class InventoryEnvironment(ParallelEnv):
     
     def observation_space(self, agent: str) -> Box:
         """
-        Returns the observation space for a warehouse consisting of 8 feature groups per warehouse w (S = n_skus),
-        plus a timestep fraction scalar:
+        Returns the observation space for a warehouse consisting of 8 feature groups per 
+        warehouse w (S = n_skus, L = max_expected_lead_time) plus a timestep fraction scalar:
 
-            - inventory              (S per-SKU + 1 aggregate = S+1)
-            - pending orders         (S per-SKU + 1 aggregate = S+1)
-            - incoming demand (home) (S per-SKU + 1 aggregate = S+1)
-            - units shipped (home)   (S per-SKU                = S)
-            - units shipped (away)   (S per-SKU + 1 aggregate = S+1)
-            - stockout               (S per-SKU                = S)
-            - rolling demand mean    (S per-SKU + 1 aggregate = S+1)
-            - demand forecast        (S per-SKU + 1 aggregate = S+1)
+            - inventory              (S per-SKU + 1 aggregate            = S+1)
+            - pipeline               (L*S per-slot-per-SKU + 1 aggregate = L*S+1)
+            - incoming demand (home) (S per-SKU + 1 aggregate            = S+1)
+            - units shipped (home)   (S per-SKU                          = S)
+            - units shipped (away)   (S per-SKU + 1 aggregate            = S+1)
+            - stockout               (S per-SKU                          = S)
+            - rolling demand mean    (S per-SKU + 1 aggregate            = S+1)
+            - demand forecast        (S per-SKU + 1 aggregate            = S+1)
             - timestep fraction      (1 scalar = t / T)
 
         The observation is a flat vector that concatenates the local observation (this warehouse's
@@ -340,12 +359,13 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             observation_space (Box): Flat observation space for a warehouse.
-                Shape: (local_obs_dim + global_obs_dim,) where local_obs_dim = 8 * n_skus + 7
+                Shape: (local_obs_dim + global_obs_dim,) where
+                local_obs_dim = (7 + max_expected_lead_time) * n_skus + 7
                 and global_obs_dim = n_warehouses * local_obs_dim.
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = 8 * self.n_skus + 7
+        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 7
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses  
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -367,7 +387,7 @@ class InventoryEnvironment(ParallelEnv):
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = 8 * self.n_skus + 7
+        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 7
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses 
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -463,15 +483,15 @@ class InventoryEnvironment(ParallelEnv):
         per-SKU features are raw values with the same aggregate features appended ("meanstd" 
         lets RLlib handle mean/std normalization).
         
-        Feature groups per warehouse w (S = n_skus):
-            1. Inventory:           S per-SKU + 1 aggregate  (S+1)
-            2. Pending orders:      S per-SKU + 1 aggregate  (S+1)
-            3. Demand home:         S per-SKU + 1 aggregate  (S+1)
-            4. Shipped home:        S per-SKU                (S)
-            5. Shipped away:        S per-SKU + 1 aggregate  (S+1)
-            6. Stockout:            S per-SKU                (S)
-            7. Rolling demand mean: S per-SKU + 1 aggregate  (S+1)
-            8. Demand forecast:     S per-SKU + 1 aggregate  (S+1)
+        Feature groups per warehouse w (S = n_skus, L = max_expected_lead_time):
+            1. Inventory:           S per-SKU + 1 aggregate            = S+1)
+            2. Pipeline:            L*S per-slot-per-SKU + 1 aggregate  (L*S+1)
+            3. Demand home:         S per-SKU + 1 aggregate             (S+1)
+            4. Shipped home:        S per-SKU                           (S)
+            5. Shipped away:        S per-SKU + 1 aggregate     	    (S+1)
+            6. Stockout:            S per-SKU                           (S)
+            7. Rolling demand mean: S per-SKU + 1 aggregate             (S+1)
+            8. Demand forecast:     S per-SKU + 1 aggregate             (S+1)
             9. Timestep fraction:   1 scalar (t / T)
         
         Returns:
@@ -480,16 +500,9 @@ class InventoryEnvironment(ParallelEnv):
                 Shape: {warehouse_id: (local_obs_dim + global_obs_dim,)}.
         """
 
-        # Precompute pending orders matrix once for all warehouses
-        pending_matrix = (
-            sum(self.pending_orders.values())
-            if self.pending_orders
-            else np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
-        )  # Shape: (n_warehouses, n_skus)
-
         # Build local observation for each warehouse
         local_obs = {
-            warehouse_id: self._build_local_obs(warehouse_idx, pending_matrix)
+            warehouse_id: self._build_local_obs(warehouse_idx)
             for warehouse_idx, warehouse_id in enumerate(self.agents)
         }
 
@@ -504,16 +517,14 @@ class InventoryEnvironment(ParallelEnv):
 
         return obs
 
-    def _build_local_obs(self, warehouse_idx: int, pending_matrix: np.ndarray) -> np.ndarray:
+    def _build_local_obs(self, warehouse_idx: int) -> np.ndarray:
         """
         Builds the local observation vector for a single warehouse by extracting raw
-        per-SKU features, optionally applying ratio normalization, computing aggregate
-        features, and concatenating everything into a flat vector.
+        per-SKU features, computing the expected pipeline breakdown, optionally applying
+        ratio normalization, and concatenating everything into a flat vector.
 
         Args:
             warehouse_idx (int): Index of the warehouse in the agents list.
-            pending_matrix (np.ndarray): Precomputed total pending orders across all
-                arrival timesteps. Shape: (n_warehouses, n_skus).
 
         Returns:
             local (np.ndarray): Flat local observation vector. Shape: (local_obs_dim,).
@@ -523,9 +534,8 @@ class InventoryEnvironment(ParallelEnv):
         use_ratio_norm = self.obs_normalization == "ratio"
         eps = 1e-8
 
-        # Extract raw per-SKU features for this warehouse
+        # Extract raw per-SKU features
         sku_inventory = self.inventory[warehouse_idx, :].copy()
-        sku_pending = pending_matrix[warehouse_idx, :].copy()
         demand_home = self._incoming_demand_home[warehouse_idx, :]
         shipped_home = self._units_shipped_home[warehouse_idx, :]
         shipped_away = self._units_shipped_away[warehouse_idx, :]
@@ -533,36 +543,50 @@ class InventoryEnvironment(ParallelEnv):
         rolling_mean = self._rolling_demand_mean_home[warehouse_idx, :]
         demand_forecast = self._demand_forecast_home[warehouse_idx, :]
 
-        # Precompute totals used for ratio normalization and aggregate features
+        # Extract pipeline feature and apply ratio normalization if enabled
+        pipeline = self._compute_pipeline(warehouse_idx)  # Shape: (max_expected_lead_time, n_skus)
+        pipeline_flat = pipeline.ravel()                   # Shape: (max_expected_lead_time * n_skus,)
+        pending_total = float(pipeline_flat.sum())
+        if use_ratio_norm:
+            pipeline_normed = pipeline_flat / (pending_total + eps)
+        else:
+            pipeline_normed = pipeline_flat
+
+        # Compute aggregate totals
         inventory_total = sku_inventory.sum()
-        pending_total = sku_pending.sum()
         demand_home_total = demand_home.sum()
         shipped_total = (shipped_home + shipped_away).sum()
         rolling_mean_total = rolling_mean.sum()
         demand_forecast_total = demand_forecast.sum()
 
         # Concatenate feature blocks into a single local observation vector
-        # Each feature group: per-SKU features (optionally ratio-normed) + optional aggregate scalar
         local = np.concatenate([
-            # Inventory: per-SKU + log1p aggregate
-            self._feature_block(sku_inventory, inventory_total, np.log1p(inventory_total),                        use_ratio_norm, eps),
-            # Pending orders: per-SKU + log1p aggregate
-            self._feature_block(sku_pending, pending_total, np.log1p(pending_total),                          use_ratio_norm, eps),
-            # Incoming demand (home): per-SKU + log1p aggregate
-            self._feature_block(demand_home, demand_home_total, np.log1p(demand_home_total),                      use_ratio_norm, eps),
-            # Units shipped (home): per-SKU only (no aggregate)
-            self._feature_block(shipped_home, demand_home_total, None,                                             use_ratio_norm, eps),
-            # Units shipped (away): per-SKU + ratio aggregate
-            self._feature_block(shipped_away, shipped_total, shipped_away.sum() / (shipped_total + eps),        use_ratio_norm, eps),
-            # Stockout: per-SKU only (no aggregate)
-            self._feature_block(stockout, demand_home_total, None,                                             use_ratio_norm, eps),
-            # Rolling demand mean: per-SKU + log1p aggregate
-            self._feature_block(rolling_mean, rolling_mean_total, np.log1p(rolling_mean_total),                     use_ratio_norm, eps),
-            # Demand forecast: per-SKU + log1p aggregate
-            self._feature_block(demand_forecast, demand_forecast_total, np.log1p(demand_forecast_total),                  use_ratio_norm, eps),
+            # 1. Inventory: per-SKU + log1p aggregate
+            self._feature_block(sku_inventory, inventory_total, np.log1p(inventory_total),
+                                use_ratio_norm, eps),
+            # 2. Pipeline: L*S per-slot-per-SKU + log1p aggregate
+            np.append(pipeline_normed, np.log1p(pending_total)),
+            # 3. Incoming demand (home): per-SKU + log1p aggregate
+            self._feature_block(demand_home, demand_home_total, np.log1p(demand_home_total),
+                                use_ratio_norm, eps),
+            # 4. Units shipped (home): per-SKU only
+            self._feature_block(shipped_home, demand_home_total, None,
+                                use_ratio_norm, eps),
+            # 5. Units shipped (away): per-SKU + ratio aggregate
+            self._feature_block(shipped_away, shipped_total, shipped_away.sum() / (shipped_total + eps),
+                                use_ratio_norm, eps),
+            # 6. Stockout: per-SKU only
+            self._feature_block(stockout, demand_home_total, None,
+                                use_ratio_norm, eps),
+            # 7. Rolling demand mean: per-SKU + log1p aggregate
+            self._feature_block(rolling_mean, rolling_mean_total, np.log1p(rolling_mean_total),
+                                use_ratio_norm, eps),
+            # 8. Demand forecast: per-SKU + log1p aggregate
+            self._feature_block(demand_forecast, demand_forecast_total, np.log1p(demand_forecast_total),
+                                use_ratio_norm, eps),
         ]).astype(np.float32)
 
-        # Apply meanstd_custom normalization to the local observation vector
+        # Apply meanstd_custom normalization to the local observation vector if enabled
         if self.obs_normalization == "meanstd_custom" and self.obs_stats is not None:
             obs_mean, obs_std = self.obs_stats
             local = (local - obs_mean) / obs_std
@@ -709,87 +733,130 @@ class InventoryEnvironment(ParallelEnv):
                 target = (action + 1.0) / 2.0 * self.max_stock_level
                 demand = self._incoming_demand_home[warehouse_idx]
                 sku_pending = np.zeros(self.n_skus, dtype=np.float32)
-                for orders_array in self.pending_orders.values():
-                    sku_pending += orders_array[warehouse_idx, :]
+                for sku in range(self.n_skus):
+                    for entry in self.pending_orders[(warehouse_idx, sku)]:
+                        sku_pending[sku] += entry.quantity
                 order_qty = np.maximum(0, np.round(target - demand - sku_pending)).astype(int)
                 quantities[agent_id] = order_qty.astype(float)
 
         return quantities
 
-    def _apply_orders(self, actions: Dict[str, np.ndarray]):
+    def _apply_orders(self, actions: Dict[str, np.ndarray]) -> np.ndarray:
         """
-        Applies replenishment orders to pending orders by sampling lead times and scheduling orders for future arrival. 
-        Filters out orders that would arrive after episode ends.
-        
+        Applies replenishment orders by sampling lead times and adding PendingOrder
+        entries to the per-(warehouse, SKU) queues. Filters out orders that would
+        arrive after the episode ends.
+
         Args:
-            actions: Dict mapping agent_id to action array.
-                Shape: {agent_id: (n_skus,)} - replenishment quantities.
+            actions: Dict mapping agent_id to order quantity array.
+                Shape: {agent_id: (n_skus,)}.
+
+        Returns:
+            ordered_skus (np.ndarray): Quantities actually ordered (valid orders only).
+                Shape: (n_warehouses, n_skus).
         """
 
-        # Sample lead times for all SKUs
-        lead_times = self.lead_time_sampler.sample() # Shape: (n_warehouses, n_skus)
+        # Sample actual lead times
+        actual_lead_times = self.lead_time_sampler.sample()  # Shape: (n_warehouses, n_skus)
 
-        # Stack all actions into a matrix
-        actions_matrix = np.array([actions[agent_id] for agent_id in self.agents]) # Shape: (n_warehouses, n_skus)
-        
-        # Calculate arrival timesteps for all (warehouse, sku) pairs      
-        arrival_timesteps = self.timestep + lead_times.astype(int) # Shape: (n_warehouses, n_skus)
-        
-        # Define masks to filter only orders with quantity > 0 and that arrive before the episode ends
-        ordered_skus = actions_matrix > 0
-        valid_skus = ordered_skus & (arrival_timesteps < self.episode_length)
+        # Get expected lead times
+        expected_lead_times = self.expected_lead_times # Shape: (n_warehouses, n_skus)
 
-        # Return early if there are no valid orders
-        if not np.any(valid_skus):
-            ordered_skus = np.zeros((self.n_warehouses, self.n_skus), dtype=bool)
+        # Convert actions into a matrix
+        actions_matrix = np.array([actions[agent_id] for agent_id in self.agents])  # Shape: (n_warehouses, n_skus)
+
+        # Compute actual and expected arrival timesteps
+        actual_arrivals = self.timestep + actual_lead_times.astype(int)    # Shape: (n_warehouses, n_skus)
+        expected_arrivals = self.timestep + expected_lead_times.astype(int) # Shape: (n_warehouses, n_skus)
+
+        # Create valid mask for orders that contain quantities and will arrive before the episode ends
+        valid_mask = (actions_matrix > 0) & (actual_arrivals < self.episode_length)
+
+        # If no valid orders, return empty array
+        if not np.any(valid_mask):
+            ordered_skus = np.zeros((self.n_warehouses, self.n_skus), dtype=float)
             return ordered_skus
-        
-        # Get unique arrival timesteps that have valid orders
-        unique_arrival_timesteps = np.unique(arrival_timesteps[valid_skus])
 
         # Add valid orders to pending orders
-        for arrival_timestep in unique_arrival_timesteps:
-            # Define a mask for orders arriving at this timestep
-            mask = (arrival_timesteps == arrival_timestep) & valid_skus
+        for wh in range(self.n_warehouses):
+            for sku in range(self.n_skus):
+                if valid_mask[wh, sku]:
+                    self.pending_orders[(wh, sku)].append(
+                        PendingOrder(
+                            quantity=actions_matrix[wh, sku],
+                            actual_arrival=int(actual_arrivals[wh, sku]),
+                            expected_arrival=int(expected_arrivals[wh, sku]),
+                        )
+                    )
 
-            # Initialize entry for this arrival timestep if it doesn't exist
-            if arrival_timestep not in self.pending_orders:
-                self.pending_orders[arrival_timestep] = np.zeros(
-                    (self.n_warehouses, self.n_skus), dtype=float
-                )
-
-            # Add orders arriving in the current arrival timestep to pending_orders
-            self.pending_orders[arrival_timestep] += np.where(mask, actions_matrix, 0.0)
-        
-        # Get all ordered SKUs
-        ordered_skus = np.where(valid_skus, actions_matrix, 0.0) # Shape: (n_warehouses, n_skus)
+        # Get the actual ordered quantities
+        ordered_skus = np.where(valid_mask, actions_matrix, 0.0)
         
         return ordered_skus
 
-    def enforce_capacity_constraints(self, ordered_skus: np.ndarray) -> np.ndarray:
-        """
-        Enforces capacity constraints on the inventory.
-        
-        Args:
-            warehouse_idx (int): Index of the warehouse.
-        """
-        pass
-
-    def compute_free_capacity(self, warehouse_idx: int) -> np.ndarray:
-        """
-        Computes the free capacity for a given warehouse.
-        
-        Args:
-            warehouse_idx (int): Index of the warehouse.
-        """
-        pass
-
     def _apply_arrivals(self):
         """
-        Adds arriving orders to inventory and removes them from pending_orders.
+        Processes arriving order by adding arriving quantities to inventory and removing
+        the corresponding PendingOrder entries from the per-(warehouse, SKU) queues.
         """
-        
-        # Add arriving orders to inventory if there are any
-        if self.timestep in self.pending_orders:
-            self.inventory += self.pending_orders[self.timestep]
-            del self.pending_orders[self.timestep]
+
+        # Add arriving orders to inventory and remove corresponding PendingOrder entries
+        for wh in range(self.n_warehouses):
+            for sku in range(self.n_skus):
+                queue = self.pending_orders[(wh, sku)]
+                surviving = []
+                for entry in queue:
+                    if entry.actual_arrival == self.timestep:
+                        self.inventory[wh, sku] += entry.quantity
+                    else:
+                        surviving.append(entry)
+                self.pending_orders[(wh, sku)] = surviving
+
+    def _compute_pending_matrix(self) -> np.ndarray:
+        """
+        Computes total pending quantities per (warehouse, SKU) by summing
+        over all in-transit orders.
+
+        Returns:
+            pending (np.ndarray): Total pending per (warehouse, SKU).
+                Shape: (n_warehouses, n_skus).
+        """
+
+        # Initialize pending matrix
+        pending = np.zeros((self.n_warehouses, self.n_skus), dtype=np.float32)
+
+        # Sum over all in-transit orders
+        for (wh, sku), queue in self.pending_orders.items():
+            for entry in queue:
+                pending[wh, sku] += entry.quantity
+
+        return pending
+
+    def _compute_pipeline(self, warehouse_idx: int) -> np.ndarray:
+        """
+        Computes the expected pipeline breakdown for one warehouse: for each
+        of the next max_expected_lead_time arrival slots, how much quantity
+        is expected to arrive per SKU. Late deliveries (expected arrival already passed but order hasn't
+        actually arrived) are attributed to slot 0 (imminent).
+
+        Args:
+            warehouse_idx (int): Index of the warehouse.
+
+        Returns:
+            pipeline (np.ndarray): Expected arrivals per slot and SKU.
+                Shape: (max_expected_lead_time, n_skus).
+        """
+
+        # Initialize pipeline array
+        pipeline = np.zeros((self.max_expected_lead_time, self.n_skus), dtype=np.float32)
+
+        # Compute expected pipeline breakdown for each SKU
+        for sku in range(self.n_skus):
+            for entry in self.pending_orders[(warehouse_idx, sku)]:
+                slot = entry.expected_arrival - self.timestep
+                if 1 <= slot <= self.max_expected_lead_time:
+                    pipeline[slot - 1, sku] += entry.quantity
+                elif slot <= 0:
+                    pipeline[0, sku] += entry.quantity
+
+        return pipeline

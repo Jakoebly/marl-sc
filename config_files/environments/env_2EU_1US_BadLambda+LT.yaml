@@ -73,9 +73,9 @@ environment:
       params:
         max_splits: "default" 
     lead_time_sampler:
-      type: "custom"
+      type: "fixed"
       params:
-        values:
+        expected_lead_times:
           - [1, 1, 1]
           - [2, 11, 10]
           - [1, 1, 1]

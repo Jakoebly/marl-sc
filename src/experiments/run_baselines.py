@@ -185,7 +185,7 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
 
     # Extract lead time parameters
     lead_times = np.array(
-        env_config.components.lead_time_sampler.params["values"]    # Shape:(n_warehouses, n_skus)
+        env_config.components.lead_time_sampler.params.expected_lead_times  # Shape:(n_warehouses, n_skus)
     )
 
     # Extract cost structure parameters

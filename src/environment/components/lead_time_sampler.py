@@ -10,10 +10,9 @@ from src.config.schema import LeadTimeSamplerConfig
 
 class BaseLeadTimeSampler(StochasticComponent):
     """
-    Implements a base class for lead time sampling components. Lead time samplers generate 
+    Implements a base class for lead time sampling components. Lead time samplers generate
     delivery lead times for replenishment orders. All lead time samplers must inherit from this 
-    class and implement the sample() as well as the reset() method from the stochastic component 
-    base class (if stochastic).
+    class and must implement sample(), get_expected(), and get_max_expected().
     """
     
     def __init__(self, context: EnvironmentContext, component_config: LeadTimeSamplerConfig):
@@ -27,6 +26,7 @@ class BaseLeadTimeSampler(StochasticComponent):
 
         # Store general environment parameters
         self.n_skus = context.n_skus
+        self.n_warehouses = context.n_warehouses
 
         # Initialize the component's own RNG for reproducibility
         self._rng = np.random.default_rng()
@@ -34,10 +34,30 @@ class BaseLeadTimeSampler(StochasticComponent):
     @abstractmethod
     def sample(self) -> np.ndarray:
         """
-        Abstract method to sample delivery lead times for all SKUs.
+        Samples delivery lead times for all (warehouse, SKU) pairs.
         
         Returns:
-            lead_times (np.ndarray): Lead times for all SKUs. Shape: (n_skus,).
+            lead_times (np.ndarray): Shape (n_warehouses, n_skus).
+        """
+        pass
+
+    @abstractmethod
+    def get_expected(self) -> np.ndarray:
+        """
+        Returns expected (config-specified) lead times for all (warehouse, SKU) pairs.
+        
+        Returns:
+            expected_lead_times (np.ndarray): Shape (n_warehouses, n_skus).
+        """
+        pass
+
+    @abstractmethod
+    def get_max_expected(self) -> int:
+        """
+        Returns the maximum expected lead time across all (warehouse, SKU) pairs.
+        
+        Returns:
+            max_expected (int): Maximum expected lead time.
         """
         pass
     
@@ -51,15 +71,15 @@ class BaseLeadTimeSampler(StochasticComponent):
         self._rng = rng if rng is not None else np.random.default_rng()
 
 
-class UniformLeadTimeSampler(BaseLeadTimeSampler):
+class FixedLeadTimeSampler(BaseLeadTimeSampler):
     """
-    Implements a uniform lead time sampler that samples lead times independently for each SKU 
-    from a uniform distribution over [min_lead_time, max_lead_time].
+    Implements a deterministic lead time sampler. Returns the config-specified expected lead
+    times on every call to sample().
     """
     
     def __init__(self, context: EnvironmentContext, component_config: LeadTimeSamplerConfig):
         """
-        Initializes the uniform lead time sampler.
+        Initializes the deterministic lead time sampler.
         
         Args:
             context (EnvironmentContext): Shared environment context.
@@ -68,34 +88,63 @@ class UniformLeadTimeSampler(BaseLeadTimeSampler):
 
         # Initialize base class
         super().__init__(context, component_config)
-        
-        # Extract uniform distribution parameters
-        self.min_lead_time = component_config.params["min"]
-        self.max_lead_time = component_config.params["max"]
+
+        # Store expected lead times from config
+        self.expected_lead_times = np.array(
+            component_config.params.expected_lead_times, dtype=int
+        )  # Shape: (n_warehouses, n_skus)
     
     def sample(self) -> np.ndarray:
         """
-        Samples independent lead times for all SKUs from a uniform distribution. Each SKU gets 
-        an independent lead time sampled uniformly from [min_lead_time, max_lead_time].
+        Samples delivery lead times for all (warehouse, SKU) pairs.
         
         Returns:
-            lead_times (np.ndarray): Lead times for all SKUs. Shape: (n_skus,).
+            actual_lead_times (np.ndarray): Shape (n_warehouses, n_skus).
         """
-        # Sample n_skus independent lead times
-        lead_times = self._rng.integers(self.min_lead_time, self.max_lead_time + 1, size=self.n_skus) # Shape: (n_skus,)
+
+        # Get expected lead times
+        actual_lead_times = self.expected_lead_times.copy()
+
+        return actual_lead_times
+    
+    def get_expected(self) -> np.ndarray:
+        """
+        Returns expected (config-specified) lead times for all (warehouse, SKU) pairs.
         
-        return lead_times
+        Returns:
+            expected_lead_times (np.ndarray): Shape (n_warehouses, n_skus).
+        """
+
+        # Get expected lead times
+        expected_lead_times = self.expected_lead_times.copy()
+        return expected_lead_times
+    
+    def get_max_expected(self) -> int:
+        """
+        Returns the maximum expected lead time across all (warehouse, SKU) pairs.
+        
+        Returns:
+            max_expected (int): Maximum expected lead time.
+        """
+
+        # Get maximum expected lead time
+        max_expected = int(self.expected_lead_times.max())
+        
+        return max_expected
 
 
-class CustomLeadTimeSampler(BaseLeadTimeSampler):
+class StochasticLeadTimeSampler(BaseLeadTimeSampler):
     """
-    Implements a custom lead time sampler that samples lead times deterministically for each SKU 
-    from a fixed list of lead time per (warehouse, sku) pair.
+    Implements a stochastic lead time sampler. While the expected lead times are
+    config-specified structural parameters, the actual lead times are computed as
+    expected + random deviation. The deviation is sampled from a uniform
+    distribution [-max_deviation, +max_deviation] independently per (warehouse, SKU).
+    Actual lead times are clipped to a minimum of 1.
     """
     
     def __init__(self, context: EnvironmentContext, component_config: LeadTimeSamplerConfig):
         """
-        Initializes the custom lead time sampler.
+        Initializes the stochastic lead time sampler.
         
         Args:
             context (EnvironmentContext): Shared environment context.
@@ -104,16 +153,71 @@ class CustomLeadTimeSampler(BaseLeadTimeSampler):
 
         # Initialize base class
         super().__init__(context, component_config)
-        
-        # Extract uniform distribution parameters
-        self.lead_time_matrix = np.array(component_config.params["values"])
+
+        # Store expected lead times from config
+        self.expected_lead_times = np.array(
+            component_config.params.expected_lead_times, dtype=int
+        )  # Shape: (n_warehouses, n_skus)
+
+        # Store maximum deviation from config (either scalar or per-SKU)
+        max_deviation = component_config.params.deviation.max_deviation
+        if isinstance(max_deviation, list):
+            self.max_deviation = np.array(max_deviation, dtype=int)  # Shape: (n_skus,)
+        else:
+            self.max_deviation = int(max_deviation) # Shape: scalar
     
     def sample(self) -> np.ndarray:
         """
-        Samples deterministic lead times for all SKUs from a fixed list of lead time per
-        (warehouse, sku) pair.
+        Samples delivery lead times for all (warehouse, SKU) pairs by adding a random deviation
+        from a uniform distribution [-max_deviation, +max_deviation] to the expected lead times.
         
         Returns:
-            lead_times (np.ndarray): Lead times for all SKUs. Shape: (n_warehouses, n_skus).
+            actual_lead_times (np.ndarray): Shape (n_warehouses, n_skus).
         """
-        return self.lead_time_matrix 
+
+        # If max_deviation is an array, sample deviation using SKU-specific maximum deviations
+        if isinstance(self.max_deviation, np.ndarray):
+            
+            deviation = np.column_stack([
+                self._rng.integers(-self.max_deviation[s], self.max_deviation[s] + 1,
+                                   size=self.n_warehouses)
+                for s in range(self.n_skus)
+            ])  # Shape: (n_warehouses, n_skus)
+
+        # If max_deviation is a scalar, sample deviation using a single maximum deviation for all (warehouse, SKU) pairs
+        else:
+            deviation = self._rng.integers(
+                -self.max_deviation, self.max_deviation + 1,
+                size=(self.n_warehouses, self.n_skus),
+            )  # Shape: (n_warehouses, n_skus)
+
+        # Clip lead times to a minimum of 1
+        actual_lead_times = np.maximum(1, self.expected_lead_times + deviation)
+
+        return actual_lead_times
+    
+    def get_expected(self) -> np.ndarray:
+        """
+        Returns expected (config-specified) lead times for all (warehouse, SKU) pairs.
+        
+        Returns:
+            expected_lead_times (np.ndarray): Shape (n_warehouses, n_skus).
+        """
+
+        # Get expected lead times
+        expected_lead_times = self.expected_lead_times.copy()
+
+        return expected_lead_times
+    
+    def get_max_expected(self) -> int:
+        """
+        Returns the maximum expected lead time across all (warehouse, SKU) pairs.
+
+        Returns:
+            max_expected (int): Maximum expected lead time.
+        """
+
+        # Get maximum expected lead time
+        max_expected = int(self.expected_lead_times.max())
+        
+        return max_expected
