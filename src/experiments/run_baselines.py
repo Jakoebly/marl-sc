@@ -226,9 +226,7 @@ def make_heuristic_action_fn(env_config: EnvironmentConfig, z: float):
     def action_fn(env, obs):
         # Extract inventory and pipeline for each warehouse
         inventory = env.inventory
-        pipeline = np.zeros((n_warehouses, n_skus), dtype=float)
-        for arr in env.pending_orders.values():
-            pipeline += arr
+        pipeline = env._compute_pending_matrix().astype(float)
 
         # Compute actions for each warehouse based on base-stock levels
         actions = {}
