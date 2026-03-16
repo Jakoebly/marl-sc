@@ -452,11 +452,11 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
         ("Demand Forecast",        n_skus,          True),
     ]
 
-    # local obs = [warehouse_onehot? | features | timestep_frac]
+    # local obs = [warehouse_onehot? | features]
     # features = (7 + L) * n_skus + 6
     base_local = (7 + max_lt) * n_skus + 6
     local_dim_full = obs_dim // (1 + n_warehouses)
-    warehouse_id_offset = local_dim_full - base_local - 1  # -1 for timestep
+    warehouse_id_offset = local_dim_full - base_local
 
     sku_colors = plt.cm.tab10.colors
     n_subplots = len(feature_groups)

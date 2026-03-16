@@ -21,9 +21,8 @@ def compute_obs_statistics(
       (mean, std).
 
     The returned arrays have shape ``(feature_dim,)`` where
-    ``feature_dim = (7 + max_expected_lead_time) * n_skus + 6`` (excludes
-    the timestep fraction and warehouse ID which are appended/prepended
-    outside of normalization). Features with near-zero std are set to 1.0.
+    ``feature_dim = (7 + max_expected_lead_time) * n_skus + 6``.
+    Features with near-zero std are set to 1.0.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
