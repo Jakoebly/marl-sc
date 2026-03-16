@@ -338,7 +338,7 @@ class InventoryEnvironment(ParallelEnv):
     def observation_space(self, agent: str) -> Box:
         """
         Returns the observation space for a warehouse consisting of 8 feature groups per 
-        warehouse w (S = n_skus, L = max_expected_lead_time) plus a timestep fraction scalar:
+        warehouse w (S = n_skus, L = max_expected_lead_time):
 
             - inventory              (S per-SKU + 1 aggregate            = S+1)
             - pipeline               (L*S per-slot-per-SKU + 1 aggregate = L*S+1)
@@ -348,7 +348,6 @@ class InventoryEnvironment(ParallelEnv):
             - stockout               (S per-SKU                          = S)
             - rolling demand mean    (S per-SKU + 1 aggregate            = S+1)
             - demand forecast        (S per-SKU + 1 aggregate            = S+1)
-            - timestep fraction      (1 scalar = t / T)
 
         The observation is a flat vector that concatenates the local observation (this warehouse's
         features) followed by the global observation (all warehouses' features concatenated).
@@ -360,12 +359,12 @@ class InventoryEnvironment(ParallelEnv):
         Returns:
             observation_space (Box): Flat observation space for a warehouse.
                 Shape: (local_obs_dim + global_obs_dim,) where
-                local_obs_dim = (7 + max_expected_lead_time) * n_skus + 7
+                local_obs_dim = (7 + max_expected_lead_time) * n_skus + 6
                 and global_obs_dim = n_warehouses * local_obs_dim.
         """
 
         # Compute dimensions of local and global observation spaces
-        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 7
+        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 6
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses  
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -383,11 +382,11 @@ class InventoryEnvironment(ParallelEnv):
         
         Returns:
             global_observation_space (Box): Box space for global observation space. 
-                Shape: (n_warehouses * (8 * n_skus + 7),).
+                Shape: (n_warehouses * (8 * n_skus + 6),).
         """
 
         # Compute dimension of global observation space
-        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 7
+        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 6
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses 
         global_obs_dim = self.n_warehouses * local_obs_dim
@@ -492,7 +491,6 @@ class InventoryEnvironment(ParallelEnv):
             6. Stockout:            S per-SKU                           (S)
             7. Rolling demand mean: S per-SKU + 1 aggregate             (S+1)
             8. Demand forecast:     S per-SKU + 1 aggregate             (S+1)
-            9. Timestep fraction:   1 scalar (t / T)
         
         Returns:
             observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to flat 
@@ -596,10 +594,6 @@ class InventoryEnvironment(ParallelEnv):
             warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
             warehouse_id_onehot[warehouse_idx] = 1.0
             local = np.concatenate([warehouse_id_onehot, local])
-
-        # Append timestep fraction 
-        timestep_frac = np.float32(self.timestep / self.episode_length)
-        local = np.concatenate([local, [timestep_frac]])
 
         return local
 
@@ -770,10 +764,7 @@ class InventoryEnvironment(ParallelEnv):
         expected_arrivals = self.timestep + expected_lead_times.astype(int) # Shape: (n_warehouses, n_skus)
 
         # Create a mask for orders that contain quantities
-        quantity_mask = actions_matrix > 0
-
-        # Create valid mask for orders that contain quantities and will arrive before the episode ends
-        valid_mask = quantity_mask & (actual_arrivals < self.episode_length)
+        valid_mask = actions_matrix > 0
 
         # If no valid orders, return empty array
         if not np.any(valid_mask):
@@ -792,8 +783,8 @@ class InventoryEnvironment(ParallelEnv):
                         )
                     )
 
-        # Get the actual ordered quantities (including the ones that arrive after the episode ends)
-        ordered_skus = np.where(quantity_mask, actions_matrix, 0.0)
+        # Get the actual ordered quantities (valid orders only)
+        ordered_skus = np.where(valid_mask, actions_matrix, 0.0)
         
         return ordered_skus
 
