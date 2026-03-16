@@ -793,7 +793,7 @@ class InventoryEnvironment(ParallelEnv):
                     )
 
         # Get the actual ordered quantities (including the ones that arrive after the episode ends)
-        ordered_skus = np.where(valid_mask, actions_matrix, 0.0)
+        ordered_skus = np.where(quantity_mask, actions_matrix, 0.0)
         
         return ordered_skus
 
