@@ -20,10 +20,10 @@ algorithm:
     gamma: 0.99
     use_kl_loss: false
     grad_clip: null
-    entropy_coeff: 0.0
-    vf_loss_coeff: 0.5
+    entropy_coeff: 0.01
+    vf_loss_coeff: 1.0
     clip_param: 0.2
-    vf_clip_param: 1000
+    vf_clip_param: 300
     obs_normalization: "meanstd_grouped"
     parameter_sharing: true
     networks:
@@ -39,13 +39,13 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [128]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [128]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
 
