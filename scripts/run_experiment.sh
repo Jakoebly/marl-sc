@@ -26,12 +26,6 @@ source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environme
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 
-# Pin threading to 1 thread per library for numerical reproducibility
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
-
 ##############################
 # Start Ray explicitly (with port allocation)
 ##############################
