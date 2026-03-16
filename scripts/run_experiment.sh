@@ -142,7 +142,7 @@ ray start --head \
 
 # Set output directory and experiment name
 OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_EntrCoef0"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_VfClip1000"
 
 python src/experiments/run_experiment.py \
     --mode single \
