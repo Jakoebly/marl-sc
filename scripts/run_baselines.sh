@@ -30,11 +30,11 @@ export PYTHONUNBUFFERED=1
 # Run baselines (no Ray needed)
 ##############################
 
-EXPERIMENT_NAME="BASELINES_Single_3WH_2SKUS_InitInv30"
+EXPERIMENT_NAME="BASELINES_Single_3WH_2SKUS_InboundCharge"
 
 python src/experiments/run_baselines.py \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
-    --output-dir ./experiment_outputs/WorkingConfig_Phase1.2 \
+    --output-dir ./experiment_outputs/WorkingConfig_Phase1.6 \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 5 \
     --root-seed 42
