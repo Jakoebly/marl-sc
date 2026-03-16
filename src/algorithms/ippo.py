@@ -1,4 +1,8 @@
+import random
 from typing import Dict, Any, Optional
+
+import numpy as np
+import torch
 from ray.rllib.algorithms.ppo import PPO, PPOConfig
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
@@ -186,6 +190,13 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             )
         )
         
+        # Seed global RNGs right before build so that weight initialisation
+        # (and any other framework randomness) is fully deterministic.
+        if self.train_seed is not None:
+            random.seed(self.train_seed)
+            np.random.seed(self.train_seed)
+            torch.manual_seed(self.train_seed)
+
         # Build trainer and set training parameters
         self.trainer = ppo_config.build_algo()
         self.num_iterations = shared_params.num_iterations
