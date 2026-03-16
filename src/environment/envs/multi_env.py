@@ -598,8 +598,8 @@ class InventoryEnvironment(ParallelEnv):
             local = np.concatenate([warehouse_id_onehot, local])
 
         # Append timestep fraction 
-        # timestep_frac = np.float32(self.timestep / self.episode_length)
-        # local = np.concatenate([local, [timestep_frac]])
+        timestep_frac = np.float32(self.timestep / self.episode_length)
+        local = np.concatenate([local, [timestep_frac]])
 
         return local
 
