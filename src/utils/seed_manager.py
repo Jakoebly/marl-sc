@@ -135,6 +135,29 @@ class SeedManager:
         # Respawn seeds
         self._spawn_seeds()
 
+    @staticmethod
+    def derive_env_seed(base_seed: int, worker_index: int, env_index: int) -> int:
+        """
+        Derives a unique, deterministic seed for a specific parallel environment
+        instance from a shared base seed and the worker/environment indices.
+
+        Args:
+            base_seed (int): Base seed shared by all environments (e.g., train_seed).
+            worker_index (int): EnvRunner worker index (0 for local, 1+ for remote).
+            env_index (int): Environment index within the worker.
+
+        Returns:
+            seed (int): Unique deterministic seed for this (worker, env) pair.
+        """
+
+        # Derive a unique, deterministic seed for a specific parallel environment
+        env_seed = int(
+            SeedSequence([base_seed, worker_index, env_index])
+            .generate_state(1, dtype=np.uint32)[0]
+        )
+        
+        return env_seed
+
     def _get_seed_sequence(self, name: str) -> Optional[SeedSequence]:
         """
         Retrieves the seed sequence for a given name.

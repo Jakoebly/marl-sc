@@ -364,7 +364,12 @@ class BaseAlgorithmWrapper(ABC):
         """
         from src.environment.envs.multi_env import InventoryEnvironment
         from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
+        from src.utils.seed_manager import SeedManager
         from typing import Dict, Any
+
+        # Per-worker counter used in place of vector_index, which is
+        # broken in RLlib >=2.46 (ray-project/ray#53419: always 0).
+        _env_counter = [0]
         
         def env_factory(env_meta: Dict[str, Any] = None):
             """
@@ -376,10 +381,18 @@ class BaseAlgorithmWrapper(ABC):
                     (e.g., {"seed": <train_seed or eval_seed>, "data_mode": "train"})
             """
             
-            # Extract seed from RLlib's config (train_seed or eval_seed depending on runner type)
+            # Extract base seed from RLlib's config (train_seed or eval_seed)
             seed = None
             if env_meta:
                 seed = env_meta.get("seed")
+
+            # Derive a unique per-environment seed so that parallel envs
+            # across workers produce diverse (but deterministic) episodes.
+            if seed is not None:
+                worker_index = env_meta.get("worker_index", 0)
+                env_index = _env_counter[0]
+                _env_counter[0] += 1
+                seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
             
             # Create a new InventoryEnvironment instance
             env = InventoryEnvironment(
