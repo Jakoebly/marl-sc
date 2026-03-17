@@ -181,6 +181,8 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         self.has_shared_layers = network_configs.get("shared_layers") is not None
         self.use_centralized_critic = self.model_config.get("use_centralized_critic", False)
         self.use_mu_sigma_head = network_configs.get("use_mu_sigma_head", False)
+        self.logstd_init = self.model_config.get("logstd_init", -1.0)
+        self.logstd_floor = self.model_config.get("logstd_floor", -2.0)
         
         # Build shared layers if specified
         if self.has_shared_layers:
@@ -251,7 +253,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
             # Add a free (state-independent) log_std parameter for continuous action spaces
             if isinstance(self.action_space, Box):
-                self.log_std = nn.Parameter(torch.full((actor_output_dim,), -1.0))
+                self.log_std = nn.Parameter(torch.full((actor_output_dim,), self.logstd_init))
 
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
@@ -460,7 +462,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             Concatenated [means, log_std] with the last dim doubled.
         """
         log_std = self.log_std
-        log_std = torch.clamp(log_std, min=-2.0)
+        log_std = torch.clamp(log_std, min=self.logstd_floor)
         while log_std.dim() < actor_out.dim():
             log_std = log_std.unsqueeze(0)
         log_std = log_std.expand_as(actor_out)
