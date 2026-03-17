@@ -77,6 +77,8 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             "use_centralized_critic": True,
             "local_obs_dim": self.local_obs_dim,
             "global_obs_dim": self.global_obs_dim,
+            "logstd_init": mappo_params.logstd_init,
+            "logstd_floor": mappo_params.logstd_floor,
         }
         if self.max_seq_len is not None:
             model_config["max_seq_len"] = self.max_seq_len

@@ -1014,6 +1014,8 @@ class PPOConfig(BaseModel):
     vf_loss_coeff: Optional[NonNegativeFloat] = 0.5
     clip_param: Optional[PositiveFloat] = 0.2
     vf_clip_param: Optional[NonNegativeFloat] = 10
+    logstd_init: Optional[float] = -1.0
+    logstd_floor: Optional[float] = -2.0
     model_config = ConfigDict(extra="forbid")
     
     @model_validator(mode="after")
