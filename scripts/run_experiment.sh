@@ -25,6 +25,7 @@ source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environme
 
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
+export PYTHONHASHSEED=0
 
 ##############################
 # Start Ray explicitly (with port allocation)
@@ -142,7 +143,7 @@ ray start --head \
 
 # Set output directory and experiment name
 OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NN128_#2"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NN128"
 
 python src/experiments/run_experiment.py \
     --mode single \

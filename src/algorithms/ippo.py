@@ -198,6 +198,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             random.seed(self.train_seed)
             np.random.seed(self.train_seed)
             torch.manual_seed(self.train_seed)
+            torch.use_deterministic_algorithms(True)
 
         # Build trainer and set training parameters
         self.trainer = ppo_config.build_algo()
