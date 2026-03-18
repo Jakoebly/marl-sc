@@ -27,7 +27,7 @@ algorithm:
     logstd_init: -1.0
     logstd_floor: -2.0
     obs_normalization: "meanstd_grouped"
-    parameter_sharing: false
+    parameter_sharing: true
     networks:
       shared_layers: null
         #type: "gru"

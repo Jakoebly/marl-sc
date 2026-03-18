@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-8%9                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-2%3                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -90,8 +90,6 @@ RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
     0) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
-    1) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.00; VD_CLIP_PARAM=1000;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
-    2) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.00; VD_CLIP_PARAM=1000;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
