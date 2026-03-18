@@ -85,11 +85,11 @@ export PYTHONHASHSEED=0
 ID=${SLURM_ARRAY_TASK_ID}
 RUN_NUMBER=$((ID + 1))
 
-HIDDEN_SIZES="[128]"
-ENTROPY_COEFF=0.01
+HIDDEN_SIZES="[64]"
+ENTROPY_COEFF=0.0
 VD_CLIP_PARAM=300
 VF_LOSS_COEFF=0.5
-OBS_NORM="meanstd_custom"
+OBS_NORM="meanstd_grouped"
 
 echo "Task $ID -> Run #${RUN_NUMBER} (same config)"
 
