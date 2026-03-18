@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-1%2                          # Array for 6 jobs (indices 0-5) with 1 job at once per node
+#SBATCH --array=0-2%3                          # Array for 9 jobs (indices 0-8) with 3 jobs at once per node
 
 
 ##############################
@@ -72,14 +72,26 @@ export PYTHONHASHSEED=0
 
 #### CASE LOOKUP ####
 
+# ID=${SLURM_ARRAY_TASK_ID}
+
+# case $ID in
+#     0) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
+#     1) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
+# esac
+
+# echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
+
+#### TUNING THE SAME CONFIG ON THE SAME SEED ####
 ID=${SLURM_ARRAY_TASK_ID}
+RUN_NUMBER=$((ID + 1))
 
-case $ID in
-    0) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
-    1) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
-esac
+HIDDEN_SIZES="[64]"
+ENTROPY_COEFF=0.01
+VD_CLIP_PARAM=300
+VF_LOSS_COEFF=0.5
+OBS_NORM="meanstd_grouped"
 
-echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
+echo "Task $ID -> Run #${RUN_NUMBER} (same config)"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -102,8 +114,11 @@ ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
 hidden_sizes = $HIDDEN_SIZES
-parameter_sharing = $PARAMETER_SHARING
+entropy_coeff = $ENTROPY_COEFF
+vd_clip_param = $VD_CLIP_PARAM
+vf_loss_coeff = $VF_LOSS_COEFF
 obs_norm = "$OBS_NORM"
+
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
@@ -116,8 +131,11 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["algorithm_specific"]["parameter_sharing"] = parameter_sharing
+
 algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = obs_norm
+algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = entropy_coeff
+algo_cfg["algorithm"]["algorithm_specific"]["vf_clip_param"] = vd_clip_param
+algo_cfg["algorithm"]["algorithm_specific"]["vf_loss_coeff"] = vf_loss_coeff
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes
 
@@ -250,7 +268,7 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.5"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
 fi
 
 if [ "$HIDDEN_SIZES" = "[64]" ]; then
@@ -265,12 +283,25 @@ if [ "$OBS_NORM" = "meanstd_custom" ]; then
   OBS_NORM_LABEL="MeanStdCustom"
 elif [ "$OBS_NORM" = "ratio" ]; then
   OBS_NORM_LABEL="Ratio"
+elif [ "$OBS_NORM" = "meanstd_grouped" ]; then
+  OBS_NORM_LABEL="MeanStdGrouped"
 else
   OBS_NORM_LABEL="MISSING"
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PS${PARAMETER_SHARING}_NN${HIDDEN_SIZES_LABEL}_OBSNORM${OBS_NORM_LABEL}_LargeBatch"
+# EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue"
 
+# if [ "$HIDDEN_SIZES" = "[128]" ]; then
+#   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
+# elif [ "$ENTROPY_COEFF" = "0.0" ]; then
+#   EXPERIMENT_NAME="${EXPERIMENT_NAME}_EntrCoef0"
+# elif [ "$VD_CLIP_PARAM" = "1000" ]; then
+#   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
+# elif [ "$VF_LOSS_COEFF" = "1.0" ]; then
+#   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
+# fi
+
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NewBase"
 
 python src/experiments/run_experiment.py \
     --mode single \
