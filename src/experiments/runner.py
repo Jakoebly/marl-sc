@@ -206,7 +206,7 @@ class EvaluationRunner:
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
         if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
             self.env.obs_stats = compute_obs_statistics(
-                env_config, mode=obs_norm_mode, n_episodes=100, seed=self.obs_stats_seed,
+                env_config, mode=obs_norm_mode, n_episodes=50, seed=self.obs_stats_seed,
             )
 
         # Initialize algorithm with eval_seed only (no training in evaluation mode)
