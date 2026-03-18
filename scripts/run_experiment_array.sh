@@ -271,10 +271,10 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"  
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NewBase"
 
 if [ "$HIDDEN_SIZES" = "[128]" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
@@ -292,7 +292,7 @@ if [ "$OBS_NORM" = "meanstd_custom" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdCustom"
 fi
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME}_#${RUN_NUMBER}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
