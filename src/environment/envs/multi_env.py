@@ -214,7 +214,12 @@ class InventoryEnvironment(ParallelEnv):
 
         if self._num_eval_episodes is not None:
             print(f"[EVAL ENV] Episode counter: {self.seed_manager._episode_counter}, "
-                  f"root_seed: {self.seed_manager.root_seed}")
+                  f"root_seed: {self.seed_manager.root_seed}, "
+                  f"original_root_seed: {self.seed_manager._original_root_seed}, "
+                  f"seed_arg: {seed}")
+
+        # Track cumulative reward for per-episode debug output
+        self._episode_cumulative_reward = 0.0
 
         # Reset stochastic components with RNGs from SeedManager
         self._reset_stochastic_components()
@@ -314,6 +319,13 @@ class InventoryEnvironment(ParallelEnv):
         self.timestep += 1
         terminations = {agent: False for agent in self.agents}  # No early termination
         truncations = {agent: (self.timestep >= self.episode_length) for agent in self.agents}
+
+        # Accumulate reward and print at episode end
+        self._episode_cumulative_reward += sum(rewards.values())
+        if self.timestep >= self.episode_length:
+            print(f"[EPISODE DONE] total_reward: {self._episode_cumulative_reward:.4f}, "
+                  f"root_seed: {self.seed_manager.root_seed}, "
+                  f"eval: {self._num_eval_episodes is not None}")
         
         # Populate detailed step info for visualization (if enabled)
         if self.collect_step_info:
