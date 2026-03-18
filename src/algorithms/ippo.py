@@ -72,7 +72,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             "networks": networks_params,
             "observation_space": self.obs_space,
             "action_space": self.action_space,
-            "use_centralized_critic": False,
+            "actor_obs_type": ippo_params.actor_obs_type,
+            "critic_obs_type": ippo_params.critic_obs_type,
             "local_obs_dim": self.local_obs_dim,
             "global_obs_dim": self.global_obs_dim,
             "logstd_init": ippo_params.logstd_init,
@@ -129,6 +130,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             "data_mode": "val",
             "obs_normalization": self.obs_normalization,
             "obs_stats": self.obs_stats,
+            "num_eval_episodes": shared_params.num_eval_episodes,
         }
         if self.include_warehouse_id:
             eval_env_config["include_warehouse_id"] = True
@@ -197,6 +199,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     "use_worker_filter_stats": False,
                     "env_config": eval_env_config,
                     "explore": False,
+                    "num_envs_per_env_runner": 1,
                 }
             )
         )

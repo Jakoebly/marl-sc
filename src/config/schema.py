@@ -1037,6 +1037,8 @@ class IPPOSpecificConfig(PPOConfig):
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
     warmstart_weights_path: Optional[str] = None
+    actor_obs_type: Literal["local", "global"] = "local"
+    critic_obs_type: Literal["local", "global"] = "local"
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
 
@@ -1046,6 +1048,16 @@ class IPPOSpecificConfig(PPOConfig):
         if v is not None and (v <= 0.0 or v > 1.0):
             raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
         return v
+
+    @model_validator(mode="after")
+    def _validate_shared_layers_obs_types(self):
+        if self.networks.shared_layers is not None and self.actor_obs_type != self.critic_obs_type:
+            raise ValueError(
+                f"Shared layers require actor_obs_type and critic_obs_type to match, "
+                f"got actor_obs_type='{self.actor_obs_type}' and critic_obs_type='{self.critic_obs_type}'. "
+                f"Set shared_layers to null when using different obs types for actor and critic."
+            )
+        return self
 
 # IPPO algorithm configuration
 class IPPOConfig(BaseModel):
@@ -1072,6 +1084,8 @@ class MAPPOSpecificConfig(PPOConfig):
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
     warmstart_weights_path: Optional[str] = None
+    actor_obs_type: Literal["local", "global"] = "local"
+    critic_obs_type: Literal["local", "global"] = "global"
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
 
@@ -1081,6 +1095,16 @@ class MAPPOSpecificConfig(PPOConfig):
         if v is not None and (v <= 0.0 or v > 1.0):
             raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
         return v
+
+    @model_validator(mode="after")
+    def _validate_shared_layers_obs_types(self):
+        if self.networks.shared_layers is not None and self.actor_obs_type != self.critic_obs_type:
+            raise ValueError(
+                f"Shared layers require actor_obs_type and critic_obs_type to match, "
+                f"got actor_obs_type='{self.actor_obs_type}' and critic_obs_type='{self.critic_obs_type}'. "
+                f"Set shared_layers to null when using different obs types for actor and critic."
+            )
+        return self
 
 # MAPPO algorithm configuration
 class MAPPOConfig(BaseModel):

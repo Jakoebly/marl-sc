@@ -179,26 +179,31 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
 
         # Set flags
         self.has_shared_layers = network_configs.get("shared_layers") is not None
-        self.use_centralized_critic = self.model_config.get("use_centralized_critic", False)
+        self.actor_obs_type = self.model_config.get("actor_obs_type", "local")
+        self.critic_obs_type = self.model_config.get("critic_obs_type", "local")
         self.use_mu_sigma_head = network_configs.get("use_mu_sigma_head", False)
         self.logstd_init = self.model_config.get("logstd_init", -1.0)
         self.logstd_floor = self.model_config.get("logstd_floor", -2.0)
+
+        # Raw input dimensions based on obs type settings
+        actor_raw_dim = self.global_obs_dim if self.actor_obs_type == "global" else self.local_obs_dim
+        critic_raw_dim = self.global_obs_dim if self.critic_obs_type == "global" else self.local_obs_dim
         
-        # Build shared layers if specified
+        # Build shared layers if specified (obs types guaranteed to match here)
         if self.has_shared_layers:
             shared_layers_output_dim = self.shared_layers_config.get("output_dim", 128)
             self.shared_layers = self.build_network(
                 architecture_type=self.shared_layers_type,
-                input_dim=self.local_obs_dim,
+                input_dim=actor_raw_dim,
                 output_dim=shared_layers_output_dim,
                 architecture_config=self.shared_layers_config,
                 name="shared"
             )
             actor_input_dim = shared_layers_output_dim
-            critic_input_dim = self.global_obs_dim if self.use_centralized_critic else shared_layers_output_dim
+            critic_input_dim = shared_layers_output_dim
         else:
-            actor_input_dim = self.local_obs_dim
-            critic_input_dim = self.global_obs_dim if self.use_centralized_critic else self.local_obs_dim
+            actor_input_dim = actor_raw_dim
+            critic_input_dim = critic_raw_dim
         
         # Build actor network
         if self.use_mu_sigma_head and isinstance(self.action_space, Box):
@@ -498,19 +503,24 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
         global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
 
-        # Extract hidden states from batch 
+        # Extract hidden states from batch
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
-        # Forward through shared layers if existing
+        # Select obs based on obs type settings
+        actor_obs = global_obs if self.actor_obs_type == "global" else local_obs # Shape: (B, actor_raw_dim) or (B, seq_len, actor_raw_dim)
+        critic_obs = global_obs if self.critic_obs_type == "global" else local_obs # Shape: (B, critic_raw_dim) or (B, seq_len, critic_raw_dim)
+
+        # Forward through shared layers if existing (obs types guaranteed to match)
         shared_states_out = None
         if self.has_shared_layers:
             shared_hidden = states_in.get("shared_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-            shared_out, shared_states_out = self._forward_shared(local_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-            local_obs = shared_out
+            shared_out, shared_states_out = self._forward_shared(actor_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+            actor_obs = shared_out
+            critic_obs = shared_out
 
         # Forward through actor network
         actor_hidden = states_in.get("actor_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-        actor_out, actor_states_out = self._forward_actor(local_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+        actor_out, actor_states_out = self._forward_actor(actor_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
         # Append free log_std for continuous action spaces
         if hasattr(self, "log_std"):
@@ -520,7 +530,6 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         critic_states_out = None
         if self._is_gru_from_network(self.critic):
             critic_hidden = states_in.get("critic_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-            critic_obs = global_obs if self.use_centralized_critic else local_obs # Shape: (B, obs_dim) or (B, seq_len, obs_dim)
             _, critic_states_out = self._forward_critic(critic_obs, critic_hidden) # Shape: (B, 1) or (B, seq_len, 1), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
         # Create final states_out dictionary
@@ -603,25 +612,29 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # Extract hidden states from batch
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
-        # Forward through shared layers if existing
+        # Select obs based on obs type settings
+        actor_obs = global_obs if self.actor_obs_type == "global" else local_obs # Shape: (B, actor_raw_dim) or (B, seq_len, actor_raw_dim)
+        critic_obs = global_obs if self.critic_obs_type == "global" else local_obs # Shape: (B, critic_raw_dim) or (B, seq_len, critic_raw_dim)
+
+        # Forward through shared layers if existing (obs types guaranteed to match)
         shared_states_out = None
         embeddings = None
         if self.has_shared_layers:
             shared_hidden = states_in.get("shared_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)} 
-            shared_out, shared_states_out = self._forward_shared(local_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-            local_obs = shared_out
-            embeddings = global_obs if self.use_centralized_critic else shared_out
+            shared_out, shared_states_out = self._forward_shared(actor_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+            actor_obs = shared_out
+            critic_obs = shared_out
+            embeddings = shared_out
 
         # Forward through actor network
         actor_hidden = states_in.get("actor_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-        actor_out, actor_states_out = self._forward_actor(local_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+        actor_out, actor_states_out = self._forward_actor(actor_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
         # Append free log_std for continuous action spaces
         if hasattr(self, "log_std"):
             actor_out = self._append_log_std(actor_out)
 
         # Forward through critic network
-        critic_obs = global_obs if self.use_centralized_critic else local_obs
         critic_hidden = states_in.get("critic_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
         critic_out, critic_states_out = self._forward_critic(critic_obs, critic_hidden) # Shape: (B, 1) or (B, seq_len, 1), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
@@ -679,16 +692,14 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # If embeddings are provided, use them directly
         if embeddings is not None:
             critic_obs = embeddings
-        # If centralized critic is used, use global observation
-        elif self.use_centralized_critic:
-            critic_obs = global_obs
-        # If shared layers are present, forward through shared layers to get embeddings
+        # If shared layers are present, recompute shared output (obs types guaranteed to match)
         elif self.has_shared_layers:
+            raw_obs = global_obs if self.actor_obs_type == "global" else local_obs
             shared_hidden = states_in.get("shared_h") # Shape: (B, num_layers*num_directions, hidden_size)
-            critic_obs, _ = self._forward_shared(local_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim)
-        # If no embeddings are provided and no shared layers are present, use local observation
+            critic_obs, _ = self._forward_shared(raw_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim)
+        # Otherwise, use raw observation based on critic obs type
         else:
-            critic_obs = local_obs
+            critic_obs = global_obs if self.critic_obs_type == "global" else local_obs
         
         # Forward through critic network
         critic_hidden = states_in.get("critic_h") # Shape: (B, num_layers*num_directions, hidden_size)

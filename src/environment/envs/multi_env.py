@@ -153,6 +153,12 @@ class InventoryEnvironment(ParallelEnv):
         if env_meta is not None:
             self.include_warehouse_id = env_meta.get("include_warehouse_id", False)
 
+        # Eval episode cycling: when set, the episode counter resets to 0
+        # every N episodes so that each eval round replays the same episodes.
+        self._num_eval_episodes = None
+        if env_meta is not None:
+            self._num_eval_episodes = env_meta.get("num_eval_episodes", None)
+
         # Set agent IDs
         self.agents = [f"warehouse_{i}" for i in range(self.n_warehouses)]
         self.possible_agents = self.agents.copy()
@@ -195,6 +201,9 @@ class InventoryEnvironment(ParallelEnv):
         if seed is not None:
             self.seed_manager.update_root_seed(seed)
         else:
+            if (self._num_eval_episodes is not None
+                    and self.seed_manager._episode_counter >= self._num_eval_episodes):
+                self.seed_manager._episode_counter = 0
             self.seed_manager.advance_episode()
 
         # Reset stochastic components with RNGs from SeedManager
