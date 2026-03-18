@@ -38,6 +38,7 @@ source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environme
 
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
+export RAY_DEDUP_LOGS=0
 
 # How many CPUs Slurm actually gave you
 CPUS=${SLURM_CPUS_PER_TASK:-1}

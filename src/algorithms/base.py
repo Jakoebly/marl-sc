@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
 import numpy as np
 import torch
 import yaml
+import os
 
 if TYPE_CHECKING:
     from src.environment.envs.multi_env import InventoryEnvironment
@@ -367,8 +368,7 @@ class BaseAlgorithmWrapper(ABC):
         from src.utils.seed_manager import SeedManager
         from typing import Dict, Any
 
-        # Per-worker counter used in place of vector_index, which is
-        # broken in RLlib >=2.46 (ray-project/ray#53419: always 0).
+        # Per-worker counter used in place of vector_index
         _env_counter = [0]
         
         def env_factory(env_meta: Dict[str, Any] = None):
