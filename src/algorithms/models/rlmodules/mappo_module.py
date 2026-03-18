@@ -1,20 +1,16 @@
-from src.algorithms.models.rlmodules.base import BaseActorCriticRLModule
+from src.algorithms.models.rlmodules.base import ActorCriticRLModule
 
 
-class MAPPORLModule(BaseActorCriticRLModule):
+class MAPPORLModule(ActorCriticRLModule):
     """
     MAPPO (Multi-Agent PPO) RLModule implementing CTDE.
     
-    - Actor: Always uses LOCAL observations (decentralized execution)
-    - Critic: Uses GLOBAL state during TRAINING (centralized training)
-    - Critic: Uses LOCAL observations during INFERENCE (decentralized execution)
+    - Actor: Uses observations determined by actor_obs_type (default: local)
+    - Critic: Uses observations determined by critic_obs_type (default: global)
     
-    The base class handles CTDE automatically when use_centralized_critic=True
-    is set in model_config. During inference, the base class will use local
-    observations for the critic (since global state is not available).
+    The base class handles obs routing automatically via actor_obs_type and
+    critic_obs_type in model_config.
     """
     
-    # No need to override anything - base class handles CTDE automatically!
-    # The setup() method builds critic with global_state_dim when use_centralized_critic=True
-    # The _forward_train() method extracts global state from batch["infos"] for critic
-    # The _forward_inference() method uses local obs for critic (decentralized execution)
+    # No need to override anything - base class handles obs routing automatically
+    # via the actor_obs_type / critic_obs_type flags in model_config.
