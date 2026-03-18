@@ -197,13 +197,19 @@ class InventoryEnvironment(ParallelEnv):
                 - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
         """
 
-        # Update root seed if provided, otherwise advance to next episode seeds
-        if seed is not None:
+        # Update root seed if provided, otherwise advance to next episode seeds.
+        # Eval envs (num_eval_episodes set) ignore explicit seeds from RLlib's
+        # init calls so that original_root_seed is never overwritten; the counter
+        # is reset to 0 on explicit-seed calls and at cycle boundaries.
+        if self._num_eval_episodes is not None:
+            if seed is not None:
+                self.seed_manager._episode_counter = 0
+            elif self.seed_manager._episode_counter >= self._num_eval_episodes:
+                self.seed_manager._episode_counter = 0
+            self.seed_manager.advance_episode()
+        elif seed is not None:
             self.seed_manager.update_root_seed(seed)
         else:
-            if (self._num_eval_episodes is not None
-                    and self.seed_manager._episode_counter >= self._num_eval_episodes):
-                self.seed_manager._episode_counter = 0
             self.seed_manager.advance_episode()
 
         if self._num_eval_episodes is not None:
