@@ -55,7 +55,7 @@ class ExperimentRunner:
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
         if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
             self.env.obs_stats = compute_obs_statistics(
-                env_config, mode=obs_norm_mode, n_episodes=50, seed=self.obs_stats_seed,
+                env_config, mode=obs_norm_mode, n_episodes=100, seed=self.obs_stats_seed,
             )
         
         # Initialize algorithm with separate train and eval seeds
@@ -134,6 +134,13 @@ class ExperimentRunner:
                 env_config=self.env_config,
                 algorithm_config=self.algorithm_config,
             )
+
+            # Export RLModule weights as a standalone .pt file for curriculum warm-starts
+            from src.utils.weight_transfer import export_module_weights
+            ps = self.algorithm_config.algorithm_specific.parameter_sharing
+            policy_id = "shared_policy" if ps else f"policy_{self.env.agents[0]}"
+            weights_file = str(self.checkpoint_dir / "module_weights.pt")
+            export_module_weights(self.algorithm.trainer, policy_id, weights_file)
         
         # Report final metrics and the final checkpoint back to Ray Tune
         if tune_callback:
@@ -199,7 +206,7 @@ class EvaluationRunner:
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
         if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
             self.env.obs_stats = compute_obs_statistics(
-                env_config, mode=obs_norm_mode, n_episodes=10, seed=self.obs_stats_seed,
+                env_config, mode=obs_norm_mode, n_episodes=50, seed=self.obs_stats_seed,
             )
 
         # Initialize algorithm with eval_seed only (no training in evaluation mode)

@@ -113,14 +113,6 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         # Read precomputed observation statistics from the template environment
         self.obs_stats = self.env.obs_stats
 
-        # Build environment runners config for RLlib
-        env_runners_kwargs = {
-            "num_env_runners": self.num_env_runners,
-            "num_envs_per_env_runner": self.num_envs_per_env_runner,
-        }
-        if self.obs_normalization == "meanstd":
-            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
-        
         # Build train env_config for RLlib
         train_env_config = {
             "seed": self.train_seed,
@@ -141,6 +133,38 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         if self.include_warehouse_id:
             eval_env_config["include_warehouse_id"] = True
 
+        # Build training config for RLlib
+        training_kwargs = dict(
+            use_kl_loss=ippo_params.use_kl_loss,
+            grad_clip=ippo_params.grad_clip,
+            lr=shared_params.learning_rate,
+            train_batch_size_per_learner=shared_params.batch_size,
+            num_epochs=shared_params.num_epochs,
+            minibatch_size=shared_params.batch_size // shared_params.num_minibatches,
+            shuffle_batch_per_epoch=True,
+            vf_loss_coeff=ippo_params.vf_loss_coeff,
+            vf_clip_param=ippo_params.vf_clip_param,
+            entropy_coeff=ippo_params.entropy_coeff,
+            clip_param=ippo_params.clip_param,
+            use_gae=ippo_params.use_gae,
+            lambda_=ippo_params.lam,
+            gamma=ippo_params.gamma,
+        )
+        if ippo_params.hysteretic_beta is not None:
+            from src.algorithms.learners.hysteretic_learner import HystereticPPOTorchLearner
+            training_kwargs["learner_class"] = HystereticPPOTorchLearner
+            training_kwargs["learner_config_dict"] = {
+                "hysteretic_beta": ippo_params.hysteretic_beta,
+            }
+
+        # Build environment runners config for RLlib
+        env_runners_kwargs = {
+            "num_env_runners": self.num_env_runners,
+            "num_envs_per_env_runner": self.num_envs_per_env_runner,
+        }
+        if self.obs_normalization == "meanstd":
+            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
+
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
             PPOConfig()
@@ -160,22 +184,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
                     rl_module_specs=module_specs
                 )
             )
-            .training(
-                use_kl_loss=ippo_params.use_kl_loss,
-                grad_clip=ippo_params.grad_clip,
-                lr=shared_params.learning_rate,
-                train_batch_size_per_learner=shared_params.batch_size,
-                num_epochs=shared_params.num_epochs,
-                minibatch_size=shared_params.batch_size // shared_params.num_minibatches, 
-                shuffle_batch_per_epoch=True,
-                vf_loss_coeff=ippo_params.vf_loss_coeff,
-                vf_clip_param=ippo_params.vf_clip_param,
-                entropy_coeff=ippo_params.entropy_coeff,
-                clip_param=ippo_params.clip_param,
-                use_gae=ippo_params.use_gae,
-                lambda_=ippo_params.lam,
-                gamma=ippo_params.gamma
-            )
+            .training(**training_kwargs)
             .env_runners(**env_runners_kwargs)
             .evaluation(
                 evaluation_interval=shared_params.eval_interval,
@@ -193,7 +202,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         )
         
         # Seed global RNGs right before build so that weight initialisation
-        # (and any other framework randomness) is fully deterministic.
+        # (and any other framework randomness) is fully deterministic
         if self.train_seed is not None:
             random.seed(self.train_seed)
             np.random.seed(self.train_seed)
@@ -204,5 +213,19 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.trainer = ppo_config.build_algo()
         self.num_iterations = shared_params.num_iterations
         self.checkpoint_freq = shared_params.checkpoint_freq
+
+        # Load warm-start weights from a previous training run if curriculum learning is enabled
+        if ippo_params.warmstart_weights_path is not None:
+            from src.utils.weight_transfer import load_module_weights
+
+            # Get policy ID for the warm-start weights
+            policy_id = "shared_policy" if self.parameter_sharing else list(module_specs.keys())[0]
+
+            # Load warm-start weights
+            load_module_weights(self.trainer, policy_id, ippo_params.warmstart_weights_path)
+
+            # Sync learner weights to the env runner
+            weights = self.trainer.learner_group.get_weights()
+            self.trainer.env_runner.set_weights(weights)
 
 
