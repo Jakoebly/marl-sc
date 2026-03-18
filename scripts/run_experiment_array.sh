@@ -89,7 +89,7 @@ HIDDEN_SIZES="[128]"
 ENTROPY_COEFF=0.01
 VD_CLIP_PARAM=300
 VF_LOSS_COEFF=0.5
-OBS_NORM="meanstd_grouped"
+OBS_NORM="meanstd_custom"
 
 echo "Task $ID -> Run #${RUN_NUMBER} (same config)"
 
@@ -299,6 +299,8 @@ elif [ "$VD_CLIP_PARAM" = "1000" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
 elif [ "$VF_LOSS_COEFF" = "1.0" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
+elif [ "$OBS_NORM" = "meanstd_grouped" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdGrouped"
 fi
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
