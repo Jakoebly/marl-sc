@@ -82,7 +82,7 @@ export PYTHONHASHSEED=0
 # echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
 
 #### CONFIG x RUNS GRID ####
-N_RUNS=1
+N_RUNS=2
 
 ID=${SLURM_ARRAY_TASK_ID}
 CONFIG_IDX=$(( ID / N_RUNS ))
@@ -275,6 +275,7 @@ else
 fi
 
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NewBase"
+
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME}_#${RUN_NUMBER}"
 
