@@ -391,7 +391,7 @@ class BaseAlgorithmWrapper(ABC):
             if seed is not None:
                 data_mode = env_meta.get("data_mode", "train") if env_meta else "train"
                 if data_mode == "train":
-                    worker_index = env_meta.get("worker_index", 0)
+                    worker_index = os.getpid()
                     print(f"[DEBUG] Worker index: {worker_index}")
                     env_index = _env_counter[0]
                     print(f"[DEBUG] Env index: {env_index}")
