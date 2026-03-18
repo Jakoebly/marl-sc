@@ -89,7 +89,7 @@ HIDDEN_SIZES="[128]"
 ENTROPY_COEFF=0.01
 VD_CLIP_PARAM=300
 VF_LOSS_COEFF=0.5
-OBS_NORM="meanstd_custom"
+OBS_NORM="meanstd_grouped"
 
 echo "Task $ID -> Run #${RUN_NUMBER} (same config)"
 
