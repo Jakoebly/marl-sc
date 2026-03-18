@@ -389,13 +389,15 @@ class BaseAlgorithmWrapper(ABC):
             # Derive a unique per-environment seed so that parallel envs
             # across workers produce diverse (but deterministic) episodes.
             if seed is not None:
-                worker_index = env_meta.get("worker_index", 0)
-                print(f"[DEBUG] Worker index: {worker_index}")
-                env_index = _env_counter[0]
-                print(f"[DEBUG] Env index: {env_index}")
-                _env_counter[0] += 1
-                seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
-                print(f"[DEBUG] Derived seed: {seed}")
+                data_mode = env_meta.get("data_mode", "train") if env_meta else "train"
+                if data_mode == "train":
+                    worker_index = env_meta.get("worker_index", 0)
+                    print(f"[DEBUG] Worker index: {worker_index}")
+                    env_index = _env_counter[0]
+                    print(f"[DEBUG] Env index: {env_index}")
+                    _env_counter[0] += 1
+                    seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
+                    print(f"[DEBUG] Derived seed: {seed}")
             
             # Create a new InventoryEnvironment instance
             env = InventoryEnvironment(
