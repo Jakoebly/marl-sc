@@ -143,7 +143,7 @@ ray start --head \
 
 # Set output directory and experiment name
 OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SingleAgent_NewBase_OldSettings"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_SingleAgent_NewBase_OldSettings_Ratio"
 
 python src/experiments/run_experiment.py \
     --mode single \
