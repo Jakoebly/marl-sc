@@ -26,6 +26,7 @@ source ~/projects/marl-sc/.venv/bin/activate     # Activae the virtual environme
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 
+
 ##############################
 # Run baselines (no Ray needed)
 ##############################
