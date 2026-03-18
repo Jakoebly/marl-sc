@@ -293,14 +293,21 @@ EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue"
 
 if [ "$HIDDEN_SIZES" = "[128]" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
-elif [ "$ENTROPY_COEFF" = "0.0" ]; then
+fi	
+if [ "$ENTROPY_COEFF" = "0.0" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_EntrCoef0"
-elif [ "$VD_CLIP_PARAM" = "1000" ]; then
+fi
+if [ "$VD_CLIP_PARAM" = "1000" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
-elif [ "$VF_LOSS_COEFF" = "1.0" ]; then
+fi
+if [ "$VF_LOSS_COEFF" = "1.0" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
-elif [ "$OBS_NORM" = "meanstd_custom" ]; then
+fi
+if [ "$OBS_NORM" = "meanstd_custom" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdCustom"
+fi
+if [ "$OBS_NORM" = "meanstd_grouped" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdGrouped"
 fi
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
