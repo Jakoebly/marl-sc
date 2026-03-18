@@ -206,6 +206,10 @@ class InventoryEnvironment(ParallelEnv):
                 self.seed_manager._episode_counter = 0
             self.seed_manager.advance_episode()
 
+        if self._num_eval_episodes is not None:
+            print(f"[EVAL ENV] Episode counter: {self.seed_manager._episode_counter}, "
+                  f"root_seed: {self.seed_manager.root_seed}")
+
         # Reset stochastic components with RNGs from SeedManager
         self._reset_stochastic_components()
 

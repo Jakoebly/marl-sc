@@ -269,6 +269,14 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             name="critic"
         )
 
+        print(
+            f"[ActorCriticRLModule] "
+            f"actor_obs_type={self.actor_obs_type}, critic_obs_type={self.critic_obs_type}, "
+            f"actor_input_dim={actor_input_dim}, critic_input_dim={critic_input_dim}, "
+            f"local_obs_dim={self.local_obs_dim}, global_obs_dim={self.global_obs_dim}, "
+            f"has_shared_layers={self.has_shared_layers}"
+        )
+
     def _get_obs_dim(self, space: Space, key: Optional[str] = None) -> int:
         """
         Gets dimensions of a given observation space.

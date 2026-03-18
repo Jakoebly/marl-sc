@@ -398,6 +398,8 @@ class BaseAlgorithmWrapper(ABC):
                     _env_counter[0] += 1
                     seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
                     print(f"[DEBUG] Derived seed: {seed}")
+                else:
+                    print(f"[EVAL ENV FACTORY] Created eval env with raw seed: {seed}")
             
             # Create a new InventoryEnvironment instance
             env = InventoryEnvironment(
