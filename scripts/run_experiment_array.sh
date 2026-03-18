@@ -299,8 +299,8 @@ elif [ "$VD_CLIP_PARAM" = "1000" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
 elif [ "$VF_LOSS_COEFF" = "1.0" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
-elif [ "$OBS_NORM" = "meanstd_grouped" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdGrouped"
+elif [ "$OBS_NORM" = "meanstd_custom" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdCustom"
 fi
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
