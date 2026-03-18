@@ -115,14 +115,6 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         # Read precomputed observation statistics from the template environment
         self.obs_stats = self.env.obs_stats
 
-        # Build environment runners config for RLlib
-        env_runners_kwargs = {
-            "num_env_runners": self.num_env_runners,
-            "num_envs_per_env_runner": self.num_envs_per_env_runner,
-        }
-        if self.obs_normalization == "meanstd":
-            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
-
         # Build train env_config for RLlib
         train_env_config = {
             "seed": self.train_seed,
@@ -143,6 +135,38 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         if self.include_warehouse_id:
             eval_env_config["include_warehouse_id"] = True
 
+        # Build training config for RLlib
+        training_kwargs = dict(
+            use_kl_loss=mappo_params.use_kl_loss,
+            grad_clip=mappo_params.grad_clip,
+            lr=shared_params.learning_rate,
+            train_batch_size_per_learner=shared_params.batch_size,
+            num_epochs=shared_params.num_epochs,
+            minibatch_size=shared_params.batch_size // shared_params.num_minibatches,
+            shuffle_batch_per_epoch=True,
+            vf_loss_coeff=mappo_params.vf_loss_coeff,
+            vf_clip_param=mappo_params.vf_clip_param,
+            entropy_coeff=mappo_params.entropy_coeff,
+            clip_param=mappo_params.clip_param,
+            use_gae=mappo_params.use_gae,
+            lambda_=mappo_params.lam,
+            gamma=mappo_params.gamma,
+        )
+        if mappo_params.hysteretic_beta is not None:
+            from src.algorithms.learners.hysteretic_learner import HystereticPPOTorchLearner
+            training_kwargs["learner_class"] = HystereticPPOTorchLearner
+            training_kwargs["learner_config_dict"] = {
+                "hysteretic_beta": mappo_params.hysteretic_beta,
+            }
+
+        # Build environment runners config for RLlib
+        env_runners_kwargs = {
+            "num_env_runners": self.num_env_runners,
+            "num_envs_per_env_runner": self.num_envs_per_env_runner,
+        }
+        if self.obs_normalization == "meanstd":
+            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
+            
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
             PPOConfig()
@@ -162,22 +186,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                     rl_module_specs=module_specs
                 )
             )
-            .training(
-                use_kl_loss=mappo_params.use_kl_loss,
-                grad_clip=mappo_params.grad_clip,
-                lr=shared_params.learning_rate,
-                train_batch_size_per_learner=shared_params.batch_size,
-                num_epochs=shared_params.num_epochs,
-                minibatch_size=shared_params.batch_size // shared_params.num_minibatches, 
-                shuffle_batch_per_epoch=True,
-                vf_loss_coeff=mappo_params.vf_loss_coeff,
-                vf_clip_param=mappo_params.vf_clip_param,
-                entropy_coeff=mappo_params.entropy_coeff,
-                clip_param=mappo_params.clip_param,
-                use_gae=mappo_params.use_gae,
-                lambda_=mappo_params.lam,
-                gamma=mappo_params.gamma
-            )
+            .training(**training_kwargs)
             .env_runners(**env_runners_kwargs)
             .evaluation(
                 evaluation_interval=shared_params.eval_interval,
@@ -189,7 +198,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
                     "normalize_actions": False,
                     "use_worker_filter_stats": False,
                     "env_config": eval_env_config,
-                     "explore": False,
+                    "explore": False,
                 }
             )
         )
@@ -206,6 +215,20 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         self.trainer = ppo_config.build_algo()
         self.num_iterations = shared_params.num_iterations
         self.checkpoint_freq = shared_params.checkpoint_freq
+
+        # Load warm-start weights from a previous training run if curriculum learning is enabled
+        if mappo_params.warmstart_weights_path is not None:
+            from src.utils.weight_transfer import load_module_weights
+
+            # Get policy ID for the warm-start weights
+            policy_id = "shared_policy" if self.parameter_sharing else list(module_specs.keys())[0]
+
+            # Load warm-start weights
+            load_module_weights(self.trainer, policy_id, mappo_params.warmstart_weights_path)
+
+            # Sync learner weights to the env runner
+            weights = self.trainer.learner_group.get_weights()
+            self.trainer.env_runner.set_weights(weights)
     
 
     

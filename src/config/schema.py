@@ -1035,8 +1035,17 @@ class IPPOSpecificConfig(PPOConfig):
 
     obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
+    hysteretic_beta: Optional[float] = None
+    warmstart_weights_path: Optional[str] = None
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("hysteretic_beta", mode="after")
+    @classmethod
+    def _validate_hysteretic_beta(cls, v: Optional[float]):
+        if v is not None and (v <= 0.0 or v > 1.0):
+            raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
+        return v
 
 # IPPO algorithm configuration
 class IPPOConfig(BaseModel):
@@ -1061,8 +1070,17 @@ class MAPPOSpecificConfig(PPOConfig):
 
     obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
+    hysteretic_beta: Optional[float] = None
+    warmstart_weights_path: Optional[str] = None
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("hysteretic_beta", mode="after")
+    @classmethod
+    def _validate_hysteretic_beta(cls, v: Optional[float]):
+        if v is not None and (v <= 0.0 or v > 1.0):
+            raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
+        return v
 
 # MAPPO algorithm configuration
 class MAPPOConfig(BaseModel):
