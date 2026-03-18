@@ -390,6 +390,7 @@ class BaseAlgorithmWrapper(ABC):
             # across workers produce diverse (but deterministic) episodes.
             if seed is not None:
                 data_mode = env_meta.get("data_mode", "train") if env_meta else "train"
+                print(f"[EVAL ENV FACTORY] Data mode: {data_mode}")
                 if data_mode == "train":
                     worker_index = os.getpid()
                     print(f"[DEBUG] Worker index: {worker_index}")
