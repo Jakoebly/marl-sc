@@ -26,8 +26,8 @@ algorithm:
     vf_clip_param: 300
     logstd_init: -1.0
     logstd_floor: -2.0
-    obs_normalization: "meanstd_grouped"
-    parameter_sharing: true
+    obs_normalization: "ratio"
+    parameter_sharing: false
     networks:
       shared_layers: null
         #type: "gru"
