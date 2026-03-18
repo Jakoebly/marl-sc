@@ -390,9 +390,12 @@ class BaseAlgorithmWrapper(ABC):
             # across workers produce diverse (but deterministic) episodes.
             if seed is not None:
                 worker_index = env_meta.get("worker_index", 0)
+                print(f"[DEBUG] Worker index: {worker_index}")
                 env_index = _env_counter[0]
+                print(f"[DEBUG] Env index: {env_index}")
                 _env_counter[0] += 1
                 seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
+                print(f"[DEBUG] Derived seed: {seed}")
             
             # Create a new InventoryEnvironment instance
             env = InventoryEnvironment(
