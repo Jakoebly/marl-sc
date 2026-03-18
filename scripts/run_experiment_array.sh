@@ -301,7 +301,7 @@ fi
 #   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
 # fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NewBase"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_NewBase_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
