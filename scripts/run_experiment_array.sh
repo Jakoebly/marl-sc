@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-2%3                          # Array for 9 jobs (indices 0-8) with 3 jobs at once per node
+#SBATCH --array=0-20%11                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -81,17 +81,26 @@ export PYTHONHASHSEED=0
 
 # echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
 
-#### TUNING THE SAME CONFIG ON THE SAME SEED ####
+#### CONFIG x RUNS GRID ####
+N_RUNS=3
+
 ID=${SLURM_ARRAY_TASK_ID}
-RUN_NUMBER=$((ID + 1))
+CONFIG_IDX=$(( ID / N_RUNS ))
+RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
-HIDDEN_SIZES="[64]"
-ENTROPY_COEFF=0.0
-VD_CLIP_PARAM=300
-VF_LOSS_COEFF=0.5
-OBS_NORM="meanstd_grouped"
+case $CONFIG_IDX in
+    0) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
+    1) HIDDEN_SIZES="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
+    2) HIDDEN_SIZES="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_custom"  ;;
+    3) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.00; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
+    4) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
+    5) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=300;  VF_LOSS_COEFF=1;   OBS_NORM="meanstd_grouped" ;;
+    6) HIDDEN_SIZES="[128]"; ENTROPY_COEFF=0.0;  VD_CLIP_PARAM=1000; VF_LOSS_COEFF=1;   OBS_NORM="meanstd_grouped" ;;
+    *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
+esac
 
-echo "Task $ID -> Run #${RUN_NUMBER} (same config)"
+echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
+echo "  hidden_sizes=$HIDDEN_SIZES, entropy_coeff=$ENTROPY_COEFF, vd_clip_param=$VD_CLIP_PARAM, vf_loss_coeff=$VF_LOSS_COEFF, obs_norm=$OBS_NORM"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -271,46 +280,25 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
 fi
 
-if [ "$HIDDEN_SIZES" = "[64]" ]; then
-  HIDDEN_SIZES_LABEL="64"
-elif [ "$HIDDEN_SIZES" = "[128]" ]; then
-  HIDDEN_SIZES_LABEL="128"
-else
-  HIDDEN_SIZES_LABEL="MISSING"
-fi
-
-if [ "$OBS_NORM" = "meanstd_custom" ]; then
-  OBS_NORM_LABEL="MeanStdCustom"
-elif [ "$OBS_NORM" = "ratio" ]; then
-  OBS_NORM_LABEL="Ratio"
-elif [ "$OBS_NORM" = "meanstd_grouped" ]; then
-  OBS_NORM_LABEL="MeanStdGrouped"
-else
-  OBS_NORM_LABEL="MISSING"
-fi
-
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue"
 
 if [ "$HIDDEN_SIZES" = "[128]" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
-fi	
-if [ "$ENTROPY_COEFF" = "0.0" ]; then
+fi
+if [ "$ENTROPY_COEFF" = "0.00" ] || [ "$ENTROPY_COEFF" = "0.0" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_EntrCoef0"
 fi
 if [ "$VD_CLIP_PARAM" = "1000" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
 fi
-if [ "$VF_LOSS_COEFF" = "1.0" ]; then
+if [ "$VF_LOSS_COEFF" = "1" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfLossCoef1"
 fi
 if [ "$OBS_NORM" = "meanstd_custom" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdCustom"
 fi
-if [ "$OBS_NORM" = "meanstd_grouped" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_OBSNORMMeanStdGrouped"
-fi
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME}_#${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
