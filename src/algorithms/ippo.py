@@ -58,6 +58,13 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.max_seq_len = self.extract_max_seq_len(networks_params)
         self.num_env_runners = shared_params.num_env_runners
         self.num_envs_per_env_runner = shared_params.num_envs_per_env_runner
+
+        # Store obs normalization mode and parameter sharing flag on the env
+        # BEFORE querying obs space so dimensions account for warehouse ID
+        self.obs_normalization = ippo_params.obs_normalization
+        self.include_warehouse_id = self.parameter_sharing
+        self.env.obs_normalization = self.obs_normalization
+        self.env.include_warehouse_id = self.include_warehouse_id
         
         # Get observation and action spaces
         self.obs_space = env.observation_space(env.agents[0])
@@ -104,12 +111,6 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         
         # Store policy mapping function for future use (e.g., rollout)
         self.policy_mapping_fn = policy_mapping_fn
-        
-        # Store obs normalization mode and parameter sharing flag on the env (needed for manual rollout)
-        self.obs_normalization = ippo_params.obs_normalization
-        self.include_warehouse_id = self.parameter_sharing
-        self.env.obs_normalization = self.obs_normalization
-        self.env.include_warehouse_id = self.include_warehouse_id
 
         # Read precomputed observation statistics from the template environment
         self.obs_stats = self.env.obs_stats

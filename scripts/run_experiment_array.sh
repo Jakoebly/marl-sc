@@ -89,15 +89,20 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
-    1) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global" ;;
-    2) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
-    3) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global" ;;
+    0) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    1) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    2) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    3) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    4) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=False ;;
+    5) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=False ;;
+    6) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=False ;;
+    7) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="global"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=False ;;
+    
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
-echo "  hidden_sizes=$HIDDEN_SIZES, entropy_coeff=$ENTROPY_COEFF, vd_clip_param=$VD_CLIP_PARAM, vf_loss_coeff=$VF_LOSS_COEFF, obs_norm=$OBS_NORM, actor_obs_type=$ACTOR_OBS_TYPE, critic_obs_type=$CRITIC_OBS_TYPE"
+echo "  hidden_sizes=$HIDDEN_SIZES, entropy_coeff=$ENTROPY_COEFF, vd_clip_param=$VD_CLIP_PARAM, vf_loss_coeff=$VF_LOSS_COEFF, obs_norm=$OBS_NORM, actor_obs_type=$ACTOR_OBS_TYPE, critic_obs_type=$CRITIC_OBS_TYPE, parameter_sharing=$PARAMETER_SHARING"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -126,6 +131,7 @@ vf_loss_coeff = $VF_LOSS_COEFF
 obs_norm = "$OBS_NORM"
 actor_obs_type = "$ACTOR_OBS_TYPE"
 critic_obs_type = "$CRITIC_OBS_TYPE"
+parameter_sharing = $PARAMETER_SHARING
 
 
 # --- Environment config ---
@@ -146,6 +152,7 @@ algo_cfg["algorithm"]["algorithm_specific"]["vf_clip_param"] = vd_clip_param
 algo_cfg["algorithm"]["algorithm_specific"]["vf_loss_coeff"] = vf_loss_coeff
 algo_cfg["algorithm"]["algorithm_specific"]["actor_obs_type"] = actor_obs_type
 algo_cfg["algorithm"]["algorithm_specific"]["critic_obs_type"] = critic_obs_type
+algo_cfg["algorithm"]["algorithm_specific"]["parameter_sharing"] = parameter_sharing
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes
 
@@ -281,8 +288,14 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"  
 fi
 
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent"
 
+if [ "$PARAMETER_SHARING" = True ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSTrue"
+fi
+if [ "$PARAMETER_SHARING" = False ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSFalse"
+fi
 if [ "$HIDDEN_SIZES" = "[128]" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
 fi
