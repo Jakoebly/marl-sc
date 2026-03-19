@@ -89,17 +89,17 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="0.0005" ;;
-    1) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="0.0005" ;;
-    2) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="[[0, 0.0005], [4000000, 0]]" ;;
+    0) ENTROPY_COEFF=0.05; NUM_EPOCHS=5; LOGSTD_FLOOR=-2.0 ;;
+    1) ENTROPY_COEFF=0.1; NUM_EPOCHS=5; LOGSTD_FLOOR=-2.0 ;;
+    2) ENTROPY_COEFF=0.01; NUM_EPOCHS=5; LOGSTD_FLOOR=-1.0 ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
-echo "  hidden_sizes_actor=$HIDDEN_SIZES_ACTOR, hidden_sizes_critic=$HIDDEN_SIZES_CRITIC, actor_obs_type=$ACTOR_OBS_TYPE, critic_obs_type=$CRITIC_OBS_TYPE"
+echo "  entropy_coeff=$ENTROPY_COEFF, num_epochs=$NUM_EPOCHS, logstd_floor=$LOGSTD_FLOOR"
 
 ##############################
-# Create temporary config with max quantity and entropy coefficient overrides
+# Create temporary config with entropy / epochs / logstd_floor overrides
 ##############################
 
 # Set environment and algorithm name
@@ -118,11 +118,9 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-hidden_sizes_actor = $HIDDEN_SIZES_ACTOR
-hidden_sizes_critic = $HIDDEN_SIZES_CRITIC
-actor_obs_type = "$ACTOR_OBS_TYPE"
-critic_obs_type = "$CRITIC_OBS_TYPE"
-learning_rate = $LEARNING_RATE
+entropy_coeff = float("$ENTROPY_COEFF")
+num_epochs = int("$NUM_EPOCHS")
+logstd_floor = float("$LOGSTD_FLOOR")
 
 
 # --- Environment config ---
@@ -136,11 +134,9 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["shared"]["learning_rate"] = learning_rate
-algo_cfg["algorithm"]["algorithm_specific"]["actor_obs_type"] = actor_obs_type
-algo_cfg["algorithm"]["algorithm_specific"]["critic_obs_type"] = critic_obs_type
-algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes_actor
-algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes_critic
+algo_cfg["algorithm"]["shared"]["num_epochs"] = num_epochs
+algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = entropy_coeff
+algo_cfg["algorithm"]["algorithm_specific"]["logstd_floor"] = logstd_floor
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -271,34 +267,10 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.9"  
 fi
 
-EXPERIMENT_NAME="MAPPO_NumMB1_NumEpochs15_GradClip10_VFLossCoef1"
-
-if [ "$LEARNING_RATE" = "[[0, 0.0005], [4000000, 0]]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_LRSchedule"
-fi
-
-if [ "$HIDDEN_SIZES_ACTOR" = "[64]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNA64"
-fi
-if [ "$HIDDEN_SIZES_CRITIC" = "[64]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC64"
-fi
-
-if [ "$HIDDEN_SIZES_ACTOR" = "[128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNA128"
-fi
-if [ "$HIDDEN_SIZES_CRITIC" = "[128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC128"
-fi
-
-if [ "$HIDDEN_SIZES_CRITIC" = "[128,128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC128128"
-fi
-
-EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="MAPPO_NumEpochs${NUM_EPOCHS}_Ec${ENTROPY_COEFF}_Lsf${LOGSTD_FLOOR}_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
