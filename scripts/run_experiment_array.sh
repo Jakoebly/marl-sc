@@ -89,10 +89,9 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
-    1) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
-    2) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
-    3) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
+    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="0.0005" ;;
+    1) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="0.0005" ;;
+    2) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; LEARNING_RATE="[[0, 0.0005], [4000000, 0]]" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
@@ -123,6 +122,7 @@ hidden_sizes_actor = $HIDDEN_SIZES_ACTOR
 hidden_sizes_critic = $HIDDEN_SIZES_CRITIC
 actor_obs_type = "$ACTOR_OBS_TYPE"
 critic_obs_type = "$CRITIC_OBS_TYPE"
+learning_rate = $LEARNING_RATE
 
 
 # --- Environment config ---
@@ -136,7 +136,7 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-
+algo_cfg["algorithm"]["shared"]["learning_rate"] = learning_rate
 algo_cfg["algorithm"]["algorithm_specific"]["actor_obs_type"] = actor_obs_type
 algo_cfg["algorithm"]["algorithm_specific"]["critic_obs_type"] = critic_obs_type
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes_actor
@@ -274,13 +274,10 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
 fi
 
-EXPERIMENT_NAME="MAPPO_Single_3WH_2SKUS_Agent_GradClip0.5_LRSchedule"
+EXPERIMENT_NAME="MAPPO_NumMB1_NumEpochs15_GradClip10_VFLossCoef1"
 
-if [ "$PARAMETER_SHARING" = True ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSTrue"
-fi
-if [ "$PARAMETER_SHARING" = False ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSFalse"
+if [ "$LEARNING_RATE" = "[[0, 0.0005], [4000000, 0]]" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_LRSchedule"
 fi
 
 if [ "$HIDDEN_SIZES_ACTOR" = "[64]" ]; then
