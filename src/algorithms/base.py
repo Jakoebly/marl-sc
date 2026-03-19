@@ -390,17 +390,11 @@ class BaseAlgorithmWrapper(ABC):
             # across workers produce diverse (but deterministic) episodes.
             if seed is not None:
                 data_mode = env_meta.get("data_mode", "train") if env_meta else "train"
-                print(f"[EVAL ENV FACTORY] Data mode: {data_mode}")
                 if data_mode == "train":
                     worker_index = os.getpid()
-                    print(f"[DEBUG] Worker index: {worker_index}")
                     env_index = _env_counter[0]
-                    print(f"[DEBUG] Env index: {env_index}")
                     _env_counter[0] += 1
                     seed = SeedManager.derive_env_seed(seed, worker_index, env_index)
-                    print(f"[DEBUG] Derived seed: {seed}")
-                else:
-                    print(f"[EVAL ENV FACTORY] Created eval env with raw seed: {seed}")
             
             # Create a new InventoryEnvironment instance
             env = InventoryEnvironment(

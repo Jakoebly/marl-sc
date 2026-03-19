@@ -173,6 +173,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         ppo_config = (
             PPOConfig()
             .debugging(seed=self.train_seed)
+            .reporting(metrics_num_episodes_for_smoothing=shared_params.num_eval_episodes)
             .environment(
                 env=self.env_name, 
                 clip_actions=True,
