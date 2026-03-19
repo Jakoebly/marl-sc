@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-11%12                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-8%9                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -89,10 +89,9 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[64]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
-    1) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
-    2) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
-    3) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128,128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[64]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="local"; PARAMETER_SHARING=True ;;
+    1) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="local"; PARAMETER_SHARING=True ;;
+    2) HIDDEN_SIZES_ACTOR="[256]"; HIDDEN_SIZES_CRITIC="[256]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="local"; PARAMETER_SHARING=True ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
@@ -284,7 +283,7 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
 fi
 
-EXPERIMENT_NAME="MAPPO_Single_3WH_2SKUS_Agent"
+EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent"
 
 if [ "$PARAMETER_SHARING" = True ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSTrue"
@@ -293,25 +292,23 @@ if [ "$PARAMETER_SHARING" = False ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSFalse"
 fi
 
-if [ "$HIDDEN_SIZES_ACTOR" = "[64]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNA64"
+if [ "$VD_CLIP_PARAM" = 1000 ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_VfClip1000"
 fi
-if [ "$HIDDEN_SIZES_CRITIC" = "[64]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC64"
+
+if [ "$HIDDEN_SIZES_ACTOR" = "[64]" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN64"
 fi
 
 if [ "$HIDDEN_SIZES_ACTOR" = "[128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNA128"
-fi
-if [ "$HIDDEN_SIZES_CRITIC" = "[128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC128"
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN128"
 fi
 
-if [ "$HIDDEN_SIZES_CRITIC" = "[128,128]" ]; then
-  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC128128"
+if [ "$HIDDEN_SIZES_ACTOR" = "[256]" ]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME}_NN256"
 fi
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME}_LR0.001_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
