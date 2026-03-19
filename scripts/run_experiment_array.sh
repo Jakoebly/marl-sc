@@ -280,7 +280,7 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
+  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"  
 fi
 
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent"
