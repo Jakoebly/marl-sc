@@ -185,9 +185,13 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         self.logstd_init = self.model_config.get("logstd_init", -1.0)
         self.logstd_floor = self.model_config.get("logstd_floor", -2.0)
 
-        # Raw input dimensions based on obs type settings
-        actor_raw_dim = self.global_obs_dim if self.actor_obs_type == "global" else self.local_obs_dim
-        critic_raw_dim = self.global_obs_dim if self.critic_obs_type == "global" else self.local_obs_dim
+        # Raw input dimensions based on obs type settings.
+        # "global" means the full flat observation (local + global) so the
+        # network can identify which agent it belongs to (via warehouse ID in
+        # the local prefix) while also seeing all other agents' states.
+        full_obs_dim = self.local_obs_dim + self.global_obs_dim
+        actor_raw_dim = full_obs_dim if self.actor_obs_type == "global" else self.local_obs_dim
+        critic_raw_dim = full_obs_dim if self.critic_obs_type == "global" else self.local_obs_dim
         
         # Build shared layers if specified (obs types guaranteed to match here)
         if self.has_shared_layers:
@@ -497,30 +501,30 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         """
 
         # Extract observation and split flat vector into local and global parts
-        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
-        if obs is None:
+        full_obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
+        if full_obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
-        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
+        local_obs = full_obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
 
         # Extract hidden states from batch
         states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
 
-        # Select obs based on obs type settings
-        actor_obs = global_obs if self.actor_obs_type == "global" else local_obs # Shape: (B, actor_raw_dim) or (B, seq_len, actor_raw_dim)
-        critic_obs = global_obs if self.critic_obs_type == "global" else local_obs # Shape: (B, critic_raw_dim) or (B, seq_len, critic_raw_dim)
+        # Select obs based on obs type: "global" uses the full flat vector
+        # (local + global) so the network retains agent identity.
+        actor_obs = full_obs if self.actor_obs_type == "global" else local_obs
+        critic_obs = full_obs if self.critic_obs_type == "global" else local_obs
 
         # Forward through shared layers if existing (obs types guaranteed to match)
         shared_states_out = None
         if self.has_shared_layers:
-            shared_hidden = states_in.get("shared_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-            shared_out, shared_states_out = self._forward_shared(actor_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+            shared_hidden = states_in.get("shared_h")
+            shared_out, shared_states_out = self._forward_shared(actor_obs, shared_hidden)
             actor_obs = shared_out
             critic_obs = shared_out
 
         # Forward through actor network
-        actor_hidden = states_in.get("actor_h") # Shape: None or {layer_name: (B, num_layers*num_directions, hidden_size)}
-        actor_out, actor_states_out = self._forward_actor(actor_obs, actor_hidden) # Shape: (B, action_dim) or (B, seq_len, action_dim), None or {layer_name: (B, num_layers*num_directions, hidden_size)}
+        actor_hidden = states_in.get("actor_h")
+        actor_out, actor_states_out = self._forward_actor(actor_obs, actor_hidden)
 
         # Append free log_std for continuous action spaces
         if hasattr(self, "log_std"):
@@ -603,18 +607,18 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         """
 
         # Extract observation and split flat vector into local and global parts
-        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
-        if obs is None:
+        full_obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
+        if full_obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
-        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
+        local_obs = full_obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
 
         # Extract hidden states from batch
-        states_in = batch.get(Columns.STATE_IN, {}) # Shape: {} or {layer_name: (B, num_layers*num_directions, hidden_size)}
+        states_in = batch.get(Columns.STATE_IN, {})
 
-        # Select obs based on obs type settings
-        actor_obs = global_obs if self.actor_obs_type == "global" else local_obs # Shape: (B, actor_raw_dim) or (B, seq_len, actor_raw_dim)
-        critic_obs = global_obs if self.critic_obs_type == "global" else local_obs # Shape: (B, critic_raw_dim) or (B, seq_len, critic_raw_dim)
+        # Select obs based on obs type: "global" uses the full flat vector
+        # (local + global) so the network retains agent identity.
+        actor_obs = full_obs if self.actor_obs_type == "global" else local_obs
+        critic_obs = full_obs if self.critic_obs_type == "global" else local_obs
 
         # Forward through shared layers if existing (obs types guaranteed to match)
         shared_states_out = None
@@ -680,26 +684,25 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         """
 
         # Extract observation and split flat vector into local and global parts
-        obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
-        if obs is None:
+        full_obs = batch.get(Columns.OBS) # Shape: (B, local_dim + global_dim) or (B, seq_len, local_dim + global_dim)
+        if full_obs is None:
             raise ValueError("Missing Columns.OBS in batch")
-        local_obs = obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
-        global_obs = obs[..., self.local_obs_dim:] # Shape: (B, global_dim) or (B, seq_len, global_dim)
+        local_obs = full_obs[..., :self.local_obs_dim] # Shape: (B, local_dim) or (B, seq_len, local_dim)
 
         # Extract hidden states from batch
-        states_in = batch.get(Columns.STATE_IN, {}) # Shape: Dict or single of (B, num_layers*num_directions, hidden_size)
+        states_in = batch.get(Columns.STATE_IN, {})
 
         # If embeddings are provided, use them directly
         if embeddings is not None:
             critic_obs = embeddings
         # If shared layers are present, recompute shared output (obs types guaranteed to match)
         elif self.has_shared_layers:
-            raw_obs = global_obs if self.actor_obs_type == "global" else local_obs
+            raw_obs = full_obs if self.actor_obs_type == "global" else local_obs
             shared_hidden = states_in.get("shared_h") # Shape: (B, num_layers*num_directions, hidden_size)
             critic_obs, _ = self._forward_shared(raw_obs, shared_hidden) # Shape: (B, shared_dim) or (B, seq_len, shared_dim)
         # Otherwise, use raw observation based on critic obs type
         else:
-            critic_obs = global_obs if self.critic_obs_type == "global" else local_obs
+            critic_obs = full_obs if self.critic_obs_type == "global" else local_obs
         
         # Forward through critic network
         critic_hidden = states_in.get("critic_h") # Shape: (B, num_layers*num_directions, hidden_size)
