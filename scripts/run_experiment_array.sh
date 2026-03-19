@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-2%3                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-11%12                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -89,12 +89,15 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000; VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global"; PARAMETER_SHARING=True ;;
+    0) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
+    1) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
+    2) HIDDEN_SIZES_ACTOR="[64]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
+    3) HIDDEN_SIZES_ACTOR="[128]"; HIDDEN_SIZES_CRITIC="[128,128]"; ACTOR_OBS_TYPE="local"; CRITIC_OBS_TYPE="global" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
-echo "  hidden_sizes=$HIDDEN_SIZES, entropy_coeff=$ENTROPY_COEFF, vd_clip_param=$VD_CLIP_PARAM, vf_loss_coeff=$VF_LOSS_COEFF, obs_norm=$OBS_NORM, actor_obs_type=$ACTOR_OBS_TYPE, critic_obs_type=$CRITIC_OBS_TYPE, parameter_sharing=$PARAMETER_SHARING"
+echo "  hidden_sizes_actor=$HIDDEN_SIZES_ACTOR, hidden_sizes_critic=$HIDDEN_SIZES_CRITIC, actor_obs_type=$ACTOR_OBS_TYPE, critic_obs_type=$CRITIC_OBS_TYPE"
 
 ##############################
 # Create temporary config with max quantity and entropy coefficient overrides
@@ -118,13 +121,8 @@ ALGO_NAME = "$ALGO_NAME"
 # Set run parameters
 hidden_sizes_actor = $HIDDEN_SIZES_ACTOR
 hidden_sizes_critic = $HIDDEN_SIZES_CRITIC
-entropy_coeff = $ENTROPY_COEFF
-vd_clip_param = $VD_CLIP_PARAM
-vf_loss_coeff = $VF_LOSS_COEFF
-obs_norm = "$OBS_NORM"
 actor_obs_type = "$ACTOR_OBS_TYPE"
 critic_obs_type = "$CRITIC_OBS_TYPE"
-parameter_sharing = $PARAMETER_SHARING
 
 
 # --- Environment config ---
@@ -139,13 +137,8 @@ with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
 
-algo_cfg["algorithm"]["algorithm_specific"]["obs_normalization"] = obs_norm
-algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = entropy_coeff
-algo_cfg["algorithm"]["algorithm_specific"]["vf_clip_param"] = vd_clip_param
-algo_cfg["algorithm"]["algorithm_specific"]["vf_loss_coeff"] = vf_loss_coeff
 algo_cfg["algorithm"]["algorithm_specific"]["actor_obs_type"] = actor_obs_type
 algo_cfg["algorithm"]["algorithm_specific"]["critic_obs_type"] = critic_obs_type
-algo_cfg["algorithm"]["algorithm_specific"]["parameter_sharing"] = parameter_sharing
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["actor"]["config"]["hidden_sizes"] = hidden_sizes_actor
 algo_cfg["algorithm"]["algorithm_specific"]["networks"]["critic"]["config"]["hidden_sizes"] = hidden_sizes_critic
 
@@ -281,7 +274,7 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.8"  
 fi
 
-EXPERIMENT_NAME="MAPPO_Single_3WH_2SKUS_Agent"
+EXPERIMENT_NAME="MAPPO_Single_3WH_2SKUS_Agent_GradClip0.5_LRSchedule"
 
 if [ "$PARAMETER_SHARING" = True ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_PSTrue"
@@ -308,7 +301,7 @@ if [ "$HIDDEN_SIZES_CRITIC" = "[128,128]" ]; then
   EXPERIMENT_NAME="${EXPERIMENT_NAME}_NNC128128"
 fi
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME}_LR_0.0003_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME}_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \

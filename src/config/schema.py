@@ -928,7 +928,7 @@ class SharedAlgorithmConfig(BaseModel):
     batch_size: PositiveInt
     num_epochs: PositiveInt
     num_minibatches: PositiveInt    
-    learning_rate: PositiveFloat
+    learning_rate: Union[PositiveFloat, List[List[Union[int, float]]]]
     num_env_runners: NonNegativeInt = 0
     num_envs_per_env_runner: NonNegativeInt = 1
     num_cpus_per_env_runner: PositiveInt = 1
@@ -936,7 +936,35 @@ class SharedAlgorithmConfig(BaseModel):
     num_eval_episodes: PositiveInt = 1
     evaluation_parallel_to_training: bool = False
     model_config = ConfigDict(extra="forbid")
-    
+
+    @field_validator("learning_rate", mode="after")
+    @classmethod
+    def _validate_learning_rate(cls, v: Union[PositiveFloat, List[List[Union[int, float]]]]):
+        if isinstance(v, (int, float)):
+            return v
+        if len(v) < 2:
+            raise ValueError(
+                "learning_rate schedule must have at least 2 entries, e.g. "
+                "[[0, 0.001], [4000000, 0.0]]"
+            )
+        if any(len(pair) != 2 for pair in v):
+            raise ValueError(
+                "Each entry in the learning_rate schedule must be a [timestep, lr] pair"
+            )
+        if v[0][0] != 0:
+            raise ValueError(
+                f"learning_rate schedule must start at timestep 0, "
+                f"got timestep {v[0][0]}"
+            )
+        for i in range(1, len(v)):
+            if v[i][0] <= v[i - 1][0]:
+                raise ValueError(
+                    "learning_rate schedule timesteps must be strictly increasing"
+                )
+        if any(pair[1] < 0 for pair in v):
+            raise ValueError("learning_rate schedule values must be non-negative")
+        return v
+
     @model_validator(mode="after")
     def _validate_shared_params(self):
         """Validate relationships between shared algorithm parameters."""
