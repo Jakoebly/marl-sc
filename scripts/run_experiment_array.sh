@@ -89,7 +89,7 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) HIDDEN_SIZES="[64]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
+    0) HIDDEN_SIZES="[128]";  ENTROPY_COEFF=0.01; VD_CLIP_PARAM=1000;  VF_LOSS_COEFF=0.5; OBS_NORM="meanstd_grouped" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
