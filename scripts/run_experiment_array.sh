@@ -270,7 +270,7 @@ else
   OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.9"  
 fi
 
-EXPERIMENT_NAME="MAPPO_NumEpochs${NUM_EPOCHS}_Ec${ENTROPY_COEFF}_Lsf${LOGSTD_FLOOR}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="MAPPO_NumEpochs${NUM_EPOCHS}_Ec${ENTROPY_COEFF}_Lsf${LOGSTD_FLOOR}_MaxAdj15_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
