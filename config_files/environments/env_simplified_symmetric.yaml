@@ -8,11 +8,11 @@ environment:
   - 10000000
   - 10000000
   action_space:
-    type: direct
+    type: demand_centered
     params:
-      max_order_quantities:
-        - 40
-        - 40
+      max_quantity_adjustment:
+        - 15
+        - 15
   initial_inventory:
     type: "custom"
     params:
