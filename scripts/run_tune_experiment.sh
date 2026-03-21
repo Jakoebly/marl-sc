@@ -8,9 +8,9 @@
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=16                      # CPU cores per task
-#SBATCH --mem=32G                               # Memory allocation
-#SBATCH --time=00:30:00                         # Maximum walltime (hh:mm:ss)
+#SBATCH --cpus-per-task=96                      # CPU cores per task
+#SBATCH --mem=256G                               # Memory allocation
+#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
@@ -156,7 +156,7 @@ python src/experiments/run_experiment.py \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
     --tune-config ./config_files/experiments/tune_config.yaml \
-    --num-samples 6 \
+    --num-samples 300 \
     --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \

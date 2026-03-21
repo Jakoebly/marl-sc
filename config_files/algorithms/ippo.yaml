@@ -1,8 +1,8 @@
 algorithm:
   name: "ippo"
   shared:
-    num_iterations: 10
-    checkpoint_freq: 10
+    num_iterations: 300
+    checkpoint_freq: 100
     batch_size: 8000
     num_epochs: 15
     num_minibatches: 10
@@ -10,7 +10,7 @@ algorithm:
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
-    eval_interval: 10  
+    eval_interval: 50  
     num_eval_episodes: 5  
     evaluation_parallel_to_training: false
 
