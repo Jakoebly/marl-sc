@@ -1,4 +1,5 @@
 import random
+import uuid
 from typing import Dict, Any, Optional
 
 import numpy as np
@@ -39,7 +40,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         # Store environment and config
         self.env = env
         self.env_config = self.env.env_config
-        self.env_name = self.env.metadata["name"]
+        self.env_name = f"{self.env.metadata['name']}_{uuid.uuid4().hex[:8]}"
         self.ippo_config = ippo_config
         self.train_seed = train_seed
         self.eval_seed = eval_seed
