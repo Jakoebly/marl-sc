@@ -578,6 +578,68 @@ ActionSpaceConfig = Union[ActionSpaceDirect, ActionSpaceDemandCentered, ActionSp
 
 
 # ============================================================================
+# Feature Config Schemas
+# ============================================================================
+
+# Mapping from parent feature to its aggregate toggle
+_AGGREGATE_PARENT_PAIRS = [
+    ("inventory", "inventory_aggregate"),
+    ("pipeline", "pipeline_aggregate"),
+    ("incoming_demand_home", "incoming_demand_home_aggregate"),
+    ("units_shipped_away", "units_shipped_away_aggregate"),
+    ("rolling_demand_mean", "rolling_demand_mean_aggregate"),
+    ("demand_forecast", "demand_forecast_aggregate"),
+]
+
+
+class FeatureConfig(BaseModel):
+    """Toggles for which observation features and aggregates are included."""
+
+    # Core features (must always be enabled)
+    inventory: bool = True
+    pipeline: bool = True
+
+    # Optional features
+    incoming_demand_home: bool = True
+    units_shipped_home: bool = True
+    units_shipped_away: bool = True
+    stockout: bool = True
+    rolling_demand_mean: bool = True
+    demand_forecast: bool = True
+    days_of_supply: bool = False
+    net_inventory_position: bool = False
+    demand_variability: bool = False
+    demand_history: bool = False
+
+    # Aggregate toggles (only valid when parent feature is enabled)
+    inventory_aggregate: bool = True
+    pipeline_aggregate: bool = True
+    incoming_demand_home_aggregate: bool = True
+    units_shipped_away_aggregate: bool = True
+    rolling_demand_mean_aggregate: bool = True
+    demand_forecast_aggregate: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _validate_mandatory_features(self):
+        if not self.inventory:
+            raise ValueError("inventory must always be enabled")
+        if not self.pipeline:
+            raise ValueError("pipeline must always be enabled")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_aggregate_requires_parent(self):
+        for parent, agg in _AGGREGATE_PARENT_PAIRS:
+            if not getattr(self, parent) and getattr(self, agg):
+                raise ValueError(
+                    f"'{agg}' cannot be enabled when '{parent}' is disabled"
+                )
+        return self
+
+
+# ============================================================================
 # Top-level Environment Config Schemas
 # ============================================================================
 
@@ -596,6 +658,7 @@ class EnvironmentConfig(BaseModel):
     cost_structure: CostStructureConfig
     components: ComponentsConfig
     data_source: DataSourceConfig = Field(..., discriminator="type")
+    features: FeatureConfig = Field(default_factory=FeatureConfig)
     
     model_config = ConfigDict(extra="forbid")
 
@@ -1295,20 +1358,123 @@ SearchSpaceSpec = Annotated[
     Field(discriminator="type")
 ]
 
-# Tune configuration
+# ============================================================================
+# Scheduler Configuration Schemas
+# ============================================================================
+
+class ASHASchedulerConfig(BaseModel):
+    """Configuration for ASHA scheduler."""
+    type: Literal["asha"]
+    max_t: Optional[PositiveInt] = None
+    grace_period: Optional[PositiveInt] = None
+    reduction_factor: Optional[PositiveInt] = None
+    brackets: Optional[PositiveInt] = None
+    model_config = ConfigDict(extra="forbid")
+
+class MedianStoppingConfig(BaseModel):
+    """Configuration for Median Stopping Rule scheduler."""
+    type: Literal["median_stopping"]
+    time_attr: Optional[str] = None
+    grace_period: Optional[PositiveInt] = None
+    min_samples_required: Optional[PositiveInt] = None
+    hard_stop: Optional[bool] = None
+    model_config = ConfigDict(extra="forbid")
+
+class HyperBandSchedulerConfig(BaseModel):
+    """Configuration for HyperBand scheduler."""
+    type: Literal["hyperband"]
+    max_t: Optional[PositiveInt] = None
+    reduction_factor: Optional[PositiveInt] = None
+    stop_last_trials: Optional[bool] = None
+    model_config = ConfigDict(extra="forbid")
+
+class FIFOSchedulerConfig(BaseModel):
+    """Configuration for FIFO scheduler (no early stopping)."""
+    type: Literal["fifo"]
+    model_config = ConfigDict(extra="forbid")
+
+SchedulerConfig = Annotated[
+    Union[ASHASchedulerConfig, MedianStoppingConfig, HyperBandSchedulerConfig, FIFOSchedulerConfig],
+    Field(discriminator="type")
+]
+
+
+# ============================================================================
+# Search Algorithm Configuration Schemas
+# ============================================================================
+
+class RandomSearchConfig(BaseModel):
+    """Configuration for random search (default)."""
+    type: Literal["random"]
+    model_config = ConfigDict(extra="forbid")
+
+class OptunaSearchConfig(BaseModel):
+    """Configuration for Optuna search algorithm."""
+    type: Literal["optuna"]
+    model_config = ConfigDict(extra="forbid")
+
+class BayesOptSearchConfig(BaseModel):
+    """Configuration for BayesOpt search algorithm."""
+    type: Literal["bayesopt"]
+    random_search_steps: Optional[PositiveInt] = None
+    model_config = ConfigDict(extra="forbid")
+
+class HyperOptSearchConfig(BaseModel):
+    """Configuration for HyperOpt search algorithm."""
+    type: Literal["hyperopt"]
+    n_initial_points: Optional[PositiveInt] = None
+    gamma: Optional[PositiveFloat] = None
+    model_config = ConfigDict(extra="forbid")
+
+SearchAlgorithmConfig = Annotated[
+    Union[RandomSearchConfig, OptunaSearchConfig, BayesOptSearchConfig, HyperOptSearchConfig],
+    Field(discriminator="type")
+]
+
+
+# ============================================================================
+# Tune Configuration Schemas
+# ============================================================================
+
+TUNE_SEARCH_SPACE_SECTIONS = ("shared", "algorithm_specific", "environment", "features")
+
 class TuneConfig(BaseModel):
     """Configuration for Ray Tune hyperparameter search."""
     
     shared: Optional[Dict[str, SearchSpaceSpec]] = None
     algorithm_specific: Optional[Dict[str, SearchSpaceSpec]] = None
+    environment: Optional[Dict[str, SearchSpaceSpec]] = None
+    features: Optional[Dict[str, SearchSpaceSpec]] = None
+    scheduler: Optional[SchedulerConfig] = None
+    search_algorithm: Optional[SearchAlgorithmConfig] = None
     model_config = ConfigDict(extra="forbid")
     
     @model_validator(mode="after")
     def _validate_structure(self):
-        """Validate that at least one section is provided."""
-        if self.shared is None and self.algorithm_specific is None:
+        """Validate that at least one search space section is provided."""
+        if all(getattr(self, s) is None for s in TUNE_SEARCH_SPACE_SECTIONS):
             raise ValueError(
-                "At least one of 'shared' or 'algorithm_specific' must be provided"
+                f"At least one of {TUNE_SEARCH_SPACE_SECTIONS!r} must be provided"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_search_compatibility(self):
+        """Validate that search algorithm is compatible with search space types."""
+        if self.search_algorithm is None or self.search_algorithm.type != "bayesopt":
+            return self
+
+        non_continuous_types = {"choice", "randint", "grid_search"}
+        for section_name in TUNE_SEARCH_SPACE_SECTIONS:
+            section = getattr(self, section_name)
+            if section is None:
+                continue
+            for param_name, spec in section.items():
+                if spec.type in non_continuous_types:
+                    raise ValueError(
+                        f"search_algorithm 'bayesopt' requires all search space parameters to be "
+                        f"continuous (uniform, loguniform), but '{section_name}.{param_name}' "
+                        f"has type '{spec.type}'"
+                    )
         return self
 

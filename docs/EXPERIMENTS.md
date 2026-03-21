@@ -4,7 +4,7 @@
 
 The experimental strategy follows a **simplify-first** principle: start with a highly simplified, symmetric environment where the optimal policy is known analytically (a roughly constant order quantity), make the IPPO algorithm learn this policy, and only then add complexity (heterogeneous demand, geographic imbalance, multi-agent coupling, MAPPO).
 
-The project has progressed through **Phases 1.1–1.5**. A critical evaluation bug (weight synchronization) was discovered in Phase 1.4, meaning all custom evaluation rewards before that point were measured with randomly initialized weights. After fixing this, all prior phases were re-evaluated, revealing that IPPO was learning effectively much earlier than originally believed. The single-agent case (Phase 1.4) achieves near-optimal performance, while the multi-agent case (Phase 1.5) reaches within 14% of baseline with the best configuration.
+The project has progressed through **Phases 1.1–1.8**. A critical evaluation bug (weight synchronization) was discovered in Phase 1.4, meaning all custom evaluation rewards before that point were measured with randomly initialized weights. After fixing this, all prior phases were re-evaluated, revealing that IPPO was learning effectively much earlier than originally believed. Phases 1.6–1.7 further improved IPPO through observation space enrichment and hyperparameter tuning. Phase 1.8 introduced MAPPO (centralized critic), uncovering a critical observation routing bug and identifying entropy collapse as the primary remaining challenge for continuous-action multi-agent PPO.
 
 ---
 
@@ -283,6 +283,152 @@ The evaluation reward curve for Run 2 (best) shows a clear plateau from step ~30
 
 ---
 
+## Phase 1.6: Observation Space Improvements
+
+### Motivation
+
+Phase 1.5's best IPPO run (Run 2, −176.6) left a 14% gap to baseline. Before further hyperparameter tuning, this phase investigates whether enriching the agent's observation space can improve performance by providing more informative state representations.
+
+### Experimental Design
+
+**Base configuration:** Best IPPO config from Phase 1.5 (PS=True, [64], lr=1e-3, entropy_coeff=0.01, vf_clip=300, vf_loss_coeff=0.5).
+
+Four observation space features were tested:
+
+1. **Timestep in observation space:** Include the current timestep as a normalized feature, enabling the agent to condition its ordering policy on the episode phase (e.g., ordering more conservatively near episode end).
+2. **Slot-based pending orders:** Replace aggregate pending order counts with a per-slot representation that tracks each in-transit order by its remaining lead time, providing richer temporal information about upcoming arrivals.
+3. **Charging of non-arriving orders:** Charge inbound costs for orders placed near episode end that will not arrive within the episode horizon, penalizing wasteful end-of-episode ordering.
+4. **Grouped MeanStd normalization:** Replace meanstd_custom with meanstd_grouped, which normalizes semantically related observation feature groups independently rather than using pre-computed statistics.
+
+### Results
+
+| Timestep | Slot-Based Pending | Charging Non-Arriving | Grouped MeanStd | Eval Reward | Baseline (BS z=2.0) |
+|---|---|---|---|---|---|
+| yes | no | no | no | −267.7 | −154.5 |
+| no | yes | no | no | −218.3 | −154.5 |
+| **yes** | **yes** | **no** | **no** | **−184.5** | **−154.5** |
+| yes | yes | yes | no | −281.0 | −155.3 |
+| yes | no | no | yes | −197.5 | −154.5 |
+
+### Key Observations
+
+1. **Slot-based pending orders is the most impactful single feature** (−267.7 → −218.3 when replacing timestep with slot-based). Providing per-slot lead-time information gives the agent a much clearer picture of upcoming inventory arrivals than the aggregate count.
+
+2. **Timestep + slot-based together achieve the best result** (−184.5, 19.4% gap to baseline), indicating the two features are complementary — the agent benefits from knowing both when orders will arrive and how much of the episode remains.
+
+3. **Charging non-arriving orders hurts significantly** (−184.5 → −281.0). The penalty for end-of-episode ordering creates a conflicting signal where ordering is simultaneously needed for inventory but penalized near episode end. The slightly different baseline (−155.3 vs −154.5) confirms this changes the reward structure itself.
+
+4. **Grouped MeanStd normalization improves over baseline with timestep alone** (−267.7 → −197.5), suggesting better-conditioned inputs when normalizing feature groups independently, but does not outperform the timestep + slot-based combination without it.
+
+5. **Final decision: slot-based pending orders adopted; timestep and charging dropped.** Although the timestep + slot-based combination achieved the best finite-episode reward (−184.5), timestep was deliberately excluded to prevent the agent from learning episode-boundary behavior (e.g., reducing orders near step 100) — real supply chains operate continuously, and the learned policy should be stationary (time-invariant). Charging for non-arriving orders was likewise dropped to avoid any end-of-episode cost dynamics. The chosen configuration ensures the episode end is a simple external cutoff: the agent does not know where it is in the episode, and no special cost accounting occurs at the boundary. This design prioritizes learning a steady-state ordering policy that generalizes beyond the finite training horizon.
+
+---
+
+## Phase 1.7: IPPO Hyperparameter Tuning (Updated Observation Space)
+
+### Motivation
+
+With the improved observation space from Phase 1.6 (timestep + slot-based pending orders adopted), this phase performs a targeted hyperparameter search over network architecture, normalization method, entropy coefficient, VF clipping, and VF loss coefficient to find the best IPPO configuration on the updated environment.
+
+### Experimental Design
+
+**Environment:** Updated observation space with timestep and slot-based pending orders from Phase 1.6. The heuristic baseline on this configuration is **−157.4** (base-stock z=2.0).
+
+**Base configuration:** PS=True, lr=1e-3, gamma=0.99, lam=0.95, batch_size=8000, num_epochs=10, num_minibatches=20, log_std init=−1.0, floor=−2.0.
+
+**Variables tested:** NN architecture ∈ {[64], [128]}, normalization ∈ {meanstd_grouped, meanstd_cust}, entropy_coeff ∈ {0, 0.01}, vf_clip_param ∈ {300, 1000}, vf_loss_coeff ∈ {0.5, 1}.
+
+### Results
+
+| NN | Normalization | Entropy Coeff | VF Clip | VF Loss Coeff | Eval Reward | Baseline |
+|---|---|---|---|---|---|---|
+| [64] | meanstd_grouped | 0 | 300 | 0.5 | −241.9 | −157.4 |
+| **[64]** | **meanstd_grouped** | **0.01** | **1000** | **0.5** | **−209.8** | **−157.4** |
+| [64] | meanstd_grouped | 0.01 | 300 | 1 | −279.8 | −157.4 |
+| [64] | meanstd_grouped | 0 | 1000 | 0.5 | −250.7 | −157.4 |
+| [128] | meanstd_grouped | 0.01 | 300 | 0.5 | −223.5 | −157.4 |
+| [128] | meanstd_cust | 0.01 | 300 | 0.5 | −230.4 | −157.4 |
+| **[128]** | **meanstd_grouped** | **0** | **1000** | **0.5** | **−206.3** | **−157.4** |
+| [128] | meanstd_grouped | 0 | 1000 | 1 | −238.0 | −157.4 |
+
+### Key Observations
+
+1. **VF clip=1000 consistently outperforms VF clip=300.** Phase 1.5 noted VF clip=300 was 75% active (reducing VF learning by 75%). Relaxing to 1000 gives the critic significantly more learning freedom across all configurations.
+
+2. **vf_loss_coeff=0.5 outperforms 1.0.** [128] with entropy=0, vf_clip=1000: −206.3 (coeff=0.5) vs −238.0 (coeff=1.0). The lower coefficient prevents VF gradients from dominating the total loss.
+
+3. **[128] networks are now competitive with [64]**, reversing Phase 1.5's finding where [128] was 2× worse. Best [128] (−206.3) slightly outperforms best [64] (−209.8). The expanded observation space (timestep + slot-based features) likely benefits from the additional representational capacity.
+
+4. **Entropy coefficient interacts with network size.** For [64], entropy=0.01 is better (−209.8 vs −250.7). For [128], entropy=0 is better (−206.3 vs −223.5). Larger networks may converge more confidently, reducing the need for the entropy exploration bonus.
+
+5. **meanstd_grouped slightly outperforms meanstd_cust** for [128] (−223.5 vs −230.4), supporting adoption of grouped normalization with the updated observation structure.
+
+---
+
+## Phase 1.8: MAPPO — Centralized Critic with Global Observations
+
+### Motivation
+
+IPPO's local critic estimates returns from only the agent's own observation (29 dimensions), creating a VF explained variance ceiling (~0.7–0.85) that limits policy precision. MAPPO uses a centralized critic that observes the global state (all agents' observations), providing a richer information basis for value estimation. This phase tests whether MAPPO can close the remaining gap to the heuristic baseline.
+
+### Implementation
+
+MAPPO is implemented by setting `critic_obs_type="global"` while keeping `actor_obs_type="local"`. The centralized critic receives the full observation `[own_local_obs (29 dim), global_obs (87 dim)]` = 116 dimensions, while the actor continues using only the local 29-dim observation. Parameter sharing remains enabled.
+
+### Bug Discovery: Observation Routing (Fixed)
+
+Initial MAPPO runs produced catastrophically low VF explained variance (~0.05 vs ~0.8 for IPPO) and policy collapse (entropy increasing rather than decreasing).
+
+**Root cause:** When `parameter_sharing=True` and `critic_obs_type="global"`, the shared critic received an identical 87-dim global observation for ALL agents — the concatenation of all agents' local observations WITHOUT the querying agent's own identity. A deterministic shared network given identical inputs for all agents can only predict the same (average) value for every agent.
+
+**Fix:** Modified `setup()`, `_forward_inference()`, `_forward_train()`, and `compute_values()` in `src/algorithms/models/rlmodules/base.py` to route the `full_obs` (116 dim = own_local_obs + global_obs, including the agent's one-hot warehouse ID) when `critic_obs_type="global"`. This enables the shared critic to produce agent-specific value predictions.
+
+### Experimental Rounds (After Fix)
+
+**Round 1 — Network Size Exploration:**
+
+Config: lr=0.001, grad_clip=null, num_minibatches=20, num_epochs=10, vf_loss_coeff=0.5, entropy_coeff=0.01.
+
+| Actor | Critic | Peak Eval Reward | Trend |
+|---|---|---|---|
+| [64] | [128] | ~−169 | Slight decline after peak |
+| [128] | [128] | — | Severe degradation |
+| [64] | [128,128] | — | Severe degradation |
+
+VF explained variance improved to ~0.8 (confirming the obs routing fix), but larger networks showed training instability with performance declining over time. **Diagnosis:** lr=0.001 without gradient clipping (`grad_clip=null`) caused unchecked gradient norms and aggressive parameter updates, especially harmful for larger networks.
+
+**Round 2 — Gradient Clipping + LR Schedule:**
+
+Added `grad_clip=0.5` and LR schedule `[[0, 0.001], [4000000, 0]]`.
+
+Partial improvement for [128,128] critic, but performance still degraded over time. **Diagnosis:** `grad_clip=0.5` was 20× too aggressive compared to the MAPPO reference implementation (Yu et al., `max_grad_norm=10.0`). Combined with `num_minibatches=20` (producing 200 noisy gradient updates per iteration on tiny 400-sample minibatches), the effective learning signal was heavily distorted.
+
+**Round 3 — MAPPO-Aligned Hyperparameters:**
+
+Aligned with the reference MAPPO implementation (Yu et al.): `grad_clip=10`, `num_minibatches=1`, `vf_loss_coeff=1`, `lr=0.0005`.
+
+| Actor | Critic | LR | Eval Reward (end) | VF Expl. Var. | Entropy Trend |
+|---|---|---|---|---|---|
+| [64] | [128,128] | 0.0005 (constant) | ~−350 | ~0.85 | Collapse at step ~260 |
+| [64] | [128] | 0.0005 (constant) | ~−350 | ~0.85 | Steady decline |
+| [64] | [128] | schedule → 0 | **~−200** (U-shape recovery) | ~0.85 | Slower decline |
+
+### Key Findings
+
+1. **The obs routing bug was the critical implementation error.** Without agent identity in the global observation, the shared centralized critic cannot function. After fixing, VF explained variance immediately jumped from ~0.05 to ~0.8.
+
+2. **Continuous-action MAPPO is highly sensitive to hyperparameters.** The canonical discrete-action MAPPO defaults (from Yu et al.) required significant adaptation for continuous action spaces — particularly around gradient clipping, minibatch structure, and learning rate.
+
+3. **Entropy collapse is the primary remaining failure mode.** All runs showed continuously declining entropy, leading to premature policy narrowing. As the policy becomes more deterministic, the gradient signal for the mean action vanishes (all sampled actions cluster near the mean → flat advantage landscape), while the gradient on log_std continues pushing entropy down. The mean action then drifts due to accumulated noise from stochastic demand.
+
+4. **The LR schedule's U-shaped recovery is the key diagnostic evidence** for the entropy collapse diagnosis: as the LR approaches zero, log_std stops declining, entropy stabilizes, and the small but consistent gradient signal slowly corrects the accumulated mean action drift.
+
+5. **`num_epochs=15` amplifies instability.** With 15 gradient updates on the same batch, later epochs use stale advantages (computed from the behavior policy), acting as noisy perturbations that accelerate both entropy decline and mean action drift.
+
+6. **Decision: systematic hyperparameter search.** After several rounds of manual one-variable-at-a-time tuning, a systematic grid search over `learning_rate`, `num_epochs`, `entropy_coeff`, and `logstd_floor` for both IPPO and MAPPO is needed to find stable configurations for continuous-action multi-agent PPO.
+
+---
+
 ## Summary of Identified Problems
 
 | Problem | Phase Identified | Status |
@@ -293,20 +439,24 @@ The evaluation reward curve for Run 2 (best) shows a clear plateau from step ~30
 | **Entropy collapse** (log_std collapses without floor) | 1.1 | Fixed (log_std init=-1, floor=-2) |
 | **Reward scale too large** (VF loss in millions) | 1.2 | Fixed (scale_factor=0.01) |
 | **Entropy explosion in multi-agent** (σ increases instead of decreasing) | 1.5 | Partially addressed (PS=True prevents it) |
-| **VF explained variance ceiling** (~0.7 with PS, ~0 without PS) | 1.5 | Open — limits policy convergence |
-| **Multi-agent non-stationarity** (warehouse learning trajectories diverge) | 1.5 | Addressed by PS=True; MAPPO may help further |
+| **VF explained variance ceiling** (~0.7 with local critic) | 1.5 | Addressed by MAPPO centralized critic (→0.85) |
+| **Multi-agent non-stationarity** (warehouse learning trajectories diverge) | 1.5 | Addressed by PS=True |
+| **Obs routing bug** (shared global critic received identical input for all agents) | 1.8 | Fixed (route full_obs with agent identity) |
+| **Entropy collapse in continuous-action MAPPO** (policy narrows prematurely, mean drifts) | 1.8 | Open — requires entropy_coeff / num_epochs tuning |
 
 ---
 
 ## Current Best Configuration
 
-The best multi-agent configuration (Run 2, Phase 1.5):
+### IPPO (Phase 1.7)
+
+Best IPPO configurations on the updated observation space (timestep + slot-based pending orders):
+
+- **Best [128]:** eval reward **−206.3** (31% gap to −157.4 baseline) — meanstd_grouped, entropy=0, vf_clip=1000, vf_loss=0.5
+- **Best [64]:** eval reward **−209.8** (33% gap to −157.4 baseline) — meanstd_grouped, entropy=0.01, vf_clip=1000, vf_loss=0.5
 
 ```yaml
-# Environment: env_simplified_symmetric.yaml with override:
-scale_factor: 0.01
-
-# Algorithm: ippo.yaml with overrides:
+# Algorithm config (Phase 1.7 best):
 algorithm:
   shared:
     num_iterations: 500
@@ -316,8 +466,6 @@ algorithm:
     learning_rate: 0.001
     num_env_runners: 4
     num_envs_per_env_runner: 10
-    eval_interval: 10
-    num_eval_episodes: 5
 
   algorithm_specific:
     use_gae: true
@@ -325,56 +473,61 @@ algorithm:
     gamma: 0.99
     use_kl_loss: false
     grad_clip: null
-    entropy_coeff: 0.01
+    entropy_coeff: 0       # 0.01 for [64]
     vf_loss_coeff: 0.5
     clip_param: 0.2
-    vf_clip_param: 300
-    obs_normalization: "meanstd_custom"
+    vf_clip_param: 1000
+    obs_normalization: "meanstd_grouped"
     parameter_sharing: true
+    logstd_init: -1.0
+    logstd_floor: -2.0
     networks:
-      use_mu_sigma_head: false
       actor:
-        type: "mlp"
         config:
-          hidden_sizes: [64]
-          activation: "relu"
-          output_activation: null
+          hidden_sizes: [128]  # or [64]
       critic:
-        type: "mlp"
         config:
-          hidden_sizes: [64]
-          activation: "relu"
-          output_activation: null
+          hidden_sizes: [128]  # or [64]
 ```
 
-### Log_std Configuration
+### MAPPO (Phase 1.8)
 
-- Free parameter initialized to −1.0 (std ≈ 0.37).
-- Clamped at min = −2.0 (std ≥ 0.14) to prevent entropy collapse.
+Best MAPPO result: ~−200 eval reward (A[64]/C[128] with LR schedule), but training was unstable with performance degradation before recovery. MAPPO requires further hyperparameter tuning — particularly `entropy_coeff`, `num_epochs`, and `logstd_floor` — to achieve stable training with continuous actions.
 
 ---
 
 ## Next Steps
 
-### Immediate: Tune the Winning Config (Phase 2.0)
+### Immediate: Systematic Hyperparameter Search (Phase 2.0)
 
-Run 2 has plateaued at −176.6 (14% gap). The VF clip is very active (75% reduction in VF loss), suggesting it is the most actionable bottleneck. Proposed runs using Run 2's base config with one change each:
+After multiple rounds of manual one-variable-at-a-time tuning for MAPPO (Phase 1.8), a systematic grid search is planned for both IPPO and MAPPO to find the best configuration for each on the simplified symmetric environment.
 
-| Run | Change | Rationale |
+**Fixed parameters** (based on evidence from Phases 1.1–1.8):
+
+| Parameter | Value | Evidence |
 |---|---|---|
-| 1 | vf_clip_param=500 | Relax VF constraint (currently 75% active) |
-| 2 | vf_clip_param=1000 | Further relax VF constraint |
-| 3 | entropy_coeff=0 | Remove entropy bonus (already at floor, providing no benefit) |
-| 4 | entropy_coeff=0 + vf_clip=500 | Combine two most promising changes |
+| `num_minibatches` | 1 | MAPPO default; 20 caused noisy updates on tiny minibatches |
+| `grad_clip` | 10 | MAPPO default; null and 0.5 both problematic |
+| `clip_param` | 0.2 | Standard PPO |
+| `gamma` | 0.99 | Standard for episode length 100 |
+| `lam` | 0.95 | Standard GAE |
+| `obs_normalization` | meanstd_grouped | Best from Phase 1.7 |
+| `parameter_sharing` | true | Best from Phase 1.5 |
+| Actor hidden | [64] | Consistently sufficient; actor obs is only 29 dim |
 
-### Short-term: MAPPO (Phase 2.1)
+**Search space:**
 
-The 14% gap is fundamentally due to the VF's inability to perfectly predict returns from local observations alone (explained variance ceiling at 0.7). MAPPO's centralized critic (which sees the global state) should directly address this by providing a richer information basis for value estimation.
+| Parameter | Values | Rationale |
+|---|---|---|
+| `learning_rate` | {0.0003, 0.0005, 0.001} | 0.001 too high for MAPPO; LR schedule recovery at ~0.0003 |
+| `num_epochs` | {5, 10, 15} | 15 causes stale advantages; 5 is MAPPO "hard task" setting |
+| `entropy_coeff` | {0.01, 0.05, 0.1} | 0.01 insufficient for continuous actions |
+| `logstd_floor` | {−2.0, −1.0} | Hard floor to prevent excessive policy narrowing |
+| Critic hidden | {[128], [128,128]} | MAPPO critic benefits from larger capacity |
 
-| Run | Config |
-|---|---|
-| 5 | MAPPO, PS=True, [64], meanstd_custom (best Phase 2.0 settings) |
-| 6 | MAPPO, PS=False, [64], meanstd_custom (test if centralized critic resolves warehouse asymmetry without PS) |
+**Total:** 3 × 3 × 3 × 2 × 2 = 108 configs × 3 seeds = 324 runs per algorithm.
+
+**Metric:** Mean eval reward over last 50 iterations (penalizes late-training degradation).
 
 ### Medium-term: Increase Complexity (Phase 3)
 

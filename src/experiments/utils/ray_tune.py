@@ -1,22 +1,18 @@
-from typing import Dict, Any, Tuple, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 from pathlib import Path
+import copy
 import yaml
 from ray.tune.schedulers import ASHAScheduler, MedianStoppingRule, HyperBandScheduler, FIFOScheduler
-from ray.tune.search.optuna import OptunaSearch
-from ray.tune.search.bayesopt import BayesOptSearch
-from ray.tune.search.hyperopt import HyperOptSearch
-from ray.tune.search.ax import AxSearch
-from ray.tune.search.nevergrad import NevergradSearch
 from ray.tune import PlacementGroupFactory, ResultGrid
 from ray import tune
 import ray
-import nevergrad as ng
 
 if TYPE_CHECKING:
     from src.utils.seed_manager import SeedManager
+    from src.config.schema import SchedulerConfig, SearchAlgorithmConfig
 
-from src.config.loader import load_environment_config, load_algorithm_config
-from src.config.loader import load_tune_config
+from src.config.loader import load_environment_config, load_algorithm_config, load_tune_config
+from src.config.schema import TUNE_SEARCH_SPACE_SECTIONS
 
 def create_tune_config(
     base_env_config_path: str,
@@ -30,7 +26,8 @@ def create_tune_config(
     Args:
         base_env_config_path (str): Path to base environment config
         base_algorithm_config_path (str): Path to base algorithm config
-        search_space (Dict[str, Any]): Dictionary defining hyperparameter search space
+        search_space (Dict[str, Any]): Dictionary defining hyperparameter search space.
+            May contain keys: shared, algorithm_specific, environment, features.
         seed_manager (Optional['SeedManager']): Optional experiment-level ``SeedManager``.
         
     Returns:
@@ -51,11 +48,10 @@ def create_tune_config(
         "algorithm_config": algorithm_config_dict,
     }
     
-    # Merge search space (nested dicts for shared and algorithm_specific)
-    if "shared" in search_space:
-        tune_config["shared"] = search_space["shared"]
-    if "algorithm_specific" in search_space:
-        tune_config["algorithm_specific"] = search_space["algorithm_specific"]
+    # Merge search space sections
+    for key in TUNE_SEARCH_SPACE_SECTIONS:
+        if key in search_space:
+            tune_config[key] = search_space[key]
     
     return tune_config
 
@@ -92,8 +88,9 @@ def convert_to_tune_search(search_space: Dict[str, Any]) -> Dict[str, Any]:
     Converts a nested search space dictionary to Ray Tune format.
     
     Args:
-        search_space (Dict[str, Any]): Dictionary with 'shared' and/or 'algorithm_specific' keys,
-                                       each containing nested dictionaries of search specs
+        search_space (Dict[str, Any]): Dictionary with section keys (shared,
+            algorithm_specific, environment, features), each containing nested
+            dictionaries of search specs.
         
     Returns:
         tune_search_space (Dict[str, Any]): Ray Tune search space dictionary
@@ -104,7 +101,7 @@ def convert_to_tune_search(search_space: Dict[str, Any]) -> Dict[str, Any]:
 
     # Iterate over the nested dictionaries in the search space dictionary to convert each search space specification to Ray Tune format
     for key, value in search_space.items():
-        if key in ["shared", "algorithm_specific"]:
+        if key in TUNE_SEARCH_SPACE_SECTIONS:
             nested_space = {}
             for nested_key, nested_value in value.items():
                 nested_space[nested_key] = _convert_single_search_spec(nested_value)
@@ -113,6 +110,52 @@ def convert_to_tune_search(search_space: Dict[str, Any]) -> Dict[str, Any]:
             tune_search_space[key] = _convert_single_search_spec(value)
     
     return tune_search_space
+
+def _parse_hidden_sizes(value) -> List[int]:
+    """
+    Parses a hidden-size spec into a list of ints.
+
+    Supports int (64 -> [64]) and underscore-separated strings
+    ("128_128" -> [128, 128]) for multi-layer architectures.
+
+    Args:
+        value (Any): Value to parse
+
+    Returns:
+        List[int]: List of hidden sizes
+    """
+
+    # Check if the value is an integer, float, string, or list
+    if isinstance(value, int):
+        return [value]
+    if isinstance(value, float):
+        return [int(value)]
+    if isinstance(value, str):
+        return [int(x) for x in value.split("_")]
+    return list(value)
+
+
+def _apply_network_size_overrides(algo_config_dict: Dict[str, Any]) -> None:
+    """
+    Pops synthetic network-size keys from *algorithm_specific* and inject
+    them into the nested ``networks`` config before Pydantic validation.
+
+    Args:
+        algo_config_dict (Dict[str, Any]): Algorithm config dictionary
+    """
+
+    # Get the algorithm specific dictionary and the networks dictionary
+    algo_specific = algo_config_dict.get("algorithm_specific", {})
+    networks = algo_specific.get("networks", {})
+
+    # Iterate over the actor and critic roles to parse and set the hidden sizes
+    for role in ("actor", "critic"):
+        key = f"{role}_hidden_size"
+        value = algo_specific.pop(key, None)
+        if value is not None:
+            hidden_sizes = _parse_hidden_sizes(value)
+            networks.setdefault(role, {}).setdefault("config", {})["hidden_sizes"] = hidden_sizes
+
 
 def merge_tune_params(algorithm_config_dict: Dict[str, Any], tune_config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -139,6 +182,42 @@ def merge_tune_params(algorithm_config_dict: Dict[str, Any], tune_config: Dict[s
             merged["algorithm_specific"] = {}
         merged["algorithm_specific"].update(tune_config["algorithm_specific"])
     
+    # Apply network size overrides
+    _apply_network_size_overrides(merged)
+
+    return merged
+
+
+def merge_env_tune_params(
+    env_config_dict: Dict[str, Any],
+    tune_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Merges sampled tune parameters into the environment config dictionary.
+    Handles ``environment`` (top-level env params like episode_length) and
+    ``features`` (individual feature toggles).
+
+    Args:
+        env_config_dict (Dict[str, Any]): Base environment config dictionary.
+        tune_config (Dict[str, Any]): Ray Tune config with sampled values.
+
+    Returns:
+        merged (Dict[str, Any]): Merged environment config dictionary.
+    """
+
+    # Deep copy the environment config dictionary
+    merged = copy.deepcopy(env_config_dict)
+
+    # Merge top-level environment parameters
+    if "environment" in tune_config:
+        for key, value in tune_config["environment"].items():
+            merged[key] = value
+
+    # Merge feature toggles
+    if "features" in tune_config:
+        merged.setdefault("features", {})
+        merged["features"].update(tune_config["features"])
+
     return merged
 
 def prepare_tune_config(
@@ -146,35 +225,38 @@ def prepare_tune_config(
     algorithm_config_path: str,
     tune_config_path: str,
     seed_manager: Optional['SeedManager'] = None,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Optional['SchedulerConfig'], Optional['SearchAlgorithmConfig']]:
     """
     Prepares the tune configuration by loading configs and building search spaces.
     
     Args:
-        env_config_path (str): Path to environment config
-        algorithm_config_path (str): Path to algorithm config
-        tune_config_path (str): Path to tune config (defines search space)
+        env_config_path (str): Path to environment config.
+        algorithm_config_path (str): Path to algorithm config.
+        tune_config_path (str): Path to tune config (defines search space).
         seed_manager (Optional['SeedManager']): Optional experiment-level ``SeedManager``.
         
     Returns:
-        config (Dict[str, Any]): Complete tune configuration dictionary
+        config (Dict[str, Any]): Complete tune configuration dictionary.
+        scheduler_config: Validated scheduler config (or None for ASHA default).
+        search_algorithm_config: Validated search algorithm config (or None for random default).
     """
 
-    # Load and validate tune config
+    # Load and validate tune config → validated TuneConfig instance
     tune_config = load_tune_config(tune_config_path)
     
-    # Build search space dict from direct fields
+    # Build search space dict from direct fields → dictionary converted from TuneConfig instance
     tune_config_dict = tune_config.model_dump(exclude_none=True)
-    search_space = {}
-    if "shared" in tune_config_dict:
-        search_space["shared"] = tune_config_dict["shared"]
-    if "algorithm_specific" in tune_config_dict:
-        search_space["algorithm_specific"] = tune_config_dict["algorithm_specific"]
+    search_space = {
+        key: tune_config_dict[key]
+        for key in TUNE_SEARCH_SPACE_SECTIONS
+        if key in tune_config_dict
+    }
     
-    # Convert search space to Ray Tune format
+    # Convert search space to Ray Tune format → search spaces converted to Ray Tune format
     tune_search_space = convert_to_tune_search(search_space)
     
-    # Create tune config
+    # Create tune config → tune config dictionary with keys in [env_config, algorithm_config, 
+    # shared, algorithm_specific, environment, features, tune_metric, tune_mode, root_seed]
     config = create_tune_config(
         env_config_path,
         algorithm_config_path,
@@ -182,87 +264,85 @@ def prepare_tune_config(
         seed_manager=seed_manager,
     )
 
-    return config
+    return config, tune_config.scheduler, tune_config.search_algorithm
 
 def get_tune_scheduler(
-    scheduler_type: str = "asha",
+    scheduler_config: Optional['SchedulerConfig'],
     metric: str = "env_runners/episode_return_mean",
     mode: str = "max",
-    **kwargs,
 ) -> Any:
     """
-    Gets a Ray Tune scheduler.
+    Gets a Ray Tune scheduler from a validated config object.
     
     Args:
-        scheduler_type (str): Type of scheduler. Options:
-            - "asha": Asynchronous Successive Halving Algorithm (default)
-            - "median_stopping": Median Stopping Rule
-            - "hyperband": HyperBand scheduler
-            - "fifo": First-In-First-Out scheduler (no early stopping)
-        metric (str): Metric to optimize. Default: "env_runners.episode_return_mean"
-        mode (str): Optimization mode ("min" or "max"). Default: "max"
-        **kwargs (Any): Scheduler-specific arguments (e.g., metric, mode, max_t, grace_period)
+        scheduler_config (Optional['SchedulerConfig']): Validated scheduler config, or None (defaults to ASHA).
+        metric (str): Metric to optimize.
+        mode (str): Optimization mode ("min" or "max").
         
     Returns:
-        tune_scheduler (Any): Tune scheduler instance or None
+        tune_scheduler (Any): Ray Tune scheduler instance.
     """
 
+    # Default to ASHA scheduler
+    if scheduler_config is None:
+        return ASHAScheduler(metric=metric, mode=mode)
+
+    # Get additional kwargs for the scheduler
+    kwargs = scheduler_config.model_dump(exclude={"type"}, exclude_none=True)
+
     # Return the corresponding Ray Tune scheduler
-    if scheduler_type == "asha":
+    if scheduler_config.type == "fifo":
+        return FIFOScheduler()
+    elif scheduler_config.type == "asha":
         return ASHAScheduler(metric=metric, mode=mode, **kwargs)
-    elif scheduler_type == "median_stopping":
+    elif scheduler_config.type == "median_stopping":
         return MedianStoppingRule(metric=metric, mode=mode, **kwargs)
-    elif scheduler_type == "hyperband":
+    elif scheduler_config.type == "hyperband":
         return HyperBandScheduler(metric=metric, mode=mode, **kwargs)
-    elif scheduler_type == "fifo":
-        return FIFOScheduler(**kwargs)
     else:
-        return None
+        raise ValueError(f"Unknown scheduler type: '{scheduler_config.type}'")
 
 def get_tune_search_algorithm(
-    search_type: str = "random",
+    search_config: Optional['SearchAlgorithmConfig'],
     metric: str = "env_runners/episode_return_mean",
     mode: str = "max",
     seed: Optional[int] = None,
-    **kwargs,
 ) -> Any:
     """
-    Gets a Ray Tune search algorithm.
+    Gets a Ray Tune search algorithm from a validated config object.
     
     Args:
-        search_type (str): Type of search algorithm. Options:
-            - "random": Random search (default, no algorithm needed)
-            - "optuna": Bayesian optimization via Optuna
-            - "bayesopt": Bayesian optimization via bayesian-optimization library
-            - "hyperopt": Bayesian optimization via HyperOpt
-            - "ax": Bayesian optimization via Facebook Ax
-            - "nevergrad": Derivative-free optimization via Nevergrad
-        metric (str): Metric to optimize. Default: "episode_reward_mean"
-        mode (str): Optimization mode ("min" or "max"). Default: "max"
-        seed (Optional[int]): Random seed for search algorithm reproducibility. Defaults to None.
-        **kwargs (Any): Additional search-specific arguments
+        search_config: Validated search algorithm config, or None (defaults to random).
+        metric (str): Metric to optimize.
+        mode (str): Optimization mode ("min" or "max").
+        seed (Optional[int]): Random seed for search algorithm reproducibility.
         
     Returns:
-        tune_search_algorithm (Any): Tune search algorithm instance or None (for random search)
+        tune_search_algorithm (Any): Tune search algorithm instance or None (for random search).
     """
 
+
+    # Default to random search
+    if search_config is None or search_config.type == "random":
+        return None
+
+    # Get additional kwargs for the search algorithm
+    kwargs = search_config.model_dump(exclude={"type"}, exclude_none=True)
+
     # Return the corresponding Ray Tune search algorithm
-    if search_type == "random":
-        return None  # Default random search
-    elif search_type == "optuna":
+    if search_config.type == "optuna":
+        from ray.tune.search.optuna import OptunaSearch
         return OptunaSearch(metric=metric, mode=mode, seed=seed, **kwargs)
-    elif search_type == "bayesopt":
+    elif search_config.type == "bayesopt":
+        from ray.tune.search.bayesopt import BayesOptSearch
         return BayesOptSearch(metric=metric, mode=mode, random_state=seed, **kwargs)
-    elif search_type == "hyperopt":
+    elif search_config.type == "hyperopt":
+        from ray.tune.search.hyperopt import HyperOptSearch
         return HyperOptSearch(metric=metric, mode=mode, random_state_seed=seed, **kwargs)
-    elif search_type == "ax":
-        return AxSearch(metric=metric, mode=mode, random_seed=seed, **kwargs)
-    elif search_type == "nevergrad":
-        return NevergradSearch(optimizer=ng.optimizers.NGOpt, optimizer_kwargs={"seed": seed}, metric=metric, mode=mode, random_state=seed, **kwargs)
     else:
         raise ValueError(
-            f"Unknown search_type: '{search_type}'. "
-            f"Supported types: 'random', 'optuna', 'bayesopt', 'hyperopt', 'ax', 'nevergrad'"
+            f"Unknown search_type: '{search_config.type}'. "
+            f"Supported types: 'random', 'optuna', 'bayesopt', 'hyperopt'"
         )
 
 def get_resources_per_trial(
@@ -271,7 +351,7 @@ def get_resources_per_trial(
     num_env_runners: int, 
     num_cpus_per_env_runner: int | None,
     algorithm_config_dict: Dict[str, Any],
-) -> Dict[str, int]:
+) -> PlacementGroupFactory:
     """
     Creates the placement group for the resources per trial.
     
@@ -311,7 +391,7 @@ def _validate_and_adjust_resources(
     num_env_runners: int, 
     num_cpus_per_env_runner: int | None,
     algorithm_config_dict: Dict[str, Any],
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int]:
     """
     Validates and adjusts resources. Adjustments are made the following way:
     - num_cpus: If not provided in args, set to 1 + (num_env_runners * num_cpus_per_env_runner)
@@ -395,9 +475,9 @@ def _validate_and_adjust_resources(
     
 def _make_placement_group_factory(
     num_cpus: int,
+    num_gpus: int,
     num_env_runners: int,
     num_cpus_per_env_runner: int,
-    num_gpus: int,
 ) -> PlacementGroupFactory:
     """
     Creates a placement group factory for based on specified resources.
@@ -422,8 +502,8 @@ def _make_placement_group_factory(
 def extract_nested_metric(data: Dict[str, Any], metric_path: str) -> Any:
     """
     Extracts a metric value from a nested dictionary using a path-like string.
-    Supports both nested paths (e.g., "env_runners/episode_return_mean") and 
-    simple keys (e.g., "episode_return_mean").
+    Supports flat keys (e.g., Tune Result.metrics stores ``"env_runners/episode_return_mean"``
+    as a literal key) and nested paths (e.g., RLlib result dicts use nested structure).
     
     Args:
         data (Dict[str, Any]): Dictionary to extract metric from
@@ -433,27 +513,39 @@ def extract_nested_metric(data: Dict[str, Any], metric_path: str) -> Any:
         metric_value (Any): Extracted metric value, or None if not found
     """
     
-    # Check if the metric is a nested path
+    # Try flat key first (for Tune Result.metrics)
+    if metric_path in data:
+        return data[metric_path]
+
+    # Then try nested traversal (for RLlib result dicts)
     if "/" in metric_path:
         parts = metric_path.split("/")
-        nested_dict = data
+        current = data
         for part in parts:
-            if isinstance(nested_dict, dict) and part in nested_dict:
-                nested_dict = nested_dict[part]
+            if isinstance(current, dict) and part in current:
+                current = current[part]
             else:
                 return None
-        return nested_dict
+        return current
 
-    # Check if the metric is a simple key    
-    else:
-        return data.get(metric_path)
+    # Set the get the metric value from the data
+    metric_value = data.get(metric_path)
+
+    return metric_value
 
 def report_tune_metrics(
     result: Dict[str, Any],
     checkpoint_path: Optional[str] = None,
     required_metrics: List[str] | str = ["env_runners/episode_return_mean"],
 ) -> None:
-    """Report results and optionally a checkpoint to Ray Tune."""
+    """
+    Reports results and optionally a checkpoint to Ray Tune.
+    
+    Args:
+        result (Dict[str, Any]): Result dictionary from training iteration
+        checkpoint_path (Optional[str]): Path to checkpoint directory
+        required_metrics (List[str] | str): List of metrics to report or single metric string
+    """
     
     # Handle both single metric string and list of metrics strings by normalizing to list
     if isinstance(required_metrics, str):
@@ -467,7 +559,6 @@ def report_tune_metrics(
     }
 
     # Extract the required metrics from nested result dictionary and add to tune metrics
-    tune_metrics = {}
     for metric in metrics_list:
         metric_value = extract_nested_metric(result, metric)
         tune_metrics[metric] = metric_value
@@ -537,6 +628,14 @@ def print_and_save_best_results(
     if "algorithm_specific" in best_trial_config:
         print("  Algorithm Specific:")
         for key, value in best_trial_config["algorithm_specific"].items():
+            print(f"    {key}: {value}")
+    if "environment" in best_trial_config:
+        print("  Environment:")
+        for key, value in best_trial_config["environment"].items():
+            print(f"    {key}: {value}")
+    if "features" in best_trial_config:
+        print("  Features:")
+        for key, value in best_trial_config["features"].items():
             print(f"    {key}: {value}")
     
     # Print latest andbest checkpoints

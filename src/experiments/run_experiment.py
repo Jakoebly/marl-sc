@@ -23,6 +23,7 @@ from src.experiments.utils.ray_tune import (
     report_tune_metrics,
     prepare_tune_config,
     merge_tune_params,
+    merge_env_tune_params,
     print_and_save_best_results,
 )
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
@@ -132,8 +133,9 @@ def generate_experiment_name(
     Args:
         env_config_path (str): Path to environment config (to extract environment name)
         algorithm_config_path (str): Path to algorithm config (to extract algorithm name)
-        search_type (str): Search algorithm type
-        scheduler_type (Optional[str]): Scheduler type (if not None)
+        mode (str): Experiment mode ("single" or "tune")
+        search_type (Optional[str]): Search algorithm type string (e.g. "optuna")
+        scheduler_type (Optional[str]): Scheduler type string (e.g. "asha")
         
     Returns:
         experiment_name (str): Generated experiment name
@@ -155,10 +157,10 @@ def generate_experiment_name(
     
     # Build name components
     name_parts = [algo_name.upper(), mode, f"{n_warehouses}WH", f"{n_skus}SKU"]
-    if mode == "tune":	
-        if search_type and search_type != "none":
+    if mode == "tune":
+        if search_type and search_type != "random":
             name_parts.append(search_type)
-        if scheduler_type and scheduler_type != "none":
+        if scheduler_type and scheduler_type != "fifo":
             name_parts.append(scheduler_type)
     name_parts.append(timestamp)
     
@@ -214,7 +216,6 @@ def run_single_experiment(
     # Setup WandB to log metrics to WandB
     wandb_config, _ = setup_wandb(
         wandb_project=wandb_project,
-        algorithm_config_path=algorithm_config_path,
         mode="single",
         wandb_name=wandb_name if wandb_name else experiment_name,
     )
@@ -299,7 +300,6 @@ def run_evaluation(
     # Setup WandB to log metrics
     wandb_config, _ = setup_wandb(
         wandb_project=wandb_project,
-        algorithm_config_path=algorithm_config_path,
         mode="single",
         wandb_name=wandb_name if wandb_name else f"eval_{Path(checkpoint_dir).name}",
     )
@@ -321,7 +321,6 @@ def run_evaluation(
 
     return result
 
-
 def run_tune_experiment(
     env_config_path: str,
     algorithm_config_path: str,
@@ -329,8 +328,6 @@ def run_tune_experiment(
     num_samples: int,
     output_dir: str,
     wandb_project: Optional[str] = None,
-    scheduler_type: str = "asha",
-    search_type: str = "random",
     num_cpus: Optional[int] = None,
     num_gpus: int = 0,
     num_cpus_per_env_runner: Optional[int] = None,
@@ -343,15 +340,13 @@ def run_tune_experiment(
     Args:
         env_config_path (str): Path to base environment config
         algorithm_config_path (str): Path to base algorithm config
-        tune_config_path (str): Path to tune config (defines search space)
+        tune_config_path (str): Path to tune config (defines search space, scheduler, search algorithm)
         num_samples (int): Number of trials to run
         output_dir (str): Output directory for results
         wandb_project (Optional[str]): WandB project name
-        scheduler_type (str): Tune scheduler type
-        search_type (str): Tune search algorithm type
-        num_cpus (int): CPUs per trial. Must be at least 2 (1 for main process + 1 per env runner).
-            Default: 2
+        num_cpus (Optional[int]): CPUs per trial.
         num_gpus (int): GPUs per trial
+        num_cpus_per_env_runner (Optional[int]): CPUs per env runner
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
         root_seed (Optional[int]): Root seed for reproducibility. Defaults to None.
     """
@@ -359,72 +354,71 @@ def run_tune_experiment(
     # Initialize Ray
     ray.init(ignore_reinit_error=True)
 
-    # Generate experiment name if not provided
-    if experiment_name is None:
-        experiment_name = generate_experiment_name(
-            env_config_path=env_config_path,
-            algorithm_config_path=algorithm_config_path,
-            mode="tune",
-            search_type=search_type,
-            scheduler_type=scheduler_type,
-        )
-    
     # Create the single top-level SeedManager for the tune experiment
     seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
 
-    # Prepare configuration (i.e., merge environment, algorithm and tune configs)
-    config = prepare_tune_config(
+    # Prepare configuration by merging environment, algorithm and tune configs
+    search_config, scheduler_config, search_algorithm_config = prepare_tune_config(
         env_config_path=env_config_path,
         algorithm_config_path=algorithm_config_path,
         tune_config_path=tune_config_path,
         seed_manager=seed_manager,
     )
 
+    # Generate experiment name if not provided
+    if experiment_name is None:
+        experiment_name = generate_experiment_name(
+            env_config_path=env_config_path,
+            algorithm_config_path=algorithm_config_path,
+            mode="tune",
+            search_type=search_algorithm_config.type if search_algorithm_config else None,
+            scheduler_type=scheduler_config.type if scheduler_config else None,
+        )
+
     # Setup WandB callback to log metrics to WandB
     _, callbacks = setup_wandb(
         wandb_project=wandb_project,
-        algorithm_config_path=algorithm_config_path,
         mode="tune",
+        experiment_name=experiment_name,
     )
 
-    # Get required resources per trial (i.e., number of CPUs and GPUs needed per trial)
+    # Get required resources per trial
     resources_per_trial = get_resources_per_trial(
         num_cpus=num_cpus,
         num_gpus=num_gpus, 
-        num_env_runners=config["algorithm_config"]["shared"]["num_env_runners"], 
+        num_env_runners=search_config["algorithm_config"]["shared"]["num_env_runners"], 
         num_cpus_per_env_runner=num_cpus_per_env_runner,
-        algorithm_config_dict=config["algorithm_config"],
+        algorithm_config_dict=search_config["algorithm_config"],
     )
 
     # Wrap trainable with resources
     trainable_with_resources = tune.with_resources(trainable, resources_per_trial)
 
-    # Set metric and mode and add it to the config
+    # Set metric and mode and add it to the search config
     metric = "env_runners/episode_return_mean"
     mode = "max"
-    config["tune_metric"] = metric
-    config["tune_mode"] = mode
+    search_config["tune_metric"] = metric
+    search_config["tune_mode"] = mode
 
-    # Add root seed to the config
-    config["root_seed"] = root_seed
+    # Add root seed to the search config
+    search_config["root_seed"] = root_seed
 
-    # Setup scheduler and search spaces
-    scheduler = get_tune_scheduler(scheduler_type, metric=metric, mode="max")
-    search_alg = get_tune_search_algorithm(search_type, metric=metric, mode="max", seed=root_seed)
+    # Setup scheduler and search algorithm from validated config objects
+    scheduler = get_tune_scheduler(scheduler_config, metric=metric, mode=mode)
+    search_seed = seed_manager.get_seed_int('train')
+    search_alg = get_tune_search_algorithm(search_algorithm_config, metric=metric, mode=mode, seed=search_seed)
 
     # Create a tuner
-    # config: base configs and hyperparameter search spaces (passed to trainable)
+    # search_config: base configs and hyperparameter search spaces (passed to trainable)
     # tune_config: controls how Ray Tune runs the search
     # run_config: controls experiment execution and output
     tuner = tune.Tuner(
         trainable_with_resources,
-        param_space=config,
+        param_space=search_config,
         tune_config=tune.TuneConfig(
             num_samples=num_samples,
             scheduler=scheduler,
             search_alg=search_alg,
-            metric=metric,
-            mode=mode,                    
         ),
         run_config=RunConfig(
             name=experiment_name,
@@ -459,12 +453,12 @@ def trainable(config: Dict[str, Any]):
     root_seed = config.get("root_seed")
     seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
 
-    # Get env config from config dict (already validated & serialised by tune prep)
-    env_config = validate_config(config["env_config"], EnvironmentConfig)
+    # Merge env tune params (environment + features) into env config and validate
+    env_config_dict = merge_env_tune_params(config["env_config"], config)
+    env_config = validate_config(env_config_dict, EnvironmentConfig)
 
-    # Get algorithm config from config dict and merge tune parameters into it
-    algorithm_config_dict = config["algorithm_config"].copy()
-    algorithm_config_dict = merge_tune_params(algorithm_config_dict, config)
+    # Merge algorithm tune params (shared + algorithm_specific) and validate
+    algorithm_config_dict = merge_tune_params(config["algorithm_config"], config)
     algorithm_config = validate_config(algorithm_config_dict, AlgorithmConfig)
 
     # Get WandB config (if provided)
@@ -504,7 +498,7 @@ def trainable(config: Dict[str, Any]):
 
     # Create callback for reporting single iterations to Ray Tune
     from functools import partial
-    tune_callback = partial(report_tune_metrics, required_metric=config["tune_metric"])
+    tune_callback = partial(report_tune_metrics, required_metrics=config["tune_metric"])
 
     # Run training with callback
     result = runner.run(tune_callback=tune_callback)
@@ -557,21 +551,6 @@ def main():
         default=10,
         help="Number of trials for tune mode"
     )
-    parser.add_argument(
-        "--scheduler",
-        type=str,
-        default="asha",
-        choices=["asha", "median_stopping", "hyperband", "fifo", "none"],
-        help="Tune scheduler type. Options: 'asha', 'median_stopping', 'hyperband', 'fifo', 'none'"
-    )
-    parser.add_argument(
-        "--search",
-        type=str,
-        default="random",
-        choices=["random", "optuna", "bayesopt", "hyperopt", "ax", "nevergrad"],
-        help="Tune search algorithm type. Options: 'random', 'optuna', 'bayesopt', 'hyperopt', 'ax', 'nevergrad'"
-    )
-    
     # Output
     parser.add_argument(
         "--output-dir",
@@ -699,10 +678,7 @@ def main():
         if not args.tune_config:
             raise ValueError("--tune-config is required for tune mode")
 
-        # Get scheduler type to handle the None case (type(str) -> type(None))
-        scheduler_type = None if args.scheduler == "none" else args.scheduler
-
-        # Run the hyperparameter tuning experiment
+        # Run the tune experiment
         run_tune_experiment(
             env_config_path=args.env_config,
             algorithm_config_path=args.algorithm_config,
@@ -710,10 +686,9 @@ def main():
             num_samples=args.num_samples,
             output_dir=args.output_dir,
             wandb_project=args.wandb_project,
-            scheduler_type=scheduler_type,
-            search_type=args.search,
             num_cpus=args.num_cpus,
             num_gpus=args.num_gpus,
+            num_cpus_per_env_runner=args.num_cpus_per_env_runner,
             experiment_name=args.experiment_name,
             root_seed=args.root_seed,
         )

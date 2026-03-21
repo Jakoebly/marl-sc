@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from src.config.schema import EnvironmentConfig
+from src.config.schema import EnvironmentConfig, FeatureConfig
 
 
 def compute_obs_statistics(
@@ -20,8 +20,8 @@ def compute_obs_statistics(
       a single (mean, std); aggregate dimensions get their own independent
       (mean, std).
 
-    The returned arrays have shape ``(feature_dim,)`` where
-    ``feature_dim = (7 + max_expected_lead_time) * n_skus + 6``.
+    The returned arrays have shape ``(local_obs_dim,)`` where the dimension
+    is computed dynamically from the environment's feature config.
     Features with near-zero std are set to 1.0.
 
     Args:
@@ -32,15 +32,14 @@ def compute_obs_statistics(
 
     Returns:
         (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing the mean and standard deviation of the observations. 
-            Shape of each np.ndarray: (feature_dim,).
+            Shape of each np.ndarray: (local_obs_dim,).
     """
 
     from src.environment.envs.multi_env import InventoryEnvironment
 
     env = InventoryEnvironment(env_config, seed=seed)
     n_skus = env.n_skus
-    max_expected_lead_time = env.max_expected_lead_time
-    local_obs_dim = (7 + max_expected_lead_time) * n_skus + 6
+    local_obs_dim = env._compute_local_obs_dim()
 
     action_rng = np.random.default_rng(seed)
     all_local_obs = []
@@ -66,7 +65,9 @@ def compute_obs_statistics(
     all_local_obs = np.array(all_local_obs, dtype=np.float32)
 
     if mode == "meanstd_grouped":
-        obs_mean, obs_std = _compute_grouped_stats(all_local_obs, n_skus, max_expected_lead_time)
+        obs_mean, obs_std = _compute_grouped_stats(
+            all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,
+        )
     else:
         obs_mean = all_local_obs.mean(axis=0)
         obs_std = all_local_obs.std(axis=0)
@@ -84,43 +85,47 @@ def compute_obs_statistics(
 def _compute_grouped_stats(
     all_obs: np.ndarray,
     n_skus: int,
-    max_lt: int,
+    max_expected_lead_time: int,
+    feature_config: FeatureConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes shared (mean, std) for per-SKU columns within each feature group.
-    Aggregate columns get their own independent (mean, std).
-
-    Feature groups and their per-SKU column counts:
-        1. Inventory:           n_skus       + 1 aggregate
-        2. Pipeline:            max_lt*n_skus + 1 aggregate
-        3. Demand home:         n_skus       + 1 aggregate
-        4. Shipped home:        n_skus         (no aggregate)
-        5. Shipped away:        n_skus       + 1 aggregate
-        6. Stockout:            n_skus         (no aggregate)
-        7. Rolling demand mean: n_skus       + 1 aggregate
-        8. Demand forecast:     n_skus       + 1 aggregate
+    Aggregate columns get their own independent (mean, std).  Only enabled
+    features (as determined by *feature_config*) are included.
 
     Args:
         all_obs (np.ndarray): Collected observations. Shape: (N, local_obs_dim).
         n_skus (int): Number of SKUs.
         max_expected_lead_time (int): Maximum expected lead time (pipeline slots).
+        feature_config (FeatureConfig): Active feature configuration.
 
     Returns:
-        (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing the mean and standard deviation of the observations. 
+        (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing
+            the mean and standard deviation of the observations.
             Shape of each np.ndarray: (local_obs_dim,).
     """
 
-    # Define feature groups and their per-SKU column counts
-    groups = [
-        (n_skus,          True),   # 1. Inventory
-        (max_lt * n_skus, True),   # 2. Pipeline
-        (n_skus,          True),   # 3. Demand home
-        (n_skus,          False),  # 4. Shipped home
-        (n_skus,          True),   # 5. Shipped away
-        (n_skus,          False),  # 6. Stockout
-        (n_skus,          True),   # 7. Rolling demand mean
-        (n_skus,          True),   # 8. Demand forecast
-    ]
+    # Get feature config
+    features = feature_config
+
+    # Build groups list dynamically: (sku_column_count, has_aggregate)
+    groups = []
+    if features.inventory:
+        groups.append((n_skus, features.inventory_aggregate))
+    if features.pipeline:
+        groups.append((max_expected_lead_time * n_skus, features.pipeline_aggregate))
+    if features.incoming_demand_home:
+        groups.append((n_skus, features.incoming_demand_home_aggregate))
+    if features.units_shipped_home:
+        groups.append((n_skus, False))
+    if features.units_shipped_away:
+        groups.append((n_skus, features.units_shipped_away_aggregate))
+    if features.stockout:
+        groups.append((n_skus, False))
+    if features.rolling_demand_mean:
+        groups.append((n_skus, features.rolling_demand_mean_aggregate))
+    if features.demand_forecast:
+        groups.append((n_skus, features.demand_forecast_aggregate))
 
     # Initialize mean and std arrays
     feature_dim = all_obs.shape[1]

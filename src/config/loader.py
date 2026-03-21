@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Type, Dict, Any, Union, Annotated, get_origin, Optional, TYPE_CHECKING
 from pydantic import BaseModel, ValidationError, TypeAdapter
 
-from .schema import EnvironmentConfig, IPPOConfig, MAPPOConfig, AlgorithmConfig, TuneConfig
+from .schema import (
+    EnvironmentConfig, FeatureConfig, IPPOConfig, MAPPOConfig,
+    AlgorithmConfig, TuneConfig, TUNE_SEARCH_SPACE_SECTIONS,
+)
 
 if TYPE_CHECKING:
     from src.utils.seed_manager import SeedManager
@@ -86,9 +89,41 @@ def validate_config(config_dict: Dict[str, Any], schema: Union[Type[BaseModel], 
         )
 
 
-def load_environment_config(path: str, seed_manager: Optional['SeedManager'] = None) -> EnvironmentConfig:
+def load_feature_config(path: str) -> FeatureConfig:
+    """
+    Loads and validates a feature configuration from a YAML file.
+
+    Args:
+        path (str): Path to feature config YAML file.
+
+    Returns:
+        validated_config (FeatureConfig): Validated FeatureConfig instance.
+    """
+
+    # Load the configuration dictionary from the YAML file
+    config_dict = load_yaml(path)
+
+    # Extract 'features' key if present
+    if 'features' in config_dict:
+        config_dict = config_dict['features']
+
+    # Validate the configuration dictionary against the FeatureConfig schema
+    validated_config = validate_config(config_dict, FeatureConfig)
+
+    return validated_config
+
+
+def load_environment_config(
+    path: str,
+    seed_manager: Optional['SeedManager'] = None,
+) -> EnvironmentConfig:
     """
     Loads and validates environment configuration from a YAML file.
+
+    When ``feature_config_path`` is declared inside the YAML, the referenced
+    feature config is loaded and merged into the environment config before
+    validation.  The key is consumed (popped) and does not appear on the
+    validated ``EnvironmentConfig``.
 
     When data_source.type is "synthetic", weights, distances, and cost structures
     are automatically generated via ``DataGenerator`` (seeded through
@@ -110,7 +145,14 @@ def load_environment_config(path: str, seed_manager: Optional['SeedManager'] = N
     if 'environment' in config_dict:
         config_dict = config_dict['environment']
 
+    # Migrate the environment config to the new action_space schema
     config_dict = _migrate_env_config(config_dict)
+
+    # Load and merge a referenced feature config file (if declared)
+    feature_config_path = config_dict.pop("feature_config_path", None)
+    if feature_config_path is not None:
+        feature_config = load_feature_config(feature_config_path)
+        config_dict["features"] = feature_config.model_dump()
     
     # Auto-generate synthetic data if data_source.type is "synthetic"
     if config_dict.get("data_source", {}).get("type") == "synthetic":
@@ -203,7 +245,12 @@ def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig]:
 
 def load_tune_config(path: str) -> TuneConfig:
     """
-    Loads and validates tune configuration from a YAML file.
+    Loads and validates tune configurations from a YAML file.
+    
+    The YAML may contain top-level keys ``search_space``, ``scheduler``, and
+    ``search_algorithm``.  The search space is unpacked so that its ``shared``,
+    ``algorithm_specific``, ``environment``, and ``features`` sub-keys become
+    direct fields on ``TuneConfig``.
     
     Args:
         path (str): Path to tune config YAML file
@@ -214,13 +261,27 @@ def load_tune_config(path: str) -> TuneConfig:
 
     # Load the configuration dictionary from the YAML file
     config_dict = load_yaml(path)
-    
-    # Extract 'search_space' key if present (for backward compatibility)
+
+    # Flatten search_space sub-keys into top-level tune dict fields
+    tune_dict: Dict[str, Any] = {}
     if 'search_space' in config_dict:
-        config_dict = config_dict['search_space']
-    
+        search_space = config_dict['search_space']
+        for key in TUNE_SEARCH_SPACE_SECTIONS:
+            if key in search_space:
+                tune_dict[key] = search_space[key]
+    else:
+        for key in TUNE_SEARCH_SPACE_SECTIONS:
+            if key in config_dict:
+                tune_dict[key] = config_dict[key]
+
+    # Pass through scheduler and search_algorithm if present
+    if 'scheduler' in config_dict:
+        tune_dict['scheduler'] = config_dict['scheduler']
+    if 'search_algorithm' in config_dict:
+        tune_dict['search_algorithm'] = config_dict['search_algorithm']
+
     # Validate the configuration dictionary against the TuneConfig schema
-    validated_config = validate_config(config_dict, TuneConfig)
+    validated_config = validate_config(tune_dict, TuneConfig)
     
     return validated_config
 

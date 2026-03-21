@@ -1,88 +1,24 @@
-from typing import Optional, Callable, Any, Tuple, List, Dict
+from typing import Optional, Any, Tuple, List, Dict
 import numbers
 from ray.air.integrations.wandb import WandbLoggerCallback
 import wandb
 
-from src.config.loader import load_algorithm_config
-
-
-def create_wandb_callback(
-    project: str,
-    name: Optional[Callable] = None,
-    log_config: bool = True,
-    upload_checkpoints: bool = False,
-    **wandb_kwargs: Any
-) -> WandbLoggerCallback:
-    """
-    Creates a WandB callback for Ray Tune with custom naming.
-    
-    Args:
-        project (str): WandB project name
-        name (Optional[Callable]): Optional callable that takes a trial and returns a run name.
-              If None, uses default trial name.
-        log_config (bool): Whether to log config/hyperparameters
-        upload_checkpoints (bool): Whether to upload checkpoints as artifacts
-        **wandb_kwargs: Additional WandB init arguments
-        
-    Returns:
-        wandb_callback (WandbLoggerCallback): WandB logger callback instance
-    """
-
-    # Create WandB logger callback
-    wandb_callback = WandbLoggerCallback(
-        project=project,
-        name=name,
-        log_config=log_config,
-        upload_checkpoints=upload_checkpoints,
-        **wandb_kwargs
-    )
-
-    return wandb_callback
-
-def create_wandb_run_name_fn(algorithm_name: Optional[str] = None) -> Callable:
-    """
-    Creates a function for custom WandB run naming that includes trial ID and key hyperparameters.
-    
-    Args:
-        algorithm_name (Optional[str]): Optional algorithm name to include in run name
-        
-    Returns:
-        wandb_run_name (Callable): Function that takes a trial and returns a run name string
-    """
-
-    def wandb_run_name(trial):
-        """Generates a WandB run name from a trial."""
-
-        # Extract trial ID from trial
-        trial_id = trial.trial_id
-        
-        # Extract algorithm name from trial config if not provided
-        algo_name = algorithm_name
-        if algo_name is None:
-            algo_config = trial.config.get("algorithm_config", {})
-            algo_name = algo_config.get("name", "unknown")
-        
-        # Extract key hyperparameters for naming
-        parts = [algo_name, trial_id]
-        
-        return "_".join(parts)
-    
-    return wandb_run_name
 
 def setup_wandb(
     wandb_project: Optional[str],
-    algorithm_config_path: str,
     mode: str = "single",
     wandb_name: Optional[str] = None,
+    experiment_name: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, str]], List]:
     """
     Sets up WandB configuration for a single or tune experiment.
     
     Args:
         wandb_project (Optional[str]): WandB project name
-        algorithm_config_path (str): Path to algorithm config (for tune mode)
         mode (str): "single" for single experiments, "tune" for hyperparameter tuning
         wandb_name (Optional[str]): WandB run name (for single mode)
+        experiment_name (Optional[str]): Experiment name used as WandB group (for tune mode).
+            Each trial's run name defaults to its Ray Tune trial name.
         
     Returns:
         wandb_config (Optional[Dict[str, str]]): WandB config dict for ExperimentRunner (single mode)
@@ -104,12 +40,9 @@ def setup_wandb(
 
     # For tune mode, return callbacks for Ray Tune
     elif mode == "tune":
-        algorithm_config = load_algorithm_config(algorithm_config_path)
-        wandb_name_fn = create_wandb_run_name_fn(algorithm_name=algorithm_config.name)
-        
-        callbacks = [create_wandb_callback(
+        callbacks = [WandbLoggerCallback(
             project=wandb_project,
-            name=wandb_name_fn,
+            group=experiment_name,
             log_config=True,
             upload_checkpoints=False,
         )]
