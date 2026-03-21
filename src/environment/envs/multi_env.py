@@ -5,7 +5,7 @@ import numpy as np
 from gymnasium.spaces import Box
 from pettingzoo import ParallelEnv
 
-from src.config.schema import EnvironmentConfig, InitialInventoryUniform, InitialInventoryCustom, InitialInventoryZero
+from src.config.schema import EnvironmentConfig, FeatureConfig, InitialInventoryUniform, InitialInventoryCustom, InitialInventoryZero
 from src.environment.registry import (
     get_demand_sampler,
     get_demand_allocator,
@@ -84,6 +84,9 @@ class InventoryEnvironment(ParallelEnv):
         self.n_regions = env_config.n_regions
         self.episode_length = env_config.episode_length
         self.max_wh_capacities = env_config.max_wh_capacities
+
+        # Store feature config
+        self.feature_config = env_config.features
 
         # Store action space formulation parameters
         self.action_space_type = env_config.action_space.type
@@ -352,20 +355,10 @@ class InventoryEnvironment(ParallelEnv):
     
     def observation_space(self, agent: str) -> Box:
         """
-        Returns the observation space for a warehouse consisting of 8 feature groups per 
-        warehouse w (S = n_skus, L = max_expected_lead_time):
-
-            - inventory              (S per-SKU + 1 aggregate            = S+1)
-            - pipeline               (L*S per-slot-per-SKU + 1 aggregate = L*S+1)
-            - incoming demand (home) (S per-SKU + 1 aggregate            = S+1)
-            - units shipped (home)   (S per-SKU                          = S)
-            - units shipped (away)   (S per-SKU + 1 aggregate            = S+1)
-            - stockout               (S per-SKU                          = S)
-            - rolling demand mean    (S per-SKU + 1 aggregate            = S+1)
-            - demand forecast        (S per-SKU + 1 aggregate            = S+1)
-
-        The observation is a flat vector that concatenates the local observation (this warehouse's
-        features) followed by the global observation (all warehouses' features concatenated).
+        Returns the observation space for a warehouse. The observation is a flat vector
+        that concatenates the local observation (this warehouse's features) followed by
+        the global observation (all warehouses' features concatenated). Which feature
+        groups and aggregates are included is controlled by ``self.feature_config``.
         The RLModule splits this flat vector using local_obs_dim passed via model_config.
         
         Args:
@@ -373,15 +366,11 @@ class InventoryEnvironment(ParallelEnv):
             
         Returns:
             observation_space (Box): Flat observation space for a warehouse.
-                Shape: (local_obs_dim + global_obs_dim,) where
-                local_obs_dim = (7 + max_expected_lead_time) * n_skus + 6
-                and global_obs_dim = n_warehouses * local_obs_dim.
+                Shape: (local_obs_dim + global_obs_dim,).
         """
 
-        # Compute dimensions of local and global observation spaces
-        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 6
-        if self.include_warehouse_id:
-            local_obs_dim += self.n_warehouses  
+        # Compute the local and global observation dimensions
+        local_obs_dim = self._compute_local_obs_dim()
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the flat observation space (local + global concatenated)
@@ -396,14 +385,11 @@ class InventoryEnvironment(ParallelEnv):
         Returns the global observation space (concatenation of all local observations).
         
         Returns:
-            global_observation_space (Box): Box space for global observation space. 
-                Shape: (n_warehouses * (8 * n_skus + 6),).
+            global_observation_space (Box): Box space for global observation space.
         """
 
-        # Compute dimension of global observation space
-        local_obs_dim = (7 + self.max_expected_lead_time) * self.n_skus + 6
-        if self.include_warehouse_id:
-            local_obs_dim += self.n_warehouses 
+        # Compute global observation dimension
+        local_obs_dim = self._compute_local_obs_dim()
         global_obs_dim = self.n_warehouses * local_obs_dim
 
         # Create the global observation space
@@ -442,6 +428,66 @@ class InventoryEnvironment(ParallelEnv):
     # ============================================================================
     # Environment Helper Functions
     # ============================================================================
+
+    def _compute_local_obs_dim(self) -> int:
+        """
+        Computes the local observation dimension dynamically based on which
+        features and aggregates are enabled in ``self.feature_config``.
+
+        Returns:
+            dim (int): Local observation vector length for one warehouse.
+        """
+
+        # Get number of SKUs, maximum expected lead time, and feature config
+        n_skus = self.n_skus
+        max_lead_time = self.max_expected_lead_time
+        features = self.feature_config
+
+        # Initialize local observation dimension
+        local_obs_dim = 0
+
+        # Add the dimensions of the enabled features
+        if features.inventory:
+            local_obs_dim += n_skus
+            if features.inventory_aggregate:
+                local_obs_dim += 1
+        if features.pipeline:
+            local_obs_dim += max_lead_time * n_skus
+            if features.pipeline_aggregate:
+                local_obs_dim += 1
+        if features.incoming_demand_home:
+            local_obs_dim += n_skus
+            if features.incoming_demand_home_aggregate:
+                local_obs_dim += 1
+        if features.units_shipped_home:
+            local_obs_dim += n_skus
+        if features.units_shipped_away:
+            local_obs_dim += n_skus
+            if features.units_shipped_away_aggregate:
+                local_obs_dim += 1
+        if features.stockout:
+            local_obs_dim += n_skus
+        if features.rolling_demand_mean:
+            local_obs_dim += n_skus
+            if features.rolling_demand_mean_aggregate:
+                local_obs_dim += 1
+        if features.demand_forecast:
+            local_obs_dim += n_skus
+            if features.demand_forecast_aggregate:
+                local_obs_dim += 1
+        if features.days_of_supply:
+            local_obs_dim += n_skus
+        if features.net_inventory_position:
+            local_obs_dim += n_skus
+        if features.demand_variability:
+            local_obs_dim += n_skus
+        if features.demand_history:
+            local_obs_dim += self.rolling_window * n_skus
+
+        if self.include_warehouse_id:
+            local_obs_dim += self.n_warehouses
+
+        return local_obs_dim
 
     def _initialize_inventory(self, rng: Optional[np.random.Generator] = None) -> np.ndarray:
         """
@@ -489,23 +535,9 @@ class InventoryEnvironment(ParallelEnv):
 
     def _get_observations(self) -> Dict[str, np.ndarray]:
         """
-        Builds per-warehouse local and global observations consisting of 8 feature groups.
-        For obs_normalization == "ratio", per-SKU features are ratio-normalized (fractions)
-        and aggregate features are log1p-scaled totals or ratios. For "meanstd_custom",
-        raw features are assembled and then the entire local vector is normalized using
-        precomputed mean/std from a random-policy rollout. For "off" and "meanstd",
-        per-SKU features are raw values with the same aggregate features appended ("meanstd" 
-        lets RLlib handle mean/std normalization).
-        
-        Feature groups per warehouse w (S = n_skus, L = max_expected_lead_time):
-            1. Inventory:           S per-SKU + 1 aggregate            = S+1)
-            2. Pipeline:            L*S per-slot-per-SKU + 1 aggregate  (L*S+1)
-            3. Demand home:         S per-SKU + 1 aggregate             (S+1)
-            4. Shipped home:        S per-SKU                           (S)
-            5. Shipped away:        S per-SKU + 1 aggregate     	    (S+1)
-            6. Stockout:            S per-SKU                           (S)
-            7. Rolling demand mean: S per-SKU + 1 aggregate             (S+1)
-            8. Demand forecast:     S per-SKU + 1 aggregate             (S+1)
+        Builds per-warehouse local and global observations.  Which feature
+        groups and aggregates are included is controlled by ``self.feature_config``.
+        Normalization mode is determined by ``self.obs_normalization``.
         
         Returns:
             observations (Dict[str, np.ndarray]): Dictionary mapping warehouse_id to flat 
@@ -532,9 +564,8 @@ class InventoryEnvironment(ParallelEnv):
 
     def _build_local_obs(self, warehouse_idx: int) -> np.ndarray:
         """
-        Builds the local observation vector for a single warehouse by extracting raw
-        per-SKU features, computing the expected pipeline breakdown, optionally applying
-        ratio normalization, and concatenating everything into a flat vector.
+        Builds the local observation vector for a single warehouse.  Only feature
+        groups and aggregates enabled in ``self.feature_config`` are included.
 
         Args:
             warehouse_idx (int): Index of the warehouse in the agents list.
@@ -543,7 +574,8 @@ class InventoryEnvironment(ParallelEnv):
             local (np.ndarray): Flat local observation vector. Shape: (local_obs_dim,).
         """
 
-        # Set ratio normalization flag and epsilon
+        # Get feature config, observation normalization mode, and epsilon
+        features = self.feature_config
         use_ratio_norm = self.obs_normalization == "ratio"
         eps = 1e-8
 
@@ -565,46 +597,99 @@ class InventoryEnvironment(ParallelEnv):
         else:
             pipeline_normed = pipeline_flat
 
-        # Compute aggregate totals
+        # Compute aggregate totals (needed as ratio denominators even when aggregates are off)
         inventory_total = sku_inventory.sum()
         demand_home_total = demand_home.sum()
         shipped_total = (shipped_home + shipped_away).sum()
         rolling_mean_total = rolling_mean.sum()
         demand_forecast_total = demand_forecast.sum()
 
-        # Concatenate feature blocks into a single local observation vector
-        local = np.concatenate([
-            # 1. Inventory: per-SKU + total aggregate
-            self._feature_block(sku_inventory, inventory_total, inventory_total,
-                                use_ratio_norm, eps),
-            # 2. Pipeline: L*S per-slot-per-SKU + total aggregate
-            np.append(pipeline_normed, pending_total),
-            # 3. Incoming demand (home): per-SKU + total aggregate
-            self._feature_block(demand_home, demand_home_total, demand_home_total,
-                                use_ratio_norm, eps),
-            # 4. Units shipped (home): per-SKU only
-            self._feature_block(shipped_home, demand_home_total, None,
-                                use_ratio_norm, eps),
-            # 5. Units shipped (away): per-SKU + ratio aggregate
-            self._feature_block(shipped_away, shipped_total, shipped_away.sum() / (shipped_total + eps),
-                                use_ratio_norm, eps),
-            # 6. Stockout: per-SKU only
-            self._feature_block(stockout, demand_home_total, None,
-                                use_ratio_norm, eps),
-            # 7. Rolling demand mean: per-SKU + total aggregate
-            self._feature_block(rolling_mean, rolling_mean_total, rolling_mean_total,
-                                use_ratio_norm, eps),
-            # 8. Demand forecast: per-SKU + total aggregate
-            self._feature_block(demand_forecast, demand_forecast_total, demand_forecast_total,
-                                use_ratio_norm, eps),
-        ]).astype(np.float32)
+        # Conditionally concatenate enabled feature blocks
+        blocks = []
+
+        # 1. Inventory
+        if features.inventory:
+            agg = inventory_total if features.inventory_aggregate else None
+            blocks.append(self._feature_block(
+                sku_inventory, inventory_total, agg, use_ratio_norm, eps))
+
+        # 2. Pipeline
+        if features.pipeline:
+            if features.pipeline_aggregate:
+                blocks.append(np.append(pipeline_normed, pending_total))
+            else:
+                blocks.append(pipeline_normed)
+
+        # 3. Incoming demand home
+        if features.incoming_demand_home:
+            agg = demand_home_total if features.incoming_demand_home_aggregate else None
+            blocks.append(self._feature_block(
+                demand_home, demand_home_total, agg, use_ratio_norm, eps))
+
+        # 4. Units shipped home
+        if features.units_shipped_home:
+            blocks.append(self._feature_block(
+                shipped_home, demand_home_total, None, use_ratio_norm, eps))
+
+        # 5. Units shipped away
+        if features.units_shipped_away:
+            agg = shipped_away.sum() / (shipped_total + eps) if features.units_shipped_away_aggregate else None
+            blocks.append(self._feature_block(
+                shipped_away, shipped_total, agg, use_ratio_norm, eps))
+
+        # 6. Stockout
+        if features.stockout:
+            blocks.append(self._feature_block(
+                stockout, demand_home_total, None, use_ratio_norm, eps))
+
+        # 7. Rolling demand mean
+        if features.rolling_demand_mean:
+            agg = rolling_mean_total if features.rolling_demand_mean_aggregate else None
+            blocks.append(self._feature_block(
+                rolling_mean, rolling_mean_total, agg, use_ratio_norm, eps))
+
+        # 8. Demand forecast
+        if features.demand_forecast:
+            agg = demand_forecast_total if features.demand_forecast_aggregate else None
+            blocks.append(self._feature_block(
+                demand_forecast, demand_forecast_total, agg, use_ratio_norm, eps))
+
+        # 9. Days of supply: inventory / max(rolling_demand_mean, 1.0)
+        if features.days_of_supply:
+            dos = sku_inventory / np.maximum(rolling_mean, 1.0)
+            blocks.append(dos.astype(np.float32))
+
+        # 10. Net inventory position: inventory + pipeline_total - forecast * lead_time
+        if features.net_inventory_position:
+            pipeline_total_per_sku = pipeline.sum(axis=0)
+            expected_lt = self.expected_lead_times[warehouse_idx, :]
+            net_pos = sku_inventory + pipeline_total_per_sku - demand_forecast * expected_lt
+            blocks.append(net_pos.astype(np.float32))
+
+        # 11. Demand variability: rolling std of home-region demand
+        if features.demand_variability:
+            if len(self._demand_history_home) > 1:
+                history_stack = np.array(list(self._demand_history_home))
+                demand_std = history_stack[:, warehouse_idx, :].std(axis=0)
+            else:
+                demand_std = np.zeros(self.n_skus, dtype=np.float32)
+            blocks.append(demand_std.astype(np.float32))
+
+        # 12. Demand history: last N individual demands (most recent first, zero-padded)
+        if features.demand_history:
+            history = np.zeros((self.rolling_window, self.n_skus), dtype=np.float32)
+            for i, demand in enumerate(reversed(list(self._demand_history_home))):
+                history[i] = demand[warehouse_idx]
+            blocks.append(history.ravel())
+
+        local = np.concatenate(blocks).astype(np.float32)
 
         # Apply meanstd_custom or meanstd_grouped normalization if enabled
         if self.obs_normalization in ("meanstd_custom", "meanstd_grouped") and self.obs_stats is not None:
             obs_mean, obs_std = self.obs_stats
             local = (local - obs_mean) / obs_std
 
-        # Prepend one-hot warehouse identifier when parameter sharing is enabled (include_warehouse_id is True)
+        # Prepend one-hot warehouse identifier when parameter sharing is enabled
         if self.include_warehouse_id:
             warehouse_id_onehot = np.zeros(self.n_warehouses, dtype=np.float32)
             warehouse_id_onehot[warehouse_idx] = 1.0

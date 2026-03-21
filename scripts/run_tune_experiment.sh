@@ -4,12 +4,12 @@
 # SBATCH directives
 ##############################
 
-#SBATCH --job-name=marl-training                # Name of the job
+#SBATCH --job-name=marl-tune                    # Name of the job
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=8                       # CPU cores per task
-#SBATCH --mem=32G                               # Memory allocation
+#SBATCH --cpus-per-task=96                      # CPU cores per task
+#SBATCH --mem=256G                               # Memory allocation
 #SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
@@ -37,6 +37,9 @@ unset RAY_ADDRESS
 
 # Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
+
+# Get the memory from Slurm
+RAY_MEMORY_BYTES=$(( (${SLURM_MEM_PER_NODE:-65536} - 2048) * 1024 * 1024 ))
 
 # Determine array size and number of tasks (single job: N_TASKS=1)
 MAX_TASK_ID=${SLURM_ARRAY_TASK_MAX:-${SLURM_ARRAY_TASK_ID:-0}}
@@ -111,7 +114,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Force the current task's driver to coDefaultModelConfigect to the current task's head
+# Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
 # Print the current task's ports and Ray components
@@ -124,8 +127,9 @@ echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
 echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
 echo "Worker ports:    ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT}"
 echo "Ray temp dir:    ${RAY_TMPDIR}"
+echo "Ray memory:      ${RAY_MEMORY_BYTES} bytes"
 
-# Start Ray explicitly with ports and number of CPUs
+# Start Ray explicitly with ports, CPUs, and memory
 ray start --head \
   --port="${RAY_GCS_PORT}" \
   --node-manager-port="${RAY_NODE_MANAGER_PORT}" \
@@ -133,31 +137,27 @@ ray start --head \
   --min-worker-port="${RAY_MIN_WORKER_PORT}" \
   --max-worker-port="${RAY_MAX_WORKER_PORT}" \
   --num-cpus="${CPUS}" \
+  --memory="${RAY_MEMORY_BYTES}" \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
   || { echo "ERROR: ray start failed"; exit 1; }
 
 ##############################
-# Run training
+# Run tune experiment
 ##############################
 
 # Set output directory and experiment name
-OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"
-EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_TEST"
+OUTPUT_DIR="./experiment_outputs/Tuning"
+EXPERIMENT_NAME="IPPO_Tune"
 
 python src/experiments/run_experiment.py \
-    --mode single \
+    --mode tune \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --tune-config ./config_files/experiments/tune_config.yaml \
+    --num-samples 200 \
     --output-dir "${OUTPUT_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
-    --root-seed 42
-
-python src/experiments/run_experiment.py \
-    --mode evaluate \
-    --output-dir "${OUTPUT_DIR}" \
-    --experiment-name "${EXPERIMENT_NAME}" \
-    --visualize \
     --root-seed 42

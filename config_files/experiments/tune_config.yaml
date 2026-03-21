@@ -1,0 +1,84 @@
+search_space:
+  # --- Shared (algorithm-agnostic) hyperparameters ---
+  shared:
+    learning_rate:
+      type: loguniform
+      low: 1e-4
+      high: 3e-3
+    batch_size:
+      type: choice
+      values: [4000, 8000, 16000]
+    num_epochs:
+      type: choice
+      values: [3, 5, 10, 15, 20]
+    num_minibatches:
+      type: choice
+      values: [1, 4, 10, 20]
+
+  # --- Algorithm-specific hyperparameters ---
+  algorithm_specific:
+    entropy_coeff:
+      type: loguniform
+      low: 0.001
+      high: 0.1
+    vf_loss_coeff:
+      type: uniform
+      low: 0.2
+      high: 1.2
+    vf_clip_param:
+      type: choice
+      values: [300, 1000, 5000, 10000]
+    logstd_floor:
+      type: choice
+      values: [-3.0, -2.0, -1.0]
+    logstd_init:
+      type: choice
+      values: [-1.5, -1.0, -0.5, 0]
+    grad_clip:
+      type: choice
+      values: [5.0, 10.0, 40.0, 100000]
+    actor_hidden_size:
+      type: choice
+      values: [64, 128, 256]
+    critic_hidden_size:
+      type: choice
+      values: [64, 128, 256]
+
+  # --- Observation-space feature toggles (1=on, 0=off) ---
+  features:
+    incoming_demand_home:
+      type: choice
+      values: [1, 0]
+    units_shipped_home:
+      type: choice
+      values: [1, 0]
+    units_shipped_away:
+      type: choice
+      values: [1, 0]
+    stockout:
+      type: choice
+      values: [1, 0]
+    rolling_demand_mean:
+      type: choice
+      values: [1, 0]
+    demand_history:
+      type: choice
+      values: [1, 0]
+    days_of_supply:
+      type: choice
+      values: [1, 0]
+    net_inventory_position:
+      type: choice
+      values: [1, 0]
+    demand_variability:
+      type: choice
+      values: [1, 0]
+
+scheduler:
+  type: asha
+  max_t: 300
+  grace_period: 50
+  reduction_factor: 3
+
+search_algorithm:
+  type: optuna
