@@ -1,7 +1,7 @@
 algorithm:
   name: "ippo"
   shared:
-    num_iterations: 300
+    num_iterations: 10
     checkpoint_freq: 100
     batch_size: 8000
     num_epochs: 15

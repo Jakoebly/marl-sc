@@ -76,8 +76,8 @@ search_space:
 
 scheduler:
   type: asha
-  max_t: 300
-  grace_period: 50
+  max_t: 10
+  grace_period: 3
   reduction_factor: 3
 
 search_algorithm:
