@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List
 import ray
 from ray import tune
 from ray.tune import RunConfig, CLIReporter
+from ray.train import CheckpointConfig
 
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
@@ -25,6 +26,7 @@ from src.experiments.utils.ray_tune import (
     merge_tune_params,
     merge_env_tune_params,
     print_and_save_best_results,
+    analyze_tune_convergence,
 )
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
@@ -79,14 +81,15 @@ def _save_run_metadata(
 
 def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
     """
-    Searches recursively for a directory with the given experiment name
-    under base_dir. Supports both single-run layouts (base_dir/experiment_name)
-    and array-run layouts (base_dir/array_name/experiment_name).
-    
+    Searches recursively for a directory matching ``experiment_name``
+    under *base_dir*.  Supports exact matches as well as prefix matching
+    so that tune trial directories can be found with a short prefix
+    (e.g. ``trainable_da92fc08``) instead of the full long name.
+
     Args:
         base_dir (str): Root directory to search under (e.g., "./experiment_outputs").
-        experiment_name (str): Name of the experiment directory to find.
-        
+        experiment_name (str): Exact directory name or a unique prefix.
+
     Returns:
         experiment_dir (Path): Path to the found experiment directory.
     """
@@ -98,13 +101,20 @@ def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
             f"Base directory '{base_dir}' does not exist."
         )
 
-    # Search for directories matching the experiment name
+    # Search for directories with exact matching first
     matches = [
         p for p in base.rglob(experiment_name)
         if p.is_dir() and p.name == experiment_name
     ]
 
-    # If no matches are found, raise an error
+    # If no exact matches are found, fall back to prefix match
+    if len(matches) == 0:
+        matches = [
+            p for p in base.rglob(f"{experiment_name}*")
+            if p.is_dir() and p.name.startswith(experiment_name)
+        ]
+
+    # If no exact or prefix matches are found, raise an error
     if len(matches) == 0:
         raise FileNotFoundError(
             f"Experiment '{experiment_name}' not found under '{base_dir}'."
@@ -114,8 +124,8 @@ def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
     if len(matches) > 1:
         paths_str = "\n  ".join(str(m) for m in matches)
         raise ValueError(
-            f"Multiple directories named '{experiment_name}' found under '{base_dir}':\n  {paths_str}\n"
-            f"Please provide a more specific path or rename duplicate experiments."
+            f"Multiple directories matching '{experiment_name}' found under '{base_dir}':\n  {paths_str}\n"
+            f"Please provide a more specific prefix or the full name."
         )
 
     return matches[0]
@@ -425,6 +435,11 @@ def run_tune_experiment(
             storage_path=output_dir,
             callbacks=callbacks,
             progress_reporter=CLIReporter(),
+            checkpoint_config=CheckpointConfig(
+                num_to_keep=2,
+                checkpoint_score_attribute=metric,
+                checkpoint_score_order=mode,
+            ),
         ),
     )
 
@@ -432,9 +447,51 @@ def run_tune_experiment(
     analysis = tuner.fit()
     
     # Print and save best results
-    print_and_save_best_results(
+    best_info = print_and_save_best_results(
         analysis=analysis,
         output_dir=output_dir,
+        metric=metric,
+        mode=mode,
+    )
+
+    # Get best checkpoint and trial directory
+    best_checkpoint = best_info.get("best_checkpoint")
+    if best_checkpoint:
+        best_trial_dir = best_info.get("best_trial_path", str(Path(best_checkpoint).parent))
+
+        # Print header
+        print("\n" + "=" * 80)
+        print("EVALUATING BEST TRIAL")
+        print("=" * 80)
+
+        # Evaluate best trial's best checkpoint with visualization
+        eval_result = run_evaluation(
+            checkpoint_dir=best_checkpoint,
+            output_dir=best_trial_dir,
+            eval_episodes=50,
+            root_seed=root_seed,
+            visualize=True,
+        )
+
+        # Insert eval metric into best_trial_results.yaml
+        eval_reward = eval_result.get("evaluation", {}).get("episode_reward_mean")
+        if eval_reward is not None:
+            results_yaml_path = Path(analysis.experiment_path) / "best_trial_results.yaml"
+            if results_yaml_path.exists():
+                with open(results_yaml_path, "r") as f:
+                    saved = yaml.safe_load(f)
+                updated = {}
+                for k, v in saved.items():
+                    updated[k] = v
+                    if k == "best_trial_best_metric":
+                        updated["best_trial_eval_metric"] = float(eval_reward)
+                with open(results_yaml_path, "w") as f:
+                    yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
+                print(f"[INFO] Eval metric ({eval_reward:.4f}) saved to: {results_yaml_path}")
+
+    # Analyze and save convergence report
+    analyze_tune_convergence(
+        analysis=analysis,
         metric=metric,
         mode=mode,
     )
@@ -598,7 +655,8 @@ def main():
         "--checkpoint-number",
         type=int,
         help="Checkpoint number to evaluate (e.g. 50 for checkpoint_50). "
-             "Only used with --experiment-name. If omitted, defaults to checkpoint_final."
+             "Only used with --experiment-name. If omitted, defaults to checkpoint_best "
+             "(falls back to checkpoint_final if checkpoint_best does not exist)."
     )
     parser.add_argument(
         "--eval-episodes",
@@ -702,6 +760,8 @@ def main():
             experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
             if args.checkpoint_number is not None:
                 checkpoint_folder = f"checkpoint_{args.checkpoint_number}"
+            elif (experiment_dir / "checkpoint_best").is_dir():
+                checkpoint_folder = "checkpoint_best"
             else:
                 checkpoint_folder = "checkpoint_final"
             checkpoint_dir = str(experiment_dir / checkpoint_folder)

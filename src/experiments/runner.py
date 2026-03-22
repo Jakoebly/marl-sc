@@ -1,6 +1,8 @@
 from typing import Dict, Any, Optional, Callable
 from pathlib import Path
+import shutil
 import numpy as np
+import yaml
 import wandb
 from ray import tune
 from ray.air import session
@@ -93,19 +95,45 @@ class ExperimentRunner:
         # Get number of iterations and checkpoint frequency
         num_iterations = self.algorithm_config.shared.num_iterations
         checkpoint_freq = self.algorithm_config.shared.checkpoint_freq
+
+        # Track best metric for checkpoint_best
+        best_metric_value = float('-inf')
+        best_iteration = None
         
         # Train for the specified number of iterations
         for iteration in range(1, num_iterations + 1):
-            print(f"[INFO] Training iteration {iteration} of {num_iterations}")
             # Train one iteration
             result = self.algorithm.train()
             
             # Log metrics to WandB (if WandB config is provided)
             if self.wandb_config:
                 log_wandb_metrics(result, iteration)
-            
-            # Save and log a checkpoint (if checkpoint frequency is reached)
+
+            # Save checkpoint_best if current metric is a new best
             checkpoint_path = None
+            current_metric = result.get("env_runners", {}).get("episode_return_mean")
+            if (
+                current_metric is not None
+                and current_metric > best_metric_value
+                and self.checkpoint_dir
+            ):
+                best_metric_value = current_metric
+                best_iteration = iteration
+                checkpoint_path = self.checkpoint_dir / "checkpoint_best"
+                if checkpoint_path.exists():
+                    shutil.rmtree(checkpoint_path)
+                checkpoint_path.mkdir(parents=True, exist_ok=True)
+                checkpoint_path = str(checkpoint_path.resolve())
+                self.algorithm.save_checkpoint(
+                    checkpoint_path,
+                    env_config=self.env_config,
+                    algorithm_config=self.algorithm_config,
+                )
+                print(
+                    f"[INFO] New best checkpoint at iteration {iteration} with reward: {current_metric:.4f}"
+                )
+            
+            # Save periodic checkpoint (if checkpoint frequency is reached)
             if iteration % checkpoint_freq == 0 and self.checkpoint_dir:
                 print(f"[INFO] Saving checkpoint at iteration {iteration}")
                 checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
@@ -122,6 +150,13 @@ class ExperimentRunner:
             # Report metrics and optionally a checkpoint back to Ray Tune
             if tune_callback:
                 tune_callback(result, checkpoint_path)
+            
+            print(f"[INFO] Training iteration {iteration} of {num_iterations}: Reward: {current_metric:.4f}")
+
+        if best_iteration is not None:
+            print(
+                f"[INFO] Best checkpoint: iteration {best_iteration} with reward: {best_metric_value:.4f}"
+            )
         
         # Save final checkpoint
         final_checkpoint_path = None
@@ -271,6 +306,8 @@ class EvaluationRunner:
             checkpoint_name = Path(self.checkpoint_dir).name
             if checkpoint_name == "checkpoint_final":
                 viz_subfolder = "visualization_final"
+            elif checkpoint_name == "checkpoint_best":
+                viz_subfolder = "visualization_best"
             elif checkpoint_name.startswith("checkpoint_"):
                 chkpt_num = checkpoint_name.replace("checkpoint_", "")
                 viz_subfolder = f"visualization_chkpt{chkpt_num}"
@@ -290,11 +327,43 @@ class EvaluationRunner:
                     "visualizations_dir": str(vizualization_dir),
                 }
             }
-            print(f"[INFO] >> MEAN TOTAL REWARD: {np.mean(total_rewards)}")
 
         # If visualize is False, run standard RLlib evaluation (aggregated metrics only)
         else:
-            result = self.algorithm.evaluate(eval_episodes=num_episodes)
+            raw = self.algorithm.evaluate(eval_episodes=num_episodes)
+            eval_env = raw.get("evaluation", {}).get("env_runners", {})
+            result = {
+                "evaluation": {
+                    "episode_reward_mean": float(eval_env.get("episode_return_mean", 0)),
+                    "episode_reward_min": float(eval_env.get("episode_return_min", 0)),
+                    "episode_reward_max": float(eval_env.get("episode_return_max", 0)),
+                    "num_episodes": num_episodes,
+                }
+            }
+
+        # Print summary
+        eval_metrics = result.get("evaluation", {})
+        print("\n" + "=" * 60)
+        print("EVALUATION RESULTS")
+        print("=" * 60)
+        print(f"  Checkpoint:  {Path(self.checkpoint_dir).name}")
+        print(f"  Episodes:    {eval_metrics.get('num_episodes')}")
+        print(f"  Mean Reward: {eval_metrics.get('episode_reward_mean', 0):.4f}")
+        print(f"  Min  Reward: {eval_metrics.get('episode_reward_min', 0):.4f}")
+        print(f"  Max  Reward: {eval_metrics.get('episode_reward_max', 0):.4f}")
+        if "visualizations_dir" in eval_metrics:
+            print(f"  Viz saved:   {eval_metrics['visualizations_dir']}")
+        print("=" * 60 + "\n")
+
+        # Save eval_results.yaml
+        eval_results_path = self.output_dir / "eval_results.yaml"
+        eval_results = {
+            "checkpoint": str(self.checkpoint_dir),
+            **eval_metrics,
+        }
+        with open(eval_results_path, "w") as f:
+            yaml.dump(eval_results, f, default_flow_style=False, sort_keys=False)
+        print(f"[INFO] Evaluation results saved to: {eval_results_path}")
 
         # Log metrics and finish WandB run (if WandB config is provided)
         if self.wandb_config:
