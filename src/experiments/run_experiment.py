@@ -847,7 +847,7 @@ def main():
             # Get the experiment directory
             experiment_dir = str(find_experiment_dir(args.storage_dir, args.experiment_name))
             # Get the checkpoint directory
-            checkpoint_dir = str(find_checkpoint_dir(experiment_dir, args.checkpoint_number))
+            checkpoint_dir = str(find_checkpoint_dir(Path(experiment_dir), args.checkpoint_number))
 
         # Option 2: Explicit checkpoint path
         elif args.checkpoint_dir:
