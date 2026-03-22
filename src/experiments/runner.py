@@ -110,7 +110,6 @@ class ExperimentRunner:
                 log_wandb_metrics(result, iteration)
 
             # Save checkpoint_best if current metric is a new best
-            checkpoint_path = None
             current_metric = result.get("env_runners", {}).get("episode_return_mean")
             if (
                 current_metric is not None
@@ -119,13 +118,12 @@ class ExperimentRunner:
             ):
                 best_metric_value = current_metric
                 best_iteration = iteration
-                checkpoint_path = self.checkpoint_dir / "checkpoint_best"
-                if checkpoint_path.exists():
-                    shutil.rmtree(checkpoint_path)
-                checkpoint_path.mkdir(parents=True, exist_ok=True)
-                checkpoint_path = str(checkpoint_path.resolve())
+                best_checkpoint_path = self.checkpoint_dir / "checkpoint_best"
+                if best_checkpoint_path.exists():
+                    shutil.rmtree(best_checkpoint_path)
+                best_checkpoint_path.mkdir(parents=True, exist_ok=True)
                 self.algorithm.save_checkpoint(
-                    checkpoint_path,
+                    str(best_checkpoint_path.resolve()),
                     env_config=self.env_config,
                     algorithm_config=self.algorithm_config,
                 )
@@ -134,22 +132,23 @@ class ExperimentRunner:
                 )
             
             # Save periodic checkpoint (if checkpoint frequency is reached)
+            periodic_checkpoint_path = None
             if iteration % checkpoint_freq == 0 and self.checkpoint_dir:
                 print(f"[INFO] Saving checkpoint at iteration {iteration}")
-                checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
-                checkpoint_path.mkdir(parents=True, exist_ok=True)
-                checkpoint_path = str(checkpoint_path.resolve())
+                periodic_checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
+                periodic_checkpoint_path.mkdir(parents=True, exist_ok=True)
+                periodic_checkpoint_path = str(periodic_checkpoint_path.resolve())
                 self.algorithm.save_checkpoint(
-                    checkpoint_path,
+                    periodic_checkpoint_path,
                     env_config=self.env_config,
                     algorithm_config=self.algorithm_config,
                 )
                 if self.wandb_config:
                     wandb.log({"checkpoint_iteration": iteration})
             
-            # Report metrics and optionally a checkpoint back to Ray Tune
+            # Report metrics and optionally a periodic checkpoint to Ray Tune
             if tune_callback:
-                tune_callback(result, checkpoint_path)
+                tune_callback(result, periodic_checkpoint_path)
             
             print(f"[INFO] Training iteration {iteration} of {num_iterations}: Reward: {current_metric:.4f}")
 

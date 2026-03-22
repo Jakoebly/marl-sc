@@ -524,8 +524,6 @@ def run_tune_experiment(
             progress_reporter=CLIReporter(),
             checkpoint_config=CheckpointConfig(
                 num_to_keep=2,
-                checkpoint_score_attribute=metric,
-                checkpoint_score_order=mode,
             ),
         ),
     )
