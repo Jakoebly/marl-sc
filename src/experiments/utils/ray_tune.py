@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 from pathlib import Path
 import copy
 import yaml
+import numpy as np
 from ray.tune.schedulers import ASHAScheduler, MedianStoppingRule, HyperBandScheduler, FIFOScheduler
 from ray.tune import PlacementGroupFactory, ResultGrid
 from ray import tune
@@ -656,8 +657,8 @@ def print_and_save_best_results(
         "best_trial_latest_metric": float(best_trial_latest_metric),
         "best_trial_best_metric": float(best_trial_best_metric),
         "best_config": best_trial_config,
-        "latest_checkpoint": str(best_trial_latest_checkpoint) if best_trial_latest_checkpoint else None,
-        "best_checkpoint": str(best_trial_best_checkpoint) if best_trial_best_checkpoint else None,
+        "latest_checkpoint": best_trial_latest_checkpoint.path if best_trial_latest_checkpoint else None,
+        "best_checkpoint": best_trial_best_checkpoint.path if best_trial_best_checkpoint else None,
     }
     
     # Save to YAML
@@ -669,3 +670,238 @@ def print_and_save_best_results(
     print(f"  YAML: {best_results_path}")
     
     return best_results
+
+
+def analyze_tune_convergence(
+    analysis: ResultGrid,
+    metric: str = "env_runners/episode_return_mean",
+    mode: str = "max",
+    top_n: int = 10,
+) -> Dict[str, Any]:
+    """
+    Analyzes the convergence of a Ray Tune experiment and saves a report.
+
+    Computes running-best curves, top-N agreement percentages per tuned
+    parameter, and generates a recommendation (no further tuning, narrow
+    refinement, more trials, etc.).
+
+    Args:
+        analysis (ResultGrid): Ray Tune results.
+        metric (str): Metric to optimize.
+        mode (str): "max" or "min".
+        top_n (int): Number of top trials to analyze for agreement.
+
+    Returns:
+        report (Dict[str, Any]): Full convergence report dict.
+    """
+
+    # Get the tune sections
+    tune_sections = list(TUNE_SEARCH_SPACE_SECTIONS)
+
+    # 1. Collect metrics & configs from completed trials
+    metrics_list: List[float] = []
+    configs_list: List[Dict[str, Any]] = []
+    for r in analysis:
+        if r.metrics and metric in r.metrics:
+            metrics_list.append(r.metrics[metric])
+            configs_list.append(r.config)
+
+    n_trials = len(metrics_list)
+    if n_trials == 0:
+        print("[WARNING] No completed trials with metrics found - skipping convergence analysis.")
+        return {}
+
+    metrics_arr = np.array(metrics_list)
+
+    # 2. Running-best curve
+    if mode == "max":
+        running_best = np.maximum.accumulate(metrics_arr)
+    else:
+        running_best = np.minimum.accumulate(metrics_arr)
+
+    pct_checkpoints = {}
+    for pct in (10, 20, 30, 40, 50, 60, 70, 80, 90, 100):
+        idx = min(int(n_trials * pct / 100) - 1, n_trials - 1)
+        pct_checkpoints[f"after_{pct}pct ({idx + 1} trials)"] = round(float(running_best[idx]), 4)
+
+    last_20_start = max(0, int(n_trials * 0.80) - 1)
+    last_10_start = max(0, int(n_trials * 0.90) - 1)
+    improvement_last_20 = float(running_best[-1] - running_best[last_20_start])
+    improvement_last_10 = float(running_best[-1] - running_best[last_10_start])
+
+    # 3. Top-N trial selection
+    if mode == "max":
+        top_idx = np.argsort(metrics_arr)[-top_n:][::-1]
+    else:
+        top_idx = np.argsort(metrics_arr)[:top_n]
+
+    # 4. Detect tuned parameters (> 1 unique value across all trials)
+    all_param_keys: set = set()
+    for section in tune_sections:
+        for cfg in configs_list:
+            if section in cfg and isinstance(cfg[section], dict):
+                for key in cfg[section]:
+                    all_param_keys.add((section, key))
+
+    tuned_params: Dict[str, List[Any]] = {}
+    for section, key in all_param_keys:
+        all_vals = [cfg.get(section, {}).get(key) for cfg in configs_list]
+        unique = set(str(v) for v in all_vals if v is not None)
+        if len(unique) > 1:
+            top_vals = [configs_list[i].get(section, {}).get(key) for i in top_idx]
+            tuned_params[f"{section}/{key}"] = top_vals
+
+    # 5. Agreement analysis
+    agreement: Dict[str, Dict[str, Any]] = {}
+    locked_params: Dict[str, Any] = {}
+    variable_params: List[str] = []
+
+    for param_name, top_vals in tuned_params.items():
+        str_vals = [str(v) for v in top_vals]
+        unique = set(str_vals)
+        most_common_str = max(set(str_vals), key=lambda x: str_vals.count(x))
+        most_common_val = top_vals[str_vals.index(most_common_str)]
+        agree_pct = str_vals.count(most_common_str) / len(str_vals) * 100
+
+        is_continuous = len(unique) == top_n
+        entry: Dict[str, Any] = {
+            "dominant_value": round(most_common_val, 6) if isinstance(most_common_val, float) else most_common_val,
+            "agreement_pct": round(agree_pct, 1),
+            "unique_values": len(unique),
+            "is_continuous": is_continuous,
+        }
+        if is_continuous:
+            nums = [v for v in top_vals if isinstance(v, (int, float))]
+            if nums:
+                entry["top_n_min"] = round(float(min(nums)), 6)
+                entry["top_n_max"] = round(float(max(nums)), 6)
+                entry["top_n_mean"] = round(float(np.mean(nums)), 6)
+        agreement[param_name] = entry
+
+        if agree_pct >= 80:
+            locked_params[param_name] = entry["dominant_value"]
+        else:
+            variable_params.append(param_name)
+
+    # 6. Recommendation
+    total_tuned = len(tuned_params)
+    locked_count = len(locked_params)
+    locked_ratio = locked_count / total_tuned if total_tuned > 0 else 0
+    abs_imp = abs(improvement_last_20)
+
+    if abs_imp < 1.0 and locked_ratio >= 0.7:
+        action = "no_further_tuning"
+        reasoning = (
+            f"Search has converged: improvement in last 20% of trials is only "
+            f"{abs_imp:.2f}, and {locked_count}/{total_tuned} "
+            f"({locked_ratio * 100:.0f}%) parameters are locked in top-{top_n}."
+        )
+    elif abs_imp < 3.0 and locked_ratio >= 0.5:
+        action = "narrow_refinement"
+        reasoning = (
+            f"Search is near convergence: improvement in last 20% is {abs_imp:.2f}. "
+            f"Lock the {locked_count} converged parameters and run a focused search "
+            f"on the remaining {len(variable_params)} variable parameters."
+        )
+    elif abs_imp >= 3.0:
+        action = "more_trials"
+        reasoning = (
+            f"Search is still improving ({abs_imp:.2f} in last 20% of trials). "
+            f"Run more trials with the same search space."
+        )
+    else:
+        action = "more_trials_or_narrow"
+        reasoning = (
+            f"Mixed signals: improvement is {abs_imp:.2f} with "
+            f"{locked_ratio * 100:.0f}% params locked. "
+            f"Consider more trials or a narrower search."
+        )
+
+    recommendation: Dict[str, Any] = {
+        "action": action,
+        "reasoning": reasoning,
+    }
+    if locked_params:
+        recommendation["locked_params"] = locked_params
+    if variable_params:
+        recommendation["variable_params"] = variable_params
+    # For variable continuous params, suggest narrowed ranges based on top-N
+    suggested_ranges: Dict[str, Any] = {}
+    for vp in variable_params:
+        info = agreement.get(vp, {})
+        if info.get("is_continuous") and "top_n_min" in info:
+            suggested_ranges[vp] = {
+                "suggested_low": info["top_n_min"],
+                "suggested_high": info["top_n_max"],
+            }
+    if suggested_ranges:
+        recommendation["suggested_narrow_ranges"] = suggested_ranges
+
+    # 7. Build top-N trial details
+    top_trials = []
+    for rank, idx in enumerate(top_idx):
+        trial = {"rank": rank + 1, "reward": round(float(metrics_arr[idx]), 4)}
+        cfg = configs_list[idx]
+        # Include only learning_rate explicitly (always useful)
+        lr = cfg.get("shared", {}).get("learning_rate")
+        if lr is not None:
+            trial["learning_rate"] = round(lr, 6)
+        for param_name in tuned_params:
+            section, key = param_name.split("/", 1)
+            val = cfg.get(section, {}).get(key)
+            if isinstance(val, float):
+                val = round(val, 6)
+            trial[param_name] = val
+        top_trials.append(trial)
+
+    # 8. Assemble report
+    report = {
+        "summary": {
+            "total_trials": n_trials,
+            "best_metric": round(float(running_best[-1]), 4),
+            "metric_name": metric,
+            "mode": mode,
+        },
+        "convergence": {
+            "running_best": pct_checkpoints,
+            "improvement_last_20pct": round(improvement_last_20, 4),
+            "improvement_last_10pct": round(improvement_last_10, 4),
+        },
+        "top_n_analysis": {
+            "n": top_n,
+            "trials": top_trials,
+        },
+        "agreement": agreement,
+        "recommendation": recommendation,
+    }
+
+    # 9. Save to YAML
+    output_path = Path(analysis.experiment_path)
+    report_path = output_path / "convergence_analysis.yaml"
+    with open(report_path, "w") as f:
+        yaml.dump(report, f, default_flow_style=False, sort_keys=False)
+
+    # 10. Print summary
+    print("\n" + "=" * 80)
+    print("CONVERGENCE ANALYSIS")
+    print("=" * 80)
+    print(f"Total trials: {n_trials}")
+    print(f"Best metric: {running_best[-1]:.4f}")
+    print(f"Improvement last 20%: {improvement_last_20:.4f}")
+    print(f"Improvement last 10%: {improvement_last_10:.4f}")
+    print(f"\nLocked parameters ({locked_count}/{total_tuned}):")
+    for k, v in locked_params.items():
+        print(f"  {k}: {v}")
+    print(f"\nVariable parameters ({len(variable_params)}):")
+    for vp in variable_params:
+        info = agreement[vp]
+        if info["is_continuous"]:
+            print(f"  {vp}: continuous, top-{top_n} range [{info['top_n_min']}, {info['top_n_max']}]")
+        else:
+            print(f"  {vp}: {info['agreement_pct']}% agree on {info['dominant_value']} ({info['unique_values']} unique)")
+    print(f"\nRECOMMENDATION: {action}")
+    print(f"  {reasoning}")
+    print("=" * 80)
+    print(f"\nConvergence analysis saved to: {report_path}\n")
+
+    return report
