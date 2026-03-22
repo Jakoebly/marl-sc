@@ -416,6 +416,48 @@ def plot_shipment_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> N
     plt.close(fig)
 
 
+def _build_feature_groups(
+    feature_config: dict,
+    n_skus: int,
+    max_lt: int,
+    rolling_window: int,
+) -> list:
+    """
+    Builds the list of (name, n_columns, has_aggregate) tuples that mirrors the
+    order in which ``InventoryEnvironment._build_local_obs`` concatenates features.
+    Only features enabled in *feature_config* are included.
+    """
+    fc = feature_config
+    groups = []
+
+    if fc.get("inventory"):
+        groups.append(("Inventory", n_skus, bool(fc.get("inventory_aggregate"))))
+    if fc.get("pipeline"):
+        groups.append(("Pipeline", max_lt * n_skus, bool(fc.get("pipeline_aggregate"))))
+    if fc.get("incoming_demand_home"):
+        groups.append(("Incoming Demand (Home)", n_skus, bool(fc.get("incoming_demand_home_aggregate"))))
+    if fc.get("units_shipped_home"):
+        groups.append(("Shipped (Home)", n_skus, False))
+    if fc.get("units_shipped_away"):
+        groups.append(("Shipped (Away)", n_skus, bool(fc.get("units_shipped_away_aggregate"))))
+    if fc.get("stockout"):
+        groups.append(("Stockout", n_skus, False))
+    if fc.get("rolling_demand_mean"):
+        groups.append(("Rolling Demand Mean", n_skus, bool(fc.get("rolling_demand_mean_aggregate"))))
+    if fc.get("demand_forecast"):
+        groups.append(("Demand Forecast", n_skus, bool(fc.get("demand_forecast_aggregate"))))
+    if fc.get("days_of_supply"):
+        groups.append(("Days of Supply", n_skus, False))
+    if fc.get("net_inventory_position"):
+        groups.append(("Net Inventory Position", n_skus, False))
+    if fc.get("demand_variability"):
+        groups.append(("Demand Variability", n_skus, False))
+    if fc.get("demand_history"):
+        groups.append(("Demand History", rolling_window * n_skus, False))
+
+    return groups
+
+
 def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
     """
     Plots the normalized local observation features over time for each warehouse.
@@ -424,7 +466,8 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
 
     Args:
         episode (Dict[str, np.ndarray]): Episode data dict (must include
-            ``obs_normalized``, ``n_skus``, and ``max_expected_lead_time``).
+            ``obs_normalized``, ``n_skus``, ``max_expected_lead_time``,
+            and ``feature_config``).
         output_dir (Path): Directory to save the plot.
     """
     obs_norm = episode.get("obs_normalized")  # (T, n_warehouses, obs_dim)
@@ -433,36 +476,34 @@ def plot_observations(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
 
     n_skus = int(episode.get("n_skus", 0))
     max_lt = int(episode.get("max_expected_lead_time", 0))
-    if n_skus <= 0 or max_lt <= 0:
+    feature_config = episode.get("feature_config")
+    if n_skus <= 0 or max_lt <= 0 or feature_config is None:
         return
+
+    include_wh_id = bool(episode.get("include_warehouse_id", False))
+    rolling_window = int(episode.get("rolling_window", 5))
 
     T, n_warehouses, obs_dim = obs_norm.shape
     timesteps = np.arange(T)
 
-    # Feature groups: (name, n_sku_columns, has_aggregate)
-    # Pipeline uses L*S columns instead of S
-    feature_groups = [
-        ("Inventory",              n_skus,          True),
-        ("Pipeline",               max_lt * n_skus, True),
-        ("Incoming Demand (Home)", n_skus,          True),
-        ("Shipped (Home)",         n_skus,          False),
-        ("Shipped (Away)",         n_skus,          True),
-        ("Stockout",               n_skus,          False),
-        ("Rolling Demand Mean",    n_skus,          True),
-        ("Demand Forecast",        n_skus,          True),
-    ]
+    feature_groups = _build_feature_groups(feature_config, n_skus, max_lt, rolling_window)
+    if not feature_groups:
+        return
 
-    # local obs = [warehouse_onehot? | features]
-    # features = (7 + L) * n_skus + 6
-    base_local = (7 + max_lt) * n_skus + 6
-    local_dim_full = obs_dim // (1 + n_warehouses)
-    warehouse_id_offset = local_dim_full - base_local
+    # Compute the number of feature columns (sum of per-SKU cols + aggregate flags)
+    base_local = sum(n_cols + (1 if has_agg else 0) for _, n_cols, has_agg in feature_groups)
+
+    # local obs = [warehouse_onehot | features] or just [features]
+    local_dim = obs_dim // (1 + n_warehouses)
+    warehouse_id_offset = n_warehouses if include_wh_id else 0
 
     sku_colors = plt.cm.tab10.colors
     n_subplots = len(feature_groups)
 
     for wh in range(n_warehouses):
         fig, axes = plt.subplots(n_subplots, 1, figsize=(14, 2.5 * n_subplots), sharex=True)
+        if n_subplots == 1:
+            axes = [axes]
 
         local_obs = obs_norm[:, wh, warehouse_id_offset:warehouse_id_offset + base_local]
 
