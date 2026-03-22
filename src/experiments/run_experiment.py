@@ -653,8 +653,9 @@ def main():
     )
     parser.add_argument(
         "--checkpoint-number",
-        type=int,
-        help="Checkpoint number to evaluate (e.g. 50 for checkpoint_50). "
+        type=str,
+        help="Checkpoint identifier to evaluate (e.g. '50' for checkpoint_50, "
+             "'000000' for checkpoint_000000). "
              "Only used with --experiment-name. If omitted, defaults to checkpoint_best "
              "(falls back to checkpoint_final if checkpoint_best does not exist)."
     )
@@ -760,10 +761,25 @@ def main():
             experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
             if args.checkpoint_number is not None:
                 checkpoint_folder = f"checkpoint_{args.checkpoint_number}"
+                # If exact name doesn't exist, try zero-padded (Ray Tune format)
+                if not (experiment_dir / checkpoint_folder).is_dir():
+                    padded = f"checkpoint_{int(args.checkpoint_number):06d}"
+                    if (experiment_dir / padded).is_dir():
+                        checkpoint_folder = padded
             elif (experiment_dir / "checkpoint_best").is_dir():
                 checkpoint_folder = "checkpoint_best"
-            else:
+            elif (experiment_dir / "checkpoint_final").is_dir():
                 checkpoint_folder = "checkpoint_final"
+            else:
+                # Last resort: look for Ray Tune checkpoint_NNNNNN directories
+                tune_chkpts = sorted(
+                    p for p in experiment_dir.iterdir()
+                    if p.is_dir() and p.name.startswith("checkpoint_")
+                )
+                if tune_chkpts:
+                    checkpoint_folder = tune_chkpts[-1].name
+                else:
+                    checkpoint_folder = "checkpoint_final"
             checkpoint_dir = str(experiment_dir / checkpoint_folder)
             output_dir = str(experiment_dir)
         # Option 2: Explicit path 
