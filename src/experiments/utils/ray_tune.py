@@ -575,7 +575,6 @@ def report_tune_metrics(
 
 def print_and_save_best_results(
     analysis: ResultGrid,
-    output_dir: str,
     metric: str = "env_runners/episode_reward_mean",
     mode: str = "max",
 ) -> Dict[str, Any]:
@@ -584,7 +583,6 @@ def print_and_save_best_results(
     
     Args:
         analysis (ExperimentAnalysis): Ray Tune analysis object
-        output_dir (str): Output directory to save the best results
         metric (str): Metric name to optimize. Default: "episode_reward_mean"
         mode (str): Optimization mode ("min" or "max"). Default: "max"
         

@@ -276,14 +276,14 @@ python src/experiments/run_experiment.py \
     --mode single \
     --env-config "$TEMP_ENV_CONFIG" \
     --algorithm-config "$TEMP_ALGO_CONFIG" \
-    --output-dir "${OUTPUT_DIR}" \
+    --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir "${OUTPUT_DIR}" \
+    --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42

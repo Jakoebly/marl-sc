@@ -464,7 +464,7 @@ def main():
     # Create parser for command line arguments
     parser = argparse.ArgumentParser(description="Run baseline sanity checks")
     parser.add_argument("--env-config", type=str, default="config_files/environments/env_simplified_symmetric.yaml")
-    parser.add_argument("--output-dir", type=str, default="./experiment_outputs")
+    parser.add_argument("--storage-dir", type=str, default="./experiment_outputs")
     parser.add_argument("--experiment-name", type=str, default=None, help="Experiment folder name. If not provided, auto-generated.")
     parser.add_argument("--num-episodes", type=int, default=10)
     parser.add_argument("--root-seed", type=int, default=42)
@@ -483,7 +483,7 @@ def main():
 
     # Create experiment directory (matching project convention)
     experiment_name = args.experiment_name or generate_experiment_name(env_config)
-    experiment_dir = Path(args.output_dir) / experiment_name
+    experiment_dir = Path(args.storage_dir) / experiment_name
     experiment_dir.mkdir(parents=True, exist_ok=True)
     viz_dir = experiment_dir / "visualizations"
 

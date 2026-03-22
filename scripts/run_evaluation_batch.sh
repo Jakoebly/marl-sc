@@ -83,7 +83,7 @@ ray start --head \
 # Loop over subfolders and run evaluation
 ##############################
 
-# --output-dir is the base for find_experiment_dir (parent of experiment subfolders)
+# --storage-dir is the base for find_experiment_dir (parent of experiment subfolders)
 count=0
 skipped=0
 
@@ -104,7 +104,7 @@ for subdir in "${PARENT_DIR}"/*/; do
     EVAL_CMD=(
         python src/experiments/run_experiment.py
         --mode evaluate
-        --output-dir "${PARENT_DIR}"
+        --storage-dir "${PARENT_DIR}"
         --experiment-name "${name}"
         --visualize
         --root-seed 42

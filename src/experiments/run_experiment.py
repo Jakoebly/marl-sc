@@ -130,6 +130,81 @@ def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
 
     return matches[0]
 
+
+def find_checkpoint_dir(
+    experiment_dir: Path,
+    checkpoint_number: Optional[int] = None,
+) -> Path:
+    """
+    Resolves the checkpoint directory under an experiment run folder.
+
+    If ``checkpoint_number`` is given, uses ``checkpoint_<n>`` or zero-padded Ray Tune
+    naming when the unpadded folder is missing. Otherwise prefers ``checkpoint_best``,
+    then ``checkpoint_final``, then the last sorted ``checkpoint_*`` directory, or
+    ``checkpoint_final`` as a fallback name (may not exist yet).
+    """
+
+    # If checkpoint number is provided, use it to find the checkpoint directory
+    if checkpoint_number is not None:
+        checkpoint_folder = f"checkpoint_{checkpoint_number}"
+        if not (experiment_dir / checkpoint_folder).is_dir():
+            padded = f"checkpoint_{int(checkpoint_number):06d}"
+            if (experiment_dir / padded).is_dir():
+                checkpoint_folder = padded
+    
+    # If no checkpoint number is provided, use the best checkpoint directory first
+    elif (experiment_dir / "checkpoint_best").is_dir():
+        checkpoint_folder = "checkpoint_best"
+    
+    # If no best checkpoint directory is found, use the final checkpoint directory
+    elif (experiment_dir / "checkpoint_final").is_dir():
+        checkpoint_folder = "checkpoint_final"
+    
+    # If no best or final checkpoint directory is found, use the last sorted checkpoint directory
+    else:
+        tune_chkpts = sorted(
+            p for p in experiment_dir.iterdir()
+            if p.is_dir() and p.name.startswith("checkpoint_")
+        )
+        if tune_chkpts:
+            checkpoint_folder = tune_chkpts[-1].name
+        else:
+            checkpoint_folder = "checkpoint_final"
+
+    # Assemble the checkpoint directory 
+    checkpoint_dir = experiment_dir / checkpoint_folder
+
+    return checkpoint_dir
+
+
+def _find_experiment_dir_from_checkpoint(checkpoint_dir: str) -> Path:
+    """
+    Walks up from a checkpoint directory to find the experiment directory,
+    identified by the presence of ``env_config.yaml`` (saved during training).
+    Falls back to the immediate parent if no config file is found.
+
+    Args:
+        checkpoint_dir (str): Path to a checkpoint directory.
+
+    Returns:
+        experiment_dir (Path): Path to the resolved experiment directory.
+    """
+    
+    # Get the given checkpoint directory
+    current = Path(checkpoint_dir).resolve()
+
+    # Walk up the directory tree until the experiment directory is found
+    for parent in current.parents:
+        if (parent / "env_config.yaml").exists():
+            return parent
+        if parent == parent.parent:
+            break
+
+    # Assemble the experiment dir
+    experiment_dir = Path(checkpoint_dir).parent
+
+    return experiment_dir
+
 def generate_experiment_name(
     env_config_path: str,
     algorithm_config_path: str,
@@ -187,7 +262,7 @@ def generate_experiment_name(
 def run_single_experiment(
     env_config_path: str,
     algorithm_config_path: str,
-    output_dir: str,
+    storage_dir: str,
     wandb_project: Optional[str] = None,
     wandb_name: Optional[str] = None,
     root_seed: Optional[int] = None,
@@ -200,7 +275,8 @@ def run_single_experiment(
     Args:
         env_config_path (str): Path to environment config
         algorithm_config_path (str): Path to algorithm config
-        output_dir (str): Output directory for results
+        storage_dir (str): Root directory for experiment outputs (experiment folder
+            is created as storage_dir / experiment_name).
         wandb_project (Optional[str]): WandB project name
         wandb_name (Optional[str]): WandB run name
         root_seed (Optional[int]): Root seed for reproducibility.
@@ -231,7 +307,7 @@ def run_single_experiment(
     )
 
     # Create experiment directory
-    experiment_dir = Path(output_dir) / experiment_name
+    experiment_dir = Path(storage_dir) / experiment_name
     experiment_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = str(experiment_dir)
 
@@ -261,7 +337,7 @@ def run_single_experiment(
 
 def run_evaluation(
     checkpoint_dir: str,
-    output_dir: str,
+    experiment_dir: str,
     env_config_path: Optional[str] = None,
     algorithm_config_path: Optional[str] = None,
     eval_episodes: Optional[int] = None,
@@ -278,11 +354,12 @@ def run_evaluation(
     
     Args:
         checkpoint_dir (str): Path to checkpoint directory to evaluate.
-        output_dir (str): Directory for saving visualizations (typically the experiment dir).
+        experiment_dir (str): Path to the experiment directory (contains saved configs,
+            receives eval outputs like eval_results.yaml and visualizations).
         env_config_path (Optional[str]): Path to environment config. If None, loaded from
-            saved config in the experiment directory (parent of checkpoint_dir).
+            saved config in experiment_dir.
         algorithm_config_path (Optional[str]): Path to algorithm config. If None, loaded from
-            saved config in the experiment directory (parent of checkpoint_dir).
+            saved config in experiment_dir.
         eval_episodes (Optional[int]): Number of evaluation episodes (overrides config default)
         root_seed (Optional[int]): Root seed for reproducibility. Split into train_seed and eval_seed 
             by EvaluationRunner (only eval_seed is used).
@@ -292,12 +369,21 @@ def run_evaluation(
     """
 
     # Resolve config paths: prefer provided paths, fall back to saved configs in experiment dir
-    experiment_dir = Path(checkpoint_dir).parent
     if env_config_path is None:
-        env_config_path = str(experiment_dir / "env_config.yaml")
+        env_config_path = str(Path(experiment_dir) / "env_config.yaml")
+        if not Path(env_config_path).exists():
+            raise FileNotFoundError(
+                f"No saved environment config found at: {env_config_path}\n"
+                f"Provide --env-config explicitly."
+            )
         print(f"[INFO] Loading saved environment config from: {env_config_path}")
     if algorithm_config_path is None:
-        algorithm_config_path = str(experiment_dir / "algorithm_config.yaml")
+        algorithm_config_path = str(Path(experiment_dir) / "algorithm_config.yaml")
+        if not Path(algorithm_config_path).exists():
+            raise FileNotFoundError(
+                f"No saved algorithm config found at: {algorithm_config_path}\n"
+                f"Provide --algorithm-config explicitly."
+            )
         print(f"[INFO] Loading saved algorithm config from: {algorithm_config_path}")
 
     # Create the single top-level SeedManager
@@ -319,10 +405,10 @@ def run_evaluation(
         env_config=env_config,
         algorithm_config=algorithm_config,
         checkpoint_dir=checkpoint_dir,
+        experiment_dir=experiment_dir,
         eval_episodes=eval_episodes,
         seed_manager=seed_manager,
         visualize=visualize,
-        output_dir=output_dir,
         wandb_config=wandb_config,
     )
 
@@ -336,7 +422,7 @@ def run_tune_experiment(
     algorithm_config_path: str,
     tune_config_path: str,
     num_samples: int,
-    output_dir: str,
+    storage_dir: str,
     wandb_project: Optional[str] = None,
     num_cpus: Optional[int] = None,
     num_gpus: int = 0,
@@ -352,7 +438,8 @@ def run_tune_experiment(
         algorithm_config_path (str): Path to base algorithm config
         tune_config_path (str): Path to tune config (defines search space, scheduler, search algorithm)
         num_samples (int): Number of trials to run
-        output_dir (str): Output directory for results
+        storage_dir (str): Root directory for experiment outputs (Ray Tune creates
+            storage_dir / experiment_name / trial_dirs).
         wandb_project (Optional[str]): WandB project name
         num_cpus (Optional[int]): CPUs per trial.
         num_gpus (int): GPUs per trial
@@ -432,7 +519,7 @@ def run_tune_experiment(
         ),
         run_config=RunConfig(
             name=experiment_name,
-            storage_path=output_dir,
+            storage_path=storage_dir,
             callbacks=callbacks,
             progress_reporter=CLIReporter(),
             checkpoint_config=CheckpointConfig(
@@ -449,7 +536,6 @@ def run_tune_experiment(
     # Print and save best results
     best_info = print_and_save_best_results(
         analysis=analysis,
-        output_dir=output_dir,
         metric=metric,
         mode=mode,
     )
@@ -467,10 +553,12 @@ def run_tune_experiment(
         # Evaluate best trial's best checkpoint with visualization
         eval_result = run_evaluation(
             checkpoint_dir=best_checkpoint,
-            output_dir=best_trial_dir,
+            experiment_dir=best_trial_dir,
             eval_episodes=50,
             root_seed=root_seed,
             visualize=True,
+            wandb_project=wandb_project,
+            wandb_name=f"eval_best_{experiment_name}",
         )
 
         # Insert eval metric into best_trial_results.yaml
@@ -610,10 +698,10 @@ def main():
     )
     # Output
     parser.add_argument(
-        "--output-dir",
+        "--storage-dir",
         type=str,
         default="./experiment_outputs",
-        help="Output directory for results and checkpoints"
+        help="Root directory for experiment outputs (experiment folders are created inside)"
     )
     parser.add_argument(
         "--experiment-name",
@@ -723,7 +811,7 @@ def main():
         run_single_experiment(
             env_config_path=args.env_config,
             algorithm_config_path=args.algorithm_config,
-            output_dir=args.output_dir,
+            storage_dir=args.storage_dir,
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
             root_seed=args.root_seed,
@@ -743,7 +831,7 @@ def main():
             algorithm_config_path=args.algorithm_config,
             tune_config_path=args.tune_config,
             num_samples=args.num_samples,
-            output_dir=args.output_dir,
+            storage_dir=args.storage_dir,
             wandb_project=args.wandb_project,
             num_cpus=args.num_cpus,
             num_gpus=args.num_gpus,
@@ -754,39 +842,19 @@ def main():
 
     # Run evaluation if mode is "evaluate"
     elif args.mode == "evaluate":
-        # Option 1: Name-based path
+        # Option 1: Name-based lookup
         if args.experiment_name:
-            # Use the --experiment-name to search for the checkpoint directory
-            base_dir = args.output_dir if args.output_dir != "./experiment_outputs" else "./experiment_outputs"
-            experiment_dir = find_experiment_dir(base_dir, args.experiment_name)
-            if args.checkpoint_number is not None:
-                checkpoint_folder = f"checkpoint_{args.checkpoint_number}"
-                # If exact name doesn't exist, try zero-padded (Ray Tune format)
-                if not (experiment_dir / checkpoint_folder).is_dir():
-                    padded = f"checkpoint_{int(args.checkpoint_number):06d}"
-                    if (experiment_dir / padded).is_dir():
-                        checkpoint_folder = padded
-            elif (experiment_dir / "checkpoint_best").is_dir():
-                checkpoint_folder = "checkpoint_best"
-            elif (experiment_dir / "checkpoint_final").is_dir():
-                checkpoint_folder = "checkpoint_final"
-            else:
-                # Last resort: look for Ray Tune checkpoint_NNNNNN directories
-                tune_chkpts = sorted(
-                    p for p in experiment_dir.iterdir()
-                    if p.is_dir() and p.name.startswith("checkpoint_")
-                )
-                if tune_chkpts:
-                    checkpoint_folder = tune_chkpts[-1].name
-                else:
-                    checkpoint_folder = "checkpoint_final"
-            checkpoint_dir = str(experiment_dir / checkpoint_folder)
-            output_dir = str(experiment_dir)
-        # Option 2: Explicit path 
+            # Get the experiment directory
+            experiment_dir = str(find_experiment_dir(args.storage_dir, args.experiment_name))
+            # Get the checkpoint directory
+            checkpoint_dir = str(find_checkpoint_dir(experiment_dir, args.checkpoint_number))
+
+        # Option 2: Explicit checkpoint path
         elif args.checkpoint_dir:
-            # Use explicit path from --checkpoint-dir for the checkpoint directory
+            # Get the explicit path
             checkpoint_dir = args.checkpoint_dir
-            output_dir = str(Path(args.checkpoint_dir).parent)
+            # Get the experiment directory from the checkpoint directory
+            experiment_dir = _find_experiment_dir_from_checkpoint(args.checkpoint_dir)
         else:
             raise ValueError(
                 "Either --experiment-name or --checkpoint-dir is required for evaluate mode"
@@ -800,16 +868,12 @@ def main():
                 f"the requested checkpoint number is valid."
             )
 
-        # Load configs
-        env_config_path = args.env_config  # May be None
-        algorithm_config_path = args.algorithm_config  # May be None  
-
         # Run evaluation
         run_evaluation(
             checkpoint_dir=checkpoint_dir,
-            output_dir=output_dir,
-            env_config_path=env_config_path,
-            algorithm_config_path=algorithm_config_path,
+            experiment_dir=experiment_dir,
+            env_config_path=args.env_config,
+            algorithm_config_path=args.algorithm_config,
             eval_episodes=args.eval_episodes,
             root_seed=args.root_seed,
             visualize=args.visualize,
