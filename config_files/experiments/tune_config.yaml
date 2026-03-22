@@ -17,6 +17,9 @@ search_space:
 
   # --- Algorithm-specific hyperparameters ---
   algorithm_specific:
+    lam:
+      type: choice
+      values: [0.9, 0.95, 0.99]
     entropy_coeff:
       type: loguniform
       low: 0.001
@@ -39,10 +42,10 @@ search_space:
       values: [5.0, 10.0, 40.0, 100000]
     actor_hidden_size:
       type: choice
-      values: [64, 128, 256]
+      values: [64, 128, 256, "64_64", "128_128"]
     critic_hidden_size:
       type: choice
-      values: [64, 128, 256]
+      values: [64, 128, 256, "64_64", "128_128"]
 
   # --- Observation-space feature toggles (1=on, 0=off) ---
   features:

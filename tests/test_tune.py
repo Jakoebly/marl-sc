@@ -91,7 +91,7 @@ class TestConfigLoading:
         assert tc.algorithm_specific is not None, "algorithm_specific search space should not be None"
         assert set(tc.shared.keys()) == {"learning_rate", "batch_size", "num_epochs", "num_minibatches"}
         assert set(tc.algorithm_specific.keys()) == {
-            "entropy_coeff", "vf_loss_coeff", "vf_clip_param",
+            "lam", "entropy_coeff", "vf_loss_coeff", "vf_clip_param",
             "logstd_floor", "logstd_init", "grad_clip",
             "actor_hidden_size", "critic_hidden_size",
         }
