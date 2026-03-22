@@ -87,8 +87,13 @@ def baseline_rollout(
             # Check if episode is done
             done = all(truncs.values()) or all(terms.values())
 
-        # Convert all lists to numpy arrays
+        # Convert all lists to numpy arrays and add env metadata for visualization
         episode_data = {k: np.array(v) for k, v in episode_data.items()}
+        episode_data["n_skus"] = env.n_skus
+        episode_data["max_expected_lead_time"] = env.max_expected_lead_time
+        episode_data["feature_config"] = env.feature_config.model_dump()
+        episode_data["include_warehouse_id"] = env.include_warehouse_id
+        episode_data["rolling_window"] = env.rolling_window
         all_episodes.append(episode_data)
 
     # Disable step info collection after rollout
