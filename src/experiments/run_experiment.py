@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List
 import ray
 from ray import tune
 from ray.tune import RunConfig, CLIReporter
-from ray.train import CheckpointConfig
+from ray.tune import CheckpointConfig
 
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
