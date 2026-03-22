@@ -77,7 +77,6 @@ python src/experiments/run_experiment.py \
     --mode evaluate \
     --checkpoint-dir "/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning/IPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv/trainable_a8329ab4_291_actor_obs_type=local,clip_param=0.2000,critic_obs_type=local,entropy_coeff=0.0100,gamma=0.9900,grad_clip=10_2026-03-21_20-16-01/checkpoint_000000" \
     --eval-episodes 50 \
-    --visualize \
     --root-seed 42
 
 
