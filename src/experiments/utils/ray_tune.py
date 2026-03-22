@@ -189,6 +189,72 @@ def merge_tune_params(algorithm_config_dict: Dict[str, Any], tune_config: Dict[s
     return merged
 
 
+_ACTION_SPACE_PRESETS = {
+    "demand_centered_15": {
+        "type": "demand_centered",
+        "params": {"max_quantity_adjustment": None},
+    },
+    "base_stock_100": {
+        "type": "base_stock",
+        "params": {"max_stock_level": None},
+    },
+    "direct_40": {
+        "type": "direct",
+        "params": {"max_order_quantities": None},
+    },
+}
+_ACTION_SPACE_PARAM_VALUES = {
+    "demand_centered_15": ("max_quantity_adjustment", 15),
+    "base_stock_100": ("max_stock_level", 100),
+    "direct_40": ("max_order_quantities", 40),
+}
+
+
+def _apply_env_overrides(env_config_dict: Dict[str, Any]) -> None:
+    """
+    Pops synthetic environment keys and replaces them with full nested
+    config structures before Pydantic validation.
+
+    Supported synthetic keys:
+
+    * ``action_space_preset``  – string preset name that maps to a complete
+      :class:`ActionSpaceConfig` dict (per-SKU lists are auto-sized).
+    * ``initial_inventory_value`` – scalar integer that is broadcast into a
+      uniform ``(n_warehouses, n_skus)`` custom inventory config.
+
+    Args:
+        env_config_dict (Dict[str, Any]): Environment config dictionary
+            (modified in-place).
+    """
+
+    n_skus = env_config_dict.get("n_skus", 2)
+    n_warehouses = env_config_dict.get("n_warehouses", 3)
+
+    # --- action_space_preset → action_space ---
+    preset = env_config_dict.pop("action_space_preset", None)
+    if preset is not None:
+        if preset not in _ACTION_SPACE_PRESETS:
+            raise ValueError(
+                f"Unknown action_space_preset '{preset}'. "
+                f"Available: {list(_ACTION_SPACE_PRESETS)}"
+            )
+        param_key, param_val = _ACTION_SPACE_PARAM_VALUES[preset]
+        env_config_dict["action_space"] = {
+            "type": _ACTION_SPACE_PRESETS[preset]["type"],
+            "params": {param_key: [param_val] * n_skus},
+        }
+
+    # --- initial_inventory_value → initial_inventory ---
+    inv_val = env_config_dict.pop("initial_inventory_value", None)
+    if inv_val is not None:
+        env_config_dict["initial_inventory"] = {
+            "type": "custom",
+            "params": {
+                "values": [[int(inv_val)] * n_skus for _ in range(n_warehouses)]
+            },
+        }
+
+
 def merge_env_tune_params(
     env_config_dict: Dict[str, Any],
     tune_config: Dict[str, Any],
@@ -197,6 +263,9 @@ def merge_env_tune_params(
     Merges sampled tune parameters into the environment config dictionary.
     Handles ``environment`` (top-level env params like episode_length) and
     ``features`` (individual feature toggles).
+
+    Synthetic keys (``action_space_preset``, ``initial_inventory_value``)
+    are expanded into full nested configs by :func:`_apply_env_overrides`.
 
     Args:
         env_config_dict (Dict[str, Any]): Base environment config dictionary.
@@ -218,6 +287,9 @@ def merge_env_tune_params(
     if "features" in tune_config:
         merged.setdefault("features", {})
         merged["features"].update(tune_config["features"])
+
+    # Expand synthetic keys into full nested configs
+    _apply_env_overrides(merged)
 
     return merged
 
