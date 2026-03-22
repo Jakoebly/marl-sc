@@ -196,7 +196,7 @@ class EvaluationRunner:
         env_config: EnvironmentConfig,
         algorithm_config: AlgorithmConfig,
         checkpoint_dir: str,
-        output_dir: str,
+        experiment_dir: str,
         eval_episodes: Optional[int] = None,
         seed_manager: Optional[SeedManager] = None,
         visualize: bool = False,
@@ -209,11 +209,12 @@ class EvaluationRunner:
             env_config (EnvironmentConfig): Environment configuration.
             algorithm_config (AlgorithmConfig): Algorithm configuration.
             checkpoint_dir (str): Path to the checkpoint to evaluate (required).
-            output_dir (str): Directory for saving visualizations.
+            experiment_dir (str): Path to the experiment directory (receives eval
+                outputs like eval_results.yaml and visualizations).
             eval_episodes (Optional[int]): Number of evaluation episodes.
                 If None, uses num_eval_episodes from algorithm config.
             seed_manager (Optional[SeedManager]): Experiment-level seed manager.
-             visualize (bool): If True, run manual rollout and generate visualization plots.
+            visualize (bool): If True, run manual rollout and generate visualization plots.
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
@@ -230,9 +231,9 @@ class EvaluationRunner:
         self.env_config = env_config
         self.algorithm_config = algorithm_config
         
-        # Store checkpoint directory
+        # Store checkpoint and experiment directories
         self.checkpoint_dir = checkpoint_dir
-        self.output_dir = Path(output_dir)
+        self.experiment_dir = Path(experiment_dir)
 
         # Create template environment (seed=None; eval envs get eval_seed via evaluation_config)
         self.env = InventoryEnvironment(self.env_config)
@@ -301,20 +302,26 @@ class EvaluationRunner:
             # Run manual rollout for detailed per-step data collection
             episodes_data = self.algorithm.rollout(rollout_env, num_episodes=num_episodes)
 
-            # Generate and save visualizations in a checkpoint-specific subfolder
+            # Get the checkpoint name and subfolder name
             from src.experiments.visualization import generate_visualizations
             checkpoint_name = Path(self.checkpoint_dir).name
             if checkpoint_name == "checkpoint_final":
                 viz_subfolder = "visualization_final"
+                eval_suffix = "final"
             elif checkpoint_name == "checkpoint_best":
                 viz_subfolder = "visualization_best"
+                eval_suffix = "best"
             elif checkpoint_name.startswith("checkpoint_"):
                 chkpt_num = checkpoint_name.replace("checkpoint_", "")
                 viz_subfolder = f"visualization_chkpt{chkpt_num}"
+                eval_suffix = f"chkpt{chkpt_num}"
             else:
                 viz_subfolder = f"visualization_{checkpoint_name}"
-            vizualization_dir = self.output_dir / "visualizations" / viz_subfolder
-            generate_visualizations(episodes_data, str(vizualization_dir))
+                eval_suffix = checkpoint_name
+
+            # Generate and save visualizations in a checkpoint-specific subfolder
+            visualization_dir = self.experiment_dir / "visualizations" / viz_subfolder
+            generate_visualizations(episodes_data, str(visualization_dir))
 
             # Build a lightweight result dict from rollout data
             total_rewards = [ep["rewards"].sum() for ep in episodes_data]
@@ -324,7 +331,7 @@ class EvaluationRunner:
                     "episode_reward_min": float(np.min(total_rewards)),
                     "episode_reward_max": float(np.max(total_rewards)),
                     "num_episodes": num_episodes,
-                    "visualizations_dir": str(vizualization_dir),
+                    "visualizations_dir": str(visualization_dir),
                 }
             }
 
@@ -332,6 +339,20 @@ class EvaluationRunner:
         else:
             raw = self.algorithm.evaluate(eval_episodes=num_episodes)
             eval_env = raw.get("evaluation", {}).get("env_runners", {})
+
+            # Get the checkpoint name
+            checkpoint_name = Path(self.checkpoint_dir).name
+            if checkpoint_name == "checkpoint_final":
+                eval_suffix = "final"
+            elif checkpoint_name == "checkpoint_best":
+                eval_suffix = "best"
+            elif checkpoint_name.startswith("checkpoint_"):
+                chkpt_num = checkpoint_name.replace("checkpoint_", "")
+                eval_suffix = f"chkpt{chkpt_num}"
+            else:
+                eval_suffix = checkpoint_name
+
+            # Build a lightweight result dict from evaluation metrics
             result = {
                 "evaluation": {
                     "episode_reward_mean": float(eval_env.get("episode_return_mean", 0)),
@@ -355,8 +376,8 @@ class EvaluationRunner:
             print(f"  Viz saved:   {eval_metrics['visualizations_dir']}")
         print("=" * 60 + "\n")
 
-        # Save eval_results.yaml
-        eval_results_path = self.output_dir / "eval_results.yaml"
+        # Save checkpoint-specific eval results (prevents overwrites across evaluations)
+        eval_results_path = self.experiment_dir / f"eval_results_{eval_suffix}.yaml"
         eval_results = {
             "checkpoint": str(self.checkpoint_dir),
             **eval_metrics,

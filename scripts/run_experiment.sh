@@ -143,21 +143,21 @@ ray start --head \
 ##############################
 
 # Set output directory and experiment name
-OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.7"
+STORAGE_DIR="./experiment_outputs/WorkingConfig_Phase1.7"
 EXPERIMENT_NAME="IPPO_Single_3WH_2SKUS_Agent_PSTrue_TEST"
 
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
-    --output-dir "${OUTPUT_DIR}" \
+    --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
 
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --output-dir "${OUTPUT_DIR}" \
+    --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42

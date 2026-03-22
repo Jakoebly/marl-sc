@@ -148,7 +148,7 @@ ray start --head \
 ##############################
 
 # Set output directory and experiment name
-OUTPUT_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
+STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
 EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv_V3"
 
 python src/experiments/run_experiment.py \
@@ -157,7 +157,7 @@ python src/experiments/run_experiment.py \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
     --tune-config ./config_files/experiments/tune_config.yaml \
     --num-samples 1000 \
-    --output-dir "${OUTPUT_DIR}" \
+    --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed 42
