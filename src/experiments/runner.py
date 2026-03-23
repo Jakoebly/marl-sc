@@ -84,9 +84,13 @@ class ExperimentRunner:
         """
         Runs the full training loop.
         
+        When tune_callback is provided (Ray Tune mode), only checkpoint_best is saved
+        and metrics are reported without checkpoint tracking. Periodic checkpoints,
+        checkpoint_final, and module_weights.pt are skipped to minimize disk I/O.
+        
         Args:
-            tune_callback (Callable): Ray Tune callback function to be called after each
-            iteration to report metrics and optionally a checkpoint. Defaults to None.
+            tune_callback (Callable): Ray Tune callback for reporting metrics each
+                iteration. When set, enables tune mode. Defaults to None.
         
         Returns:
             result (Dict[str, Any]): Final training metrics
@@ -131,24 +135,21 @@ class ExperimentRunner:
                     f"[INFO] New best checkpoint at iteration {iteration} with reward: {current_metric:.4f}"
                 )
             
-            # Save periodic checkpoint (if checkpoint frequency is reached)
-            periodic_checkpoint_path = None
-            if iteration % checkpoint_freq == 0 and self.checkpoint_dir:
-                print(f"[INFO] Saving checkpoint at iteration {iteration}")
-                periodic_checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
-                periodic_checkpoint_path.mkdir(parents=True, exist_ok=True)
-                periodic_checkpoint_path = str(periodic_checkpoint_path.resolve())
-                self.algorithm.save_checkpoint(
-                    periodic_checkpoint_path,
-                    env_config=self.env_config,
-                    algorithm_config=self.algorithm_config,
-                )
-                if self.wandb_config:
-                    wandb.log({"checkpoint_iteration": iteration})
-            
-            # Report metrics and optionally a periodic checkpoint to Ray Tune
+            # If in tune mode, report metrics to Ray Tune
             if tune_callback:
-                tune_callback(result, periodic_checkpoint_path)
+                tune_callback(result, None)
+            # If not in tune mode and checkpoint frequency is reached, save periodic checkpoint
+            elif iteration % checkpoint_freq == 0 and self.checkpoint_dir:
+                    print(f"[INFO] Saving checkpoint at iteration {iteration}")
+                    periodic_checkpoint_path = self.checkpoint_dir / f"checkpoint_{iteration}"
+                    periodic_checkpoint_path.mkdir(parents=True, exist_ok=True)
+                    self.algorithm.save_checkpoint(
+                        str(periodic_checkpoint_path.resolve()),
+                        env_config=self.env_config,
+                        algorithm_config=self.algorithm_config,
+                    )
+                    if self.wandb_config:
+                        wandb.log({"checkpoint_iteration": iteration})
             
             print(f"[INFO] Training iteration {iteration} of {num_iterations}: Reward: {current_metric:.4f}")
 
@@ -157,9 +158,12 @@ class ExperimentRunner:
                 f"[INFO] Best checkpoint: iteration {best_iteration} with reward: {best_metric_value:.4f}"
             )
         
-        # Save final checkpoint
-        final_checkpoint_path = None
-        if self.checkpoint_dir:
+        # If in tune mode, report final metrics to Ray Tune
+        if tune_callback:
+            tune_callback(result, None)
+        # If not in tune mode and checkpoint directory exists, save final checkpoint and export module weights
+        elif self.checkpoint_dir:
+            # Save final checkpoint
             final_checkpoint_path = self.checkpoint_dir / "checkpoint_final"
             final_checkpoint_path.mkdir(parents=True, exist_ok=True)
             final_checkpoint_path = str(final_checkpoint_path.resolve())
@@ -169,16 +173,12 @@ class ExperimentRunner:
                 algorithm_config=self.algorithm_config,
             )
 
-            # Export RLModule weights as a standalone .pt file for curriculum warm-starts
+            # Export module weights
             from src.utils.weight_transfer import export_module_weights
             ps = self.algorithm_config.algorithm_specific.parameter_sharing
             policy_id = "shared_policy" if ps else f"policy_{self.env.agents[0]}"
             weights_file = str(self.checkpoint_dir / "module_weights.pt")
             export_module_weights(self.algorithm.trainer, policy_id, weights_file)
-        
-        # Report final metrics and the final checkpoint back to Ray Tune
-        if tune_callback:
-            tune_callback(result, final_checkpoint_path)
 
         # Finish WandB run (if WandB config is provided)
         if self.wandb_config:

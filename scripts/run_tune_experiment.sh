@@ -8,9 +8,9 @@
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=96                      # CPU cores per task
-#SBATCH --mem=256G                               # Memory allocation
-#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
+#SBATCH --cpus-per-task=16                      # CPU cores per task
+#SBATCH --mem=32G                               # Memory allocation
+#SBATCH --time=1:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
@@ -108,6 +108,13 @@ fi
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
+# Redirect RLlib's default storage and wandb local data to scratch (avoids
+# polluting ~/ray_results/ and counting against home-directory inode quota).
+# Both dirs live inside RAY_TMPDIR so the cleanup trap removes everything.
+export RAY_AIR_LOCAL_CACHE_DIR="${RAY_TMPDIR}/ray_results"
+export WANDB_DIR="${RAY_TMPDIR}/wandb"
+mkdir -p "$RAY_AIR_LOCAL_CACHE_DIR" "$WANDB_DIR"
+
 # Cleanup function for Ray temp dir
 cleanup() {
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
@@ -149,14 +156,14 @@ ray start --head \
 
 # Set output directory and experiment name
 STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
+EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv_TEST"
 
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
-    --algorithm-config ./config_files/algorithms/mappo.yaml \
-    --tune-config ./config_files/experiments/tune_config.yaml \
-    --num-samples 1000 \
+    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --tune-config ./config_files/experiments/tune_config_simplified.yaml \
+    --num-samples 2 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
