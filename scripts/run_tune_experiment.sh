@@ -149,12 +149,12 @@ ray start --head \
 
 # Set output directory and experiment name
 STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
-EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
+EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
 
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
-    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --algorithm-config ./config_files/algorithms/mappo.yaml \
     --tune-config ./config_files/experiments/tune_config.yaml \
     --num-samples 1000 \
     --storage-dir "${STORAGE_DIR}" \
