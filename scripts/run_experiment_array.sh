@@ -223,17 +223,12 @@ fi
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
-# Redirect RLlib's default storage and wandb local data to scratch (avoids
-# polluting ~/ray_results/ and counting against home-directory inode quota).
-# Both dirs live inside RAY_TMPDIR so the cleanup trap removes everything.
-export RAY_AIR_LOCAL_CACHE_DIR="${RAY_TMPDIR}/ray_results"
-export WANDB_DIR="${RAY_TMPDIR}/wandb"
-mkdir -p "$RAY_AIR_LOCAL_CACHE_DIR" "$WANDB_DIR"
-
-# Cleanup function for Ray temp dir
+# Cleanup function for temp config files and Ray and Wandb
 cleanup() {
   rm -f "$TEMP_ENV_CONFIG" "$TEMP_ALGO_CONFIG" >/dev/null 2>&1 || true
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
+  rm -rf ~/ray_results/ >/dev/null 2>&1 || true
+  rm -rf ./wandb/ >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
