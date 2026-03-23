@@ -551,8 +551,6 @@ def run_tune_experiment(
             eval_episodes=50,
             root_seed=root_seed,
             visualize=True,
-            wandb_project=wandb_project,
-            wandb_name=f"eval_best_{experiment_name}",
         )
 
         # Insert eval metric into best_trial_results.yaml
