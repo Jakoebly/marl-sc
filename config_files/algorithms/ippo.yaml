@@ -28,6 +28,8 @@ algorithm:
     logstd_floor: -2.0
     obs_normalization: "meanstd_grouped"
     parameter_sharing: true
+    actor_obs_type: "local"
+    critic_obs_type: "local"
     networks:
       shared_layers: null
         #type: "gru"

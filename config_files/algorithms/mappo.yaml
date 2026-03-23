@@ -1,16 +1,16 @@
 algorithm:
   name: "mappo"
   shared:
-    num_iterations: 150
+    num_iterations: 300
     checkpoint_freq: 10
     batch_size: 8000
-    num_epochs: 10
-    num_minibatches: 20
-    learning_rate: 0.0003
-    num_env_runners: 4
+    num_epochs: 15
+    num_minibatches: 10
+    learning_rate: 0.001
+    num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
-    eval_interval: 10  
+    eval_interval: 50
     num_eval_episodes: 5  
     evaluation_parallel_to_training: false
 
@@ -19,15 +19,17 @@ algorithm:
     lam: 0.95
     gamma: 0.99
     use_kl_loss: false
-    grad_clip: 0.5
+    grad_clip: 10
     entropy_coeff: 0.01
-    vf_loss_coeff: 0.5
+    vf_loss_coeff: 1
     clip_param: 0.2
-    vf_clip_param: 1000000
+    vf_clip_param: 1000
     logstd_init: -1.0
     logstd_floor: -2.0
-    obs_normalization: "ratio"
-    parameter_sharing: false
+    obs_normalization: "meanstd_grouped"
+    parameter_sharing: true
+    actor_obs_type: "local"
+    critic_obs_type: "global"
     networks:
       shared_layers: null
         #type: "gru"
@@ -41,14 +43,14 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [256, 256]
+          hidden_sizes: [64]
           activation: "relu"
-          output_activation: "tanh"
+          output_activation: null
           # output_dim: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [256, 256]
+          hidden_sizes: [64]
           activation: "relu"
           output_activation: null
           # output_dim: null

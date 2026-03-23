@@ -3,14 +3,14 @@ search_space:
   shared:
     learning_rate:
       type: loguniform
-      low: 1e-4
-      high: 3e-3
+      low: 5e-5
+      high: 1e-3
     batch_size:
       type: choice
       values: [4000, 8000, 16000]
     num_epochs:
       type: choice
-      values: [3, 5, 10, 15, 20]
+      values: [3, 5, 10, 15]
     num_minibatches:
       type: choice
       values: [1, 4, 10, 20]
@@ -26,7 +26,7 @@ search_space:
     entropy_coeff:
       type: loguniform
       low: 0.001
-      high: 0.1
+      high: 0.2
     vf_loss_coeff:
       type: uniform
       low: 0.2
@@ -52,12 +52,15 @@ search_space:
     obs_normalization:
       type: choice
       values: ["meanstd_grouped", "meanstd_custom", "ratio"]
+    parameter_sharing:
+      type: choice
+      values: [0, 1]
     actor_hidden_size:
       type: choice
       values: [64, 128, 256, "64_64", "128_128"]
     critic_hidden_size:
       type: choice
-      values: [64, 128, 256, "64_64", "128_128"]
+      values: [64, 128, 256, "64_64", "128_128", "256_256"]
 
   # --- Environment-level structural parameters ---
   environment:
