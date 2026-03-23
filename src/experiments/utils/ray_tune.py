@@ -677,11 +677,9 @@ def print_and_save_best_results(
     # Best metric of best trial
     best_trial_best_metric = best_trial_metrics_df[metric].max() if mode == "max" else best_trial_metrics_df[metric].min()
     
-    # Latest checkpoint of best trial
-    best_trial_latest_checkpoint = best_trial.checkpoint
-
-    # Best checkpoint of best trial
-    best_trial_best_checkpoint = best_trial.get_best_checkpoint(metric=metric, mode=mode)
+    # Resolve checkpoint_best saved by ExperimentRunner in the trial directory
+    best_trial_best_checkpoint_path = Path(best_trial_dir) / "checkpoint_best"
+    best_trial_best_checkpoint = str(best_trial_best_checkpoint_path) if best_trial_best_checkpoint_path.exists() else None
 
     # Print results
     print("\n" + "=" * 80)
@@ -709,12 +707,11 @@ def print_and_save_best_results(
         for key, value in best_trial_config["features"].items():
             print(f"    {key}: {value}")
     
-    # Print latest andbest checkpoints
-    if best_trial_best_checkpoint and best_trial_latest_checkpoint:
+    # Print best checkpoint of best trial
+    if best_trial_best_checkpoint:
         print(f"\nBest Checkpoint: {best_trial_best_checkpoint}")
-        print(f"Latest Checkpoint: {best_trial_latest_checkpoint}")
     else:
-        print("\nLatest and Best Checkpoint: None (no checkpoint saved)")
+        print("\nBest Checkpoint: None (no checkpoint_best found in trial directory)")
     
     print("=" * 80 + "\n")
     
@@ -727,8 +724,7 @@ def print_and_save_best_results(
         "best_trial_latest_metric": float(best_trial_latest_metric),
         "best_trial_best_metric": float(best_trial_best_metric),
         "best_config": best_trial_config,
-        "latest_checkpoint": best_trial_latest_checkpoint.path if best_trial_latest_checkpoint else None,
-        "best_checkpoint": best_trial_best_checkpoint.path if best_trial_best_checkpoint else None,
+        "best_trial_best_checkpoint": best_trial_best_checkpoint,
     }
     
     # Save to YAML

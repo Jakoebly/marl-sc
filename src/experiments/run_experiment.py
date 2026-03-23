@@ -7,7 +7,6 @@ from typing import Dict, Any, Optional, List
 import ray
 from ray import tune
 from ray.tune import RunConfig, CLIReporter
-from ray.tune import CheckpointConfig
 
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
@@ -522,9 +521,6 @@ def run_tune_experiment(
             storage_path=storage_dir,
             callbacks=callbacks,
             progress_reporter=CLIReporter(),
-            checkpoint_config=CheckpointConfig(
-                num_to_keep=2,
-            ),
         ),
     )
 
@@ -539,9 +535,9 @@ def run_tune_experiment(
     )
 
     # Get best checkpoint and trial directory
-    best_checkpoint = best_info.get("best_checkpoint")
+    best_checkpoint = best_info.get("best_trial_best_checkpoint")
+    best_trial_dir = best_info.get("best_trial_path")
     if best_checkpoint:
-        best_trial_dir = best_info.get("best_trial_path", str(Path(best_checkpoint).parent))
 
         # Print header
         print("\n" + "=" * 80)
@@ -643,7 +639,6 @@ def trainable(config: Dict[str, Any]):
     from functools import partial
     tune_callback = partial(report_tune_metrics, required_metrics=config["tune_metric"])
 
-    # Run training with callback
     result = runner.run(tune_callback=tune_callback)
 
     return result
