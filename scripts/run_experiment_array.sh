@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-11%11                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-14%15                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -89,10 +89,11 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) BETA=0.3 ;;
-    1) BETA=0.5 ;;
-    2) BETA=0.7 ;;
-    3) BETA=1.0 ;;
+    0) BETA="None" ;;
+    1) BETA=0.3 ;;
+    2) BETA=0.5 ;;
+    3) BETA=0.7 ;;
+    4) BETA=1.0 ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
@@ -118,8 +119,11 @@ import yaml
 ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
-# Set run parameters
-beta = float("$BETA")
+_raw_beta = "$BETA".strip()
+if _raw_beta.lower() in ("none", "null", ""):
+    beta = None
+else:
+    beta = float(_raw_beta)
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
@@ -268,7 +272,7 @@ else
   STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"  
 fi
 
-EXPERIMENT_NAME="IPPO_3WH2SKU_Beta${BETA}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Beta${BETA}_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \

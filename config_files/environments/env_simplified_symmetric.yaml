@@ -18,9 +18,9 @@ environment:
     type: "custom"
     params:
       values:
-        - [40, 40]
-        - [40, 40]
-        - [40, 40]
+        - [60, 60]
+        - [60, 60]
+        - [60, 60]
   cost_structure:
     holding_cost: 1.0
     penalty_cost:
