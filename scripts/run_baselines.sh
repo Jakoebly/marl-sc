@@ -32,7 +32,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
-EXPERIMENT_NAME="BASELINES_3WH2SKUS_SingleAgent"
+EXPERIMENT_NAME="BASELINES_3WH2SKUS_SimplifiedEnv"
 
 python src/experiments/run_baselines.py \
     --env-config ./config_files/environments/env_simplified_single.yaml \
