@@ -8,8 +8,8 @@
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=32                      # CPU cores per task
-#SBATCH --mem=128G                              # Memory allocation
+#SBATCH --cpus-per-task=96                      # CPU cores per task
+#SBATCH --mem=256G                              # Memory allocation
 #SBATCH --time=03:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
