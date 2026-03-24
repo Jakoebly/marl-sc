@@ -721,7 +721,7 @@ class TestParameterFlow:
         )
         
         # Get best trial
-        best_trial = analysis.get_best_result(metric="/env_runners/episode_reward_mean", mode="max", scope="last")
+        best_trial = analysis.get_best_result(metric="/env_runners/episode_reward_mean", mode="max", scope="avg")
         
         # Verify config structure
         assert "env_config" in best_trial.config

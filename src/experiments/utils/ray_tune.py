@@ -663,7 +663,7 @@ def print_and_save_best_results(
     """
     
     # Get best trial based on average metric value across all iterations
-    best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="last")
+    best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="avg")
     
     # Extract best trial information
     best_trial_dir = best_trial.path 
