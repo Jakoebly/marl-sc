@@ -38,6 +38,7 @@ def _save_run_metadata(
     output_dir: str,
     runner: 'ExperimentRunner',
     ray_trial_id: Optional[str] = None,
+    root_seed: Optional[int] = None,
 ):
     """
     Writes a one-time metadata file at the start of a run or trial.
@@ -49,6 +50,7 @@ def _save_run_metadata(
         runner (ExperimentRunner): The experiment runner (used to access the
             underlying RLlib Algorithm for logdir and config).
         ray_trial_id (Optional[str]): Ray Tune trial ID, or None for single runs.
+        root_seed (Optional[int]): Root seed used for reproducibility.
     """
 
     # Set the filename for the metadata file
@@ -66,6 +68,7 @@ def _save_run_metadata(
     meta = {
         "ray_trial_id": ray_trial_id or Path(trainer.logdir).name,
         "ray_logdir": str(trainer.logdir),
+        "root_seed": root_seed,
         "config": trainer.config.to_dict(),
     }
 
@@ -77,6 +80,34 @@ def _save_run_metadata(
         json.dump(meta, f, indent=2, default=str)
 
     print(f"[INFO] Saved run metadata to: {meta_path}")
+
+
+def _load_root_seed_from_metadata(experiment_dir: Path) -> Optional[int]:
+    """
+    Reads the ``root_seed`` from a previously saved ``metadata.json``.
+
+    Args:
+        experiment_dir (Path): Experiment directory containing ``metadata.json``.
+
+    Returns:
+        root_seed (Optional[int]): The stored root seed, or None if not found.
+    """
+
+    # Get the metadata file path
+    meta_path = experiment_dir / "metadata.json"
+
+    # If the metadata file does not exist, return None
+    if not meta_path.exists():
+        return None
+
+    # Load the metadata from the file
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    # Get the root seed
+    root_seed = meta.get("root_seed")
+
+    return root_seed
 
 def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
     """
@@ -259,9 +290,9 @@ def generate_experiment_name(
 # ============================================================================
 
 def run_single_experiment(
-    env_config_path: str,
-    algorithm_config_path: str,
-    storage_dir: str,
+    env_config_path: Optional[str] = None,
+    algorithm_config_path: Optional[str] = None,
+    storage_dir: str = "./experiment_outputs",
     wandb_project: Optional[str] = None,
     wandb_name: Optional[str] = None,
     root_seed: Optional[int] = None,
@@ -270,18 +301,56 @@ def run_single_experiment(
 ):
     """
     Runs a single experiment without hyperparameter tuning.
+
+    When ``resume_from`` is provided, configs are loaded from the saved
+    ``env_config.yaml`` / ``algorithm_config.yaml`` in the experiment directory
+    (parent of the checkpoint) unless explicit config paths are given.
     
     Args:
-        env_config_path (str): Path to environment config
-        algorithm_config_path (str): Path to algorithm config
+        env_config_path (Optional[str]): Path to environment config.
+            Required for new runs; optional when resuming (loaded from saved config).
+        algorithm_config_path (Optional[str]): Path to algorithm config.
+            Required for new runs; optional when resuming (loaded from saved config).
         storage_dir (str): Root directory for experiment outputs (experiment folder
             is created as storage_dir / experiment_name).
         wandb_project (Optional[str]): WandB project name
         wandb_name (Optional[str]): WandB run name
         root_seed (Optional[int]): Root seed for reproducibility.
-        resume_from (Optional[str]): Path to checkpoint to resume from
+        resume_from (Optional[str]): Path to checkpoint to resume from.
         experiment_name (Optional[str]): Name for the experiment (used in folder structure)
     """
+
+    # When resuming, resolve configs and root_seed from the experiment directory
+    if resume_from:
+        # Find the experiment directory from the checkpoint directory
+        experiment_dir = _find_experiment_dir_from_checkpoint(resume_from)
+
+        # Get the environment config from the experiment directory
+        if env_config_path is None:
+            env_config_path = str(experiment_dir / "env_config.yaml")
+            if not Path(env_config_path).exists():
+                raise FileNotFoundError(
+                    f"No saved environment config found at: {env_config_path}\n"
+                    f"Provide --env-config explicitly."
+                )
+            print(f"[INFO] Loading saved environment config from: {env_config_path}")
+
+        # Get the algorithm config from the experiment directory
+        if algorithm_config_path is None:
+            algorithm_config_path = str(experiment_dir / "algorithm_config.yaml")
+            if not Path(algorithm_config_path).exists():
+                raise FileNotFoundError(
+                    f"No saved algorithm config found at: {algorithm_config_path}\n"
+                    f"Provide --algorithm-config explicitly."
+                )
+            print(f"[INFO] Loading saved algorithm config from: {algorithm_config_path}")
+
+        # Get the root seed from the experiment directory
+        if root_seed is None:
+            saved_seed = _load_root_seed_from_metadata(experiment_dir)
+            if saved_seed is not None:
+                root_seed = saved_seed
+                print(f"[INFO] Loaded root_seed={root_seed} from saved metadata")
 
     # Generate experiment name if not provided
     if experiment_name is None:
@@ -323,6 +392,7 @@ def run_single_experiment(
     _save_run_metadata(
         output_dir=checkpoint_dir,
         runner=runner,
+        root_seed=root_seed,
     )
 
     # Resume from checkpoint if specified
@@ -415,6 +485,72 @@ def run_evaluation(
     result = runner.run()
 
     return result
+
+def _run_post_tune_analysis(
+    analysis: tune.ResultGrid,
+    metric: str = "env_runners/episode_return_mean",
+    mode: str = "max",
+    root_seed: Optional[int] = None,
+):
+    """
+    Runs post-tune analysis: prints/saves best results, evaluates best trial's
+    best checkpoint with visualization, and generates a convergence report.
+
+    Args:
+        analysis (tune.ResultGrid): Ray Tune ``ResultGrid`` returned by ``tuner.fit()``.
+        metric (str): Metric to optimize.
+        mode (str): Optimization mode ("min" or "max").
+        root_seed (Optional[int]): Root seed forwarded to the evaluation runner.
+    """
+
+    # Print and save best results
+    best_info = print_and_save_best_results(
+        analysis=analysis,
+        metric=metric,
+        mode=mode,
+    )
+
+    # Get the best checkpoint and trial directory
+    best_checkpoint = best_info.get("best_trial_best_checkpoint")
+    best_trial_dir = best_info.get("best_trial_path")
+
+    # Run evaluation and update best trial results
+    if best_checkpoint:
+        print("\n" + "=" * 80)
+        print("EVALUATING BEST TRIAL")
+        print("=" * 80)
+
+        # Run evaluation on the best checkpoint
+        eval_result = run_evaluation(
+            checkpoint_dir=best_checkpoint,
+            experiment_dir=best_trial_dir,
+            eval_episodes=50,
+            root_seed=root_seed,
+            visualize=True,
+        )
+
+        # Update best trial results with the evaluation reward from the best checkpoint
+        eval_reward = eval_result.get("evaluation", {}).get("episode_reward_mean")
+        if eval_reward is not None:
+            results_yaml_path = Path(analysis.experiment_path) / "best_trial_results.yaml"
+            if results_yaml_path.exists():
+                with open(results_yaml_path, "r") as f:
+                    saved = yaml.safe_load(f)
+                updated = {}
+                for k, v in saved.items():
+                    updated[k] = v
+                    if k == "best_trial_best_metric":
+                        updated["best_trial_eval_metric"] = float(eval_reward)
+                with open(results_yaml_path, "w") as f:
+                    yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
+                print(f"[INFO] Eval metric ({eval_reward:.4f}) saved to: {results_yaml_path}")
+
+    # Create a tuner convergence report
+    analyze_tune_convergence(
+        analysis=analysis,
+        metric=metric,
+        mode=mode,
+    )
 
 def run_tune_experiment(
     env_config_path: str,
@@ -526,56 +662,96 @@ def run_tune_experiment(
 
     # Run the tuner
     analysis = tuner.fit()
+
+    # Run post-tune analysis including best results, evaluation, convergence
+    _run_post_tune_analysis(analysis, metric=metric, mode=mode, root_seed=root_seed)
     
-    # Print and save best results
-    best_info = print_and_save_best_results(
-        analysis=analysis,
-        metric=metric,
-        mode=mode,
-    )
+    return analysis
 
-    # Get best checkpoint and trial directory
-    best_checkpoint = best_info.get("best_trial_best_checkpoint")
-    best_trial_dir = best_info.get("best_trial_path")
-    if best_checkpoint:
 
-        # Print header
-        print("\n" + "=" * 80)
-        print("EVALUATING BEST TRIAL")
-        print("=" * 80)
+def resume_tune_experiment(
+    experiment_path: str,
+    num_cpus: Optional[int] = None,
+    num_gpus: int = 0,
+    num_cpus_per_env_runner: Optional[int] = None,
+    wandb_project: Optional[str] = None,
+):
+    """
+    Resumes an interrupted Ray Tune experiment using ``Tuner.restore``.
 
-        # Evaluate best trial's best checkpoint with visualization
-        eval_result = run_evaluation(
-            checkpoint_dir=best_checkpoint,
-            experiment_dir=best_trial_dir,
-            eval_episodes=50,
-            root_seed=root_seed,
-            visualize=True,
+    All configuration (search space, scheduler, search algorithm, num_samples,
+    env/algorithm configs) is loaded from the persisted experiment state.
+    Only the trainable function and resource allocation need to be re-specified.
+
+    Args:
+        experiment_path (str): Path to the existing experiment directory.
+        num_cpus (Optional[int]): CPUs per trial.
+        num_gpus (int): GPUs per trial.
+        num_cpus_per_env_runner (Optional[int]): CPUs per env runner.
+        wandb_project (Optional[str]): WandB project name.
+    """
+
+    # Initialize Ray
+    ray.init(ignore_reinit_error=True)
+
+    # Validate that the experiment can be restored
+    if not tune.Tuner.can_restore(experiment_path):
+        raise FileNotFoundError(
+            f"Cannot restore Tune experiment from '{experiment_path}'. "
+            f"The directory does not contain a valid Tune experiment state. "
+            f"Make sure the full experiment directory (including trial folders) is intact."
+        )
+    print(f"[INFO] Restoring Tune experiment from: {experiment_path}")
+
+    # Get the tune config from the first trial's params.json neededto determine
+    # resource allocation.
+    experiment_dir = Path(experiment_path)
+    first_trial_config = None
+    for trial_dir in sorted(experiment_dir.iterdir()):
+        params_file = trial_dir / "params.json"
+        if params_file.is_file():
+            with open(params_file, "r") as f:
+                first_trial_config = json.load(f)
+            break
+    if first_trial_config is None:
+        raise RuntimeError(
+            "Could not find any trial params.json in the experiment directory. "
+            "The experiment may have no started trials."
         )
 
-        # Insert eval metric into best_trial_results.yaml
-        eval_reward = eval_result.get("evaluation", {}).get("episode_reward_mean")
-        if eval_reward is not None:
-            results_yaml_path = Path(analysis.experiment_path) / "best_trial_results.yaml"
-            if results_yaml_path.exists():
-                with open(results_yaml_path, "r") as f:
-                    saved = yaml.safe_load(f)
-                updated = {}
-                for k, v in saved.items():
-                    updated[k] = v
-                    if k == "best_trial_best_metric":
-                        updated["best_trial_eval_metric"] = float(eval_reward)
-                with open(results_yaml_path, "w") as f:
-                    yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
-                print(f"[INFO] Eval metric ({eval_reward:.4f}) saved to: {results_yaml_path}")
+    # Get the algorithm config and number of environment runners from the first trial's config
+    algorithm_config_dict = first_trial_config["algorithm_config"]
+    num_env_runners = algorithm_config_dict["shared"]["num_env_runners"]
+    root_seed = first_trial_config.get("root_seed")
 
-    # Analyze and save convergence report
-    analyze_tune_convergence(
-        analysis=analysis,
-        metric=metric,
-        mode=mode,
+    # Get required resources per trial
+    resources_per_trial = get_resources_per_trial(
+        num_cpus=num_cpus,
+        num_gpus=num_gpus,
+        num_env_runners=num_env_runners,
+        num_cpus_per_env_runner=num_cpus_per_env_runner,
+        algorithm_config_dict=algorithm_config_dict,
     )
-    
+
+    # Wrap trainable with resources
+    trainable_with_resources = tune.with_resources(trainable, resources_per_trial)
+
+    # Restore the tuner and re-run interrupted/unstarted trials
+    tuner = tune.Tuner.restore(
+        experiment_path,
+        trainable=trainable_with_resources,
+        resume_unfinished=True,
+        resume_errored=True,
+    )
+
+    # Run the tuner (only unfinished/unstarted trials will execute)
+    analysis = tuner.fit()
+
+    # Post-tune analysis: best results, evaluation, convergence
+    metric = "env_runners/episode_return_mean"
+    mode = "max"
+    _run_post_tune_analysis(analysis, metric=metric, mode=mode, root_seed=root_seed)
+
     return analysis
 
 def trainable(config: Dict[str, Any]):
@@ -588,6 +764,7 @@ def trainable(config: Dict[str, Any]):
 
     # Create the single top-level SeedManager for this trial
     root_seed = config.get("root_seed")
+    print(f"[DEBUG] Root seed: {root_seed}")
     seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
 
     # Merge env tune params (environment + features) into env config and validate
@@ -631,6 +808,7 @@ def trainable(config: Dict[str, Any]):
             output_dir=checkpoint_dir,
             runner=runner,
             ray_trial_id=ray_trial_id,
+            root_seed=root_seed,
         )
 
     # Create callback for reporting single iterations to Ray Tune
@@ -665,27 +843,27 @@ def main():
     parser.add_argument(
         "--env-config",
         type=str,
-        help="Path to environment config YAML (required for single/tune modes; "
-             "optional for evaluate when using --experiment-name)"
+        help="Path to environment config YAML. Required for new single/tune runs; "
+             "optional when resuming (loaded from saved experiment state)"
     )
     parser.add_argument(
         "--algorithm-config",
         type=str,
-        help="Path to algorithm config YAML (required for single/tune modes; "
-             "optional for evaluate when using --experiment-name)"
+        help="Path to algorithm config YAML. Required for new single/tune runs; "
+             "optional when resuming (loaded from saved experiment state)"
     )
     
     # Tune-specific
     parser.add_argument(
         "--tune-config",
         type=str,
-        help="Path to tune config YAML (required for tune mode)"
+        help="Path to tune config YAML (required for new tune experiments)"
     )
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=10,
-        help="Number of trials for tune mode"
+        default=None,
+        help="Number of trials for tune mode (required for new tune experiments)"
     )
     # Output
     parser.add_argument(
@@ -721,7 +899,9 @@ def main():
     parser.add_argument(
         "--resume-from",
         type=str,
-        help="Path to checkpoint to resume from"
+        help="Resume from a previous run. "
+             "In single mode: path to a checkpoint directory. "
+             "In tune mode: experiment name"
     )
 
     # Evaluation-specific
@@ -771,15 +951,30 @@ def main():
     # Parse arguments
     args = parser.parse_args()
     
-    # Validate that config paths are provided for modes that need them
-    if args.mode in ("single", "tune"):
-        if not args.env_config:
-            raise ValueError("--env-config is required for single/tune mode")
-        if not args.algorithm_config:
-            raise ValueError("--algorithm-config is required for single/tune mode")
+    # Determine whether this is a resume run
+    is_resume = args.resume_from is not None
 
-    # Validate evaluate mode: require either --checkpoint-dir or --experiment-name
-    if args.mode == "evaluate":
+    # Validate required args per mode
+    # Mode 'single' requires environment and algorithm config
+    if args.mode == "single":
+        if not is_resume:
+            if not args.env_config:
+                raise ValueError("--env-config is required for new single runs")
+            if not args.algorithm_config:
+                raise ValueError("--algorithm-config is required for new single runs")
+    # Mode 'tune' requires environment, algorithm, and tune config, and number of samples
+    elif args.mode == "tune":
+        if not is_resume:
+            if not args.env_config:
+                raise ValueError("--env-config is required for new tune experiments")
+            if not args.algorithm_config:
+                raise ValueError("--algorithm-config is required for new tune experiments")
+            if not args.tune_config:
+                raise ValueError("--tune-config is required for new tune experiments")
+            if args.num_samples is None:
+                raise ValueError("--num-samples is required for new tune experiments")
+    # Mode 'evaluate' requires checkpoint directory or experiment name
+    elif args.mode == "evaluate":
         if args.checkpoint_dir and args.experiment_name:
             raise ValueError(
                 "Cannot specify both --checkpoint-dir and --experiment-name. "
@@ -796,6 +991,7 @@ def main():
                 "not with --checkpoint-dir (which already points to a specific checkpoint)."
             )
 
+    # Dispatch experiments based on mode
     # Run a single experiment if mode is "single"
     if args.mode == "single":
         # Run the single experiment
@@ -812,28 +1008,41 @@ def main():
 
     # Run a hyperparameter tuning if mode is "tune"
     elif args.mode == "tune":
-        # Check if tune config is provided (since it has no parameter 'required' in the parser)
-        if not args.tune_config:
-            raise ValueError("--tune-config is required for tune mode")
+         # If resuming, get the experiment path and resume the experiment
+        if is_resume:
+            # Resolve the experiment directory from --resume-from name
+            experiment_path = str(find_experiment_dir(args.storage_dir, args.resume_from))
 
-        # Run the tune experiment
-        run_tune_experiment(
-            env_config_path=args.env_config,
-            algorithm_config_path=args.algorithm_config,
-            tune_config_path=args.tune_config,
-            num_samples=args.num_samples,
-            storage_dir=args.storage_dir,
-            wandb_project=args.wandb_project,
-            num_cpus=args.num_cpus,
-            num_gpus=args.num_gpus,
-            num_cpus_per_env_runner=args.num_cpus_per_env_runner,
-            experiment_name=args.experiment_name,
-            root_seed=args.root_seed,
-        )
+            # Resume the tune experiment
+            resume_tune_experiment(
+                experiment_path=experiment_path,
+                num_cpus=args.num_cpus,
+                num_gpus=args.num_gpus,
+                num_cpus_per_env_runner=args.num_cpus_per_env_runner,
+                wandb_project=args.wandb_project,
+            )
+        
+        # If not resuming, start a new tune experiment
+        else:
+            # Start a new tune experiment
+            run_tune_experiment(
+                experiment_name=args.experiment_name,
+                env_config_path=args.env_config,
+                algorithm_config_path=args.algorithm_config,
+                tune_config_path=args.tune_config,
+                num_samples=args.num_samples,
+                storage_dir=args.storage_dir,
+                num_cpus=args.num_cpus,
+                num_gpus=args.num_gpus,
+                num_cpus_per_env_runner=args.num_cpus_per_env_runner,
+                wandb_project=args.wandb_project,
+                root_seed=args.root_seed,
+            )
 
     # Run evaluation if mode is "evaluate"
     elif args.mode == "evaluate":
-        # Option 1: Name-based lookup
+        # Find the correct checkpoint directory
+        # Option 1: Name-based lookup based on the given experiment name
         if args.experiment_name:
             # Get the experiment directory
             experiment_dir = str(find_experiment_dir(args.storage_dir, args.experiment_name))
