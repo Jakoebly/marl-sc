@@ -8,13 +8,13 @@
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
-#SBATCH --cpus-per-task=8                       # CPU cores per task
+#SBATCH --cpus-per-task=3                       # CPU cores per task
 #SBATCH --mem=32G                               # Memory allocation
-#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
+#SBATCH --time=10:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-8%9                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-11%11                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -89,17 +89,18 @@ CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 case $CONFIG_IDX in
-    0) ENTROPY_COEFF=0.05; NUM_EPOCHS=5; LOGSTD_FLOOR=-2.0 ;;
-    1) ENTROPY_COEFF=0.1; NUM_EPOCHS=5; LOGSTD_FLOOR=-2.0 ;;
-    2) ENTROPY_COEFF=0.01; NUM_EPOCHS=5; LOGSTD_FLOOR=-1.0 ;;
+    0) BETA=0.3 ;;
+    1) BETA=0.5 ;;
+    2) BETA=0.7 ;;
+    3) BETA=1.0 ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
-echo "  entropy_coeff=$ENTROPY_COEFF, num_epochs=$NUM_EPOCHS, logstd_floor=$LOGSTD_FLOOR"
+echo "  beta=$BETA"
 
 ##############################
-# Create temporary config with entropy / epochs / logstd_floor overrides
+# Create temporary config with overrides
 ##############################
 
 # Set environment and algorithm name
@@ -118,10 +119,7 @@ ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
 # Set run parameters
-entropy_coeff = float("$ENTROPY_COEFF")
-num_epochs = int("$NUM_EPOCHS")
-logstd_floor = float("$LOGSTD_FLOOR")
-
+beta = float("$BETA")
 
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
@@ -134,9 +132,7 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
 
-algo_cfg["algorithm"]["shared"]["num_epochs"] = num_epochs
-algo_cfg["algorithm"]["algorithm_specific"]["entropy_coeff"] = entropy_coeff
-algo_cfg["algorithm"]["algorithm_specific"]["logstd_floor"] = logstd_floor
+algo_cfg["algorithm"]["algorithm_specific"]["hysteretic_beta"] = beta
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -267,12 +263,12 @@ ray start --head \
 
 # Set output directory and experiment name
 if [ -n "$ARRAY_NAME" ]; then
-  OUTPUT_DIR="./experiment_outputs/${ARRAY_NAME}"
+  STORAGE_DIR="./experiment_outputs/Phase1/${ARRAY_NAME}"
 else
-  OUTPUT_DIR="./experiment_outputs/WorkingConfig_Phase1.9"  
+  STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"  
 fi
 
-EXPERIMENT_NAME="MAPPO_NumEpochs${NUM_EPOCHS}_Ec${ENTROPY_COEFF}_Lsf${LOGSTD_FLOOR}_MaxAdj15_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="IPPO_3WH2SKU_Beta${BETA}_Run${RUN_NUMBER}"
 
 python src/experiments/run_experiment.py \
     --mode single \
