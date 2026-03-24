@@ -31,8 +31,8 @@ export PYTHONUNBUFFERED=1
 # Run baselines (no Ray needed)
 ##############################
 
-STORAGE_DIR="./experiment_outputs/WorkingConfig_Phase1.8"
-EXPERIMENT_NAME="BASELINES_Single_3WH_2SKUS_SingleAgent_NewBase_OldSettings"
+STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
+EXPERIMENT_NAME="BASELINES_3WH2SKUS_SingleAgent"
 
 python src/experiments/run_baselines.py \
     --env-config ./config_files/environments/env_simplified_single.yaml \
