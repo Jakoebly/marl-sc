@@ -223,10 +223,15 @@ fi
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
+# Redirect Ray result logs to local scratch to avoid NFS stale-file-handle errors
+export RAY_RESULTS="/tmp/ray_results_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$RAY_RESULTS"
+
 # Cleanup function for temp config files and Ray and Wandb
 cleanup() {
   rm -f "$TEMP_ENV_CONFIG" "$TEMP_ALGO_CONFIG" >/dev/null 2>&1 || true
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
+  rm -rf "$RAY_RESULTS" >/dev/null 2>&1 || true
   rm -rf ~/ray_results/ >/dev/null 2>&1 || true
   rm -rf ./wandb/ >/dev/null 2>&1 || true
 }

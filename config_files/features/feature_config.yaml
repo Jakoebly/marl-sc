@@ -5,12 +5,12 @@ features:
 
   # Optional features
   incoming_demand_home: true
-  units_shipped_home: false
-  units_shipped_away: false
-  stockout: false
+  units_shipped_home: true
+  units_shipped_away: true
+  stockout: true
   rolling_demand_mean: true
   demand_forecast: false
-  days_of_supply: true
+  days_of_supply: false
   net_inventory_position: false
   demand_variability: false
   demand_history: false

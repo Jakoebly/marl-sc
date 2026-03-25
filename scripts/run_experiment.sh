@@ -105,9 +105,14 @@ fi
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
+# Redirect Ray result logs to local scratch to avoid NFS stale-file-handle errors
+export RAY_RESULTS="/tmp/ray_results_${SLURM_JOB_ID}_${TASK_ID}"
+mkdir -p "$RAY_RESULTS"
+
 # Cleanup function for Ray and Wandb
 cleanup() {
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
+  rm -rf "$RAY_RESULTS" >/dev/null 2>&1 || true
   rm -rf ~/ray_results/ >/dev/null 2>&1 || true
   rm -rf ./wandb/ >/dev/null 2>&1 || true
 }
