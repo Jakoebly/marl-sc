@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
+import tempfile
 import numpy as np
 import torch
 import yaml
@@ -354,6 +355,21 @@ class BaseAlgorithmWrapper(ABC):
             print(f"[FILTER DEBUG] Error accessing pipeline: {type(e).__name__}: {e}")
 
         return None
+
+    @staticmethod
+    def noop_logger_creator(config: Dict[str, Any]):
+        """Creates a UnifiedLogger with no sub-loggers to avoid writing
+        result.json / progress.csv / TensorBoard events to ~/ray_results.
+
+        Ray's default Trainable logger writes to NFS-mounted home directories,
+        which causes OSError ESTALE on HPC clusters. Passing this as
+        ``logger_creator`` to ``build_algo()`` redirects the (empty) logdir to
+        local /tmp and suppresses all file I/O from the internal logger.
+        """
+        from ray.tune.logger import UnifiedLogger
+
+        logdir = tempfile.mkdtemp(prefix="ray_noop_", dir="/tmp")
+        return UnifiedLogger(config, logdir, loggers=[])
 
     @staticmethod
     def create_env_factory(env_config: 'EnvironmentConfig') -> Callable[[Dict[str, Any]], 'ParallelPettingZooEnv']:

@@ -48,7 +48,7 @@ def _save_run_metadata(
     Args:
         output_dir (str): Directory to write the metadata file into.
         runner (ExperimentRunner): The experiment runner (used to access the
-            underlying RLlib Algorithm for logdir and config).
+            underlying RLlib Algorithm for config).
         ray_trial_id (Optional[str]): Ray Tune trial ID, or None for single runs.
         root_seed (Optional[int]): Root seed used for reproducibility.
     """
@@ -66,8 +66,7 @@ def _save_run_metadata(
 
     # Create the metadata dictionary
     meta = {
-        "ray_trial_id": ray_trial_id or Path(trainer.logdir).name,
-        "ray_logdir": str(trainer.logdir),
+        "ray_trial_id": ray_trial_id or "single",
         "root_seed": root_seed,
         "config": trainer.config.to_dict(),
     }
