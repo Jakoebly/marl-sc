@@ -151,7 +151,7 @@ ray start --head \
 
 # Set output directory and experiment name
 STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
-EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
+EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
 
 # python src/experiments/run_experiment.py \
 #     --mode tune \
