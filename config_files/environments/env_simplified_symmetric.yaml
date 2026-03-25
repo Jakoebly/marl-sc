@@ -69,7 +69,7 @@ environment:
     demand_allocator:
       type: "greedy"
       params:
-        max_splits: "default"
+        max_splits: 2
     lead_time_sampler:
       type: "fixed"
       params:
