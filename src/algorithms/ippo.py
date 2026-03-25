@@ -216,7 +216,9 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             torch.use_deterministic_algorithms(True)
 
         # Build trainer and set training parameters
-        self.trainer = ppo_config.build_algo()
+        self.trainer = ppo_config.build_algo(
+            logger_creator=self.noop_logger_creator,
+        )
         self.num_iterations = shared_params.num_iterations
         self.checkpoint_freq = shared_params.checkpoint_freq
 
