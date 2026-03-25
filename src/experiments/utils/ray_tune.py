@@ -668,8 +668,10 @@ def print_and_save_best_results(
     # Extract best trial information
     best_trial_dir = best_trial.path 
     best_trial_name = Path(best_trial_dir).name
-    best_trial_config = best_trial.config
     best_trial_metrics_df = best_trial.metrics_dataframe
+    best_trial_config = best_trial.config_dict
+    best_trial_env_config = merge_env_tune_params(best_trial_config["env_config"], best_trial_config)
+    best_trial_algorithm_config = merge_tune_params(best_trial_config["algorithm_config"], best_trial_config)
     
     # Latest metric of best trial
     best_trial_latest_metric = extract_nested_metric(best_trial.metrics, metric)
@@ -723,7 +725,8 @@ def print_and_save_best_results(
         "best_trial_metric": metric,
         "best_trial_latest_metric": float(best_trial_latest_metric),
         "best_trial_best_metric": float(best_trial_best_metric),
-        "best_config": best_trial_config,
+        "best_trial_env_config": best_trial_env_config,
+        "best_trial_algorithm_config": best_trial_algorithm_config,
         "best_trial_best_checkpoint": best_trial_best_checkpoint,
     }
     
