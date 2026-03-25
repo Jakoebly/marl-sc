@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-14%15                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-11%12                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -93,7 +93,6 @@ case $CONFIG_IDX in
     1) BETA=0.3 ;;
     2) BETA=0.5 ;;
     3) BETA=0.7 ;;
-    4) BETA=1.0 ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 
@@ -267,7 +266,7 @@ ray start --head \
 if [ -n "$ARRAY_NAME" ]; then
   STORAGE_DIR="./experiment_outputs/Phase1/${ARRAY_NAME}"
 else
-  STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"  
+  STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.10"  
 fi
 
 EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Beta${BETA}_Run${RUN_NUMBER}"
