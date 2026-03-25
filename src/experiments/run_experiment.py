@@ -160,7 +160,6 @@ def find_experiment_dir(base_dir: str, experiment_name: str) -> Path:
 
     return matches[0]
 
-
 def find_checkpoint_dir(
     experiment_dir: Path,
     checkpoint_number: Optional[int] = None,
@@ -205,7 +204,6 @@ def find_checkpoint_dir(
     checkpoint_dir = experiment_dir / checkpoint_folder
 
     return checkpoint_dir
-
 
 def _find_experiment_dir_from_checkpoint(checkpoint_dir: str) -> Path:
     """
@@ -764,7 +762,6 @@ def trainable(config: Dict[str, Any]):
 
     # Create the single top-level SeedManager for this trial
     root_seed = config.get("root_seed")
-    print(f"[DEBUG] Root seed: {root_seed}")
     seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
 
     # Merge env tune params (environment + features) into env config and validate
