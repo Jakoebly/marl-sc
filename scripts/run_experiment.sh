@@ -146,7 +146,7 @@ ray start --head \
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
-EXPERIMENT_NAME="IPPO_3WH2SKUS_OldHPs"
+EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_OldHPs"
 
 python src/experiments/run_experiment.py \
     --mode single \
