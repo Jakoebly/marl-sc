@@ -488,6 +488,7 @@ def _run_post_tune_analysis(
     metric: str = "env_runners/episode_return_mean",
     mode: str = "max",
     root_seed: Optional[int] = None,
+    last_k: Optional[int] = 10,
 ):
     """
     Runs post-tune analysis: prints/saves best results, evaluates best trial's
@@ -498,6 +499,8 @@ def _run_post_tune_analysis(
         metric (str): Metric to optimize.
         mode (str): Optimization mode ("min" or "max").
         root_seed (Optional[int]): Root seed forwarded to the evaluation runner.
+        last_k (Optional[int]): If set, select the best trial / compute convergence
+            using the mean of the last *k* reported metric values. Defaults to 10.
     """
 
     # Print and save best results
@@ -505,6 +508,7 @@ def _run_post_tune_analysis(
         analysis=analysis,
         metric=metric,
         mode=mode,
+        last_k=last_k,
     )
 
     # Get the best checkpoint and trial directory
@@ -547,6 +551,7 @@ def _run_post_tune_analysis(
         analysis=analysis,
         metric=metric,
         mode=mode,
+        last_k=last_k,
     )
 
 def run_tune_experiment(
