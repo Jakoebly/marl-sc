@@ -40,12 +40,12 @@ search_space:
       high: 15000
     logstd_init:
       type: uniform
-      low: -2.0
+      low: -1.5
       high: 0.0
     logstd_floor:
       type: uniform
       low: -4.0
-      high: -0.5
+      high: -1.5
     obs_normalization:
       type: choice
       values: ["meanstd_grouped", "meanstd_custom"]
