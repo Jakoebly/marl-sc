@@ -47,7 +47,7 @@ from src.experiments.utils.ray_tune import (
     prepare_tune_config,
     create_tune_config,
 )
-from src.experiments.run_experiment import generate_experiment_name
+from src.experiments.utils.experiment_utils import generate_experiment_name
 
 
 # ---------------------------------------------------------------------------
