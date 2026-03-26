@@ -163,7 +163,7 @@ python src/experiments/run_experiment.py \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
     --tune-config ./config_files/experiments/tune_config_simplified.yaml \
-    --num-samples 350 \
+    --num-samples 500 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
