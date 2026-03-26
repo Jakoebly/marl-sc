@@ -1,4 +1,3 @@
-import argparse
 import json
 import yaml
 from datetime import datetime
@@ -8,6 +7,7 @@ import ray
 from ray import tune
 from ray.tune import RunConfig, CLIReporter
 
+from src.experiments.utils.args import parse_args
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
 from src.experiments.utils.wandb import setup_wandb
@@ -79,7 +79,6 @@ def _save_run_metadata(
         json.dump(meta, f, indent=2, default=str)
 
     print(f"[INFO] Saved run metadata to: {meta_path}")
-
 
 def _load_root_seed_from_metadata(experiment_dir: Path) -> Optional[int]:
     """
@@ -670,7 +669,6 @@ def run_tune_experiment(
     
     return analysis
 
-
 def resume_tune_experiment(
     experiment_path: str,
     num_cpus: Optional[int] = None,
@@ -756,6 +754,7 @@ def resume_tune_experiment(
 
     return analysis
 
+
 def trainable(config: Dict[str, Any]):
     """
     Implements a Ray Tune trainable function.
@@ -827,170 +826,9 @@ def trainable(config: Dict[str, Any]):
 
 def main():
     """Main CLI entry point."""
-
-    # Create parser for command line arguments
-    parser = argparse.ArgumentParser(description="Run RL experiments")
-    
-    # Experiment type
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["single", "tune", "evaluate"],
-        required=True,
-        help="Experiment mode: 'single' for training, 'tune' for hyperparameter search, 'evaluate' for evaluation"
-    )
-    
-    # Config paths
-    parser.add_argument(
-        "--env-config",
-        type=str,
-        help="Path to environment config YAML. Required for new single/tune runs; "
-             "optional when resuming (loaded from saved experiment state)"
-    )
-    parser.add_argument(
-        "--algorithm-config",
-        type=str,
-        help="Path to algorithm config YAML. Required for new single/tune runs; "
-             "optional when resuming (loaded from saved experiment state)"
-    )
-    
-    # Tune-specific
-    parser.add_argument(
-        "--tune-config",
-        type=str,
-        help="Path to tune config YAML (required for new tune experiments)"
-    )
-    parser.add_argument(
-        "--num-samples",
-        type=int,
-        default=None,
-        help="Number of trials for tune mode (required for new tune experiments)"
-    )
-    # Output
-    parser.add_argument(
-        "--storage-dir",
-        type=str,
-        default="./experiment_outputs",
-        help="Root directory for experiment outputs (experiment folders are created inside)"
-    )
-    parser.add_argument(
-        "--experiment-name",
-        type=str,
-        help="Experiment name (used in folder structure). If not provided, auto-generated."
-    )
-    
-    # WandB
-    parser.add_argument(
-        "--wandb-project",
-        type=str,
-        help="WandB project name"
-    )
-    parser.add_argument(
-        "--wandb-name",
-        type=str,
-        help="WandB run name (for single mode)"
-    )
-    
-    # Other
-    parser.add_argument(
-        "--root-seed",
-        type=int,
-        help="Root seed for reproducibility. Split into independent train_seed and eval_seed internally."
-    )
-    parser.add_argument(
-        "--resume-from",
-        type=str,
-        help="Resume from a previous run. "
-             "In single mode: path to a checkpoint directory. "
-             "In tune mode: experiment name"
-    )
-
-    # Evaluation-specific
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=str,
-        help="Path to checkpoint directory for evaluation. Mutually exclusive with --experiment-name."
-    )
-    parser.add_argument(
-        "--checkpoint-number",
-        type=str,
-        help="Checkpoint identifier to evaluate (e.g. '50' for checkpoint_50, "
-             "'000000' for checkpoint_000000). "
-             "Only used with --experiment-name. If omitted, defaults to checkpoint_best "
-             "(falls back to checkpoint_final if checkpoint_best does not exist)."
-    )
-    parser.add_argument(
-        "--eval-episodes",
-        type=int,
-        help="Number of evaluation episodes (overrides config default)"
-    )
-    parser.add_argument(
-        "--visualize",
-        action="store_true",
-        default=False,
-        help="Generate visualization plots from manual rollout (evaluate mode only)"
-    )
-    
-    # Resources
-    parser.add_argument(
-        "--num-cpus",
-        type=int,
-        help="Number of CPUs per trial (tune mode)"
-    )
-    parser.add_argument(
-        "--num-gpus",
-        type=int,
-        default=0,
-        help="Number of GPUs per trial (tune mode)"
-    )
-    parser.add_argument(
-        "--num-cpus-per-env-runner",
-        type=int,
-        help="Number of CPUs per environment runner (tune mode)"
-    )
     
     # Parse arguments
-    args = parser.parse_args()
-    
-    # Determine whether this is a resume run
-    is_resume = args.resume_from is not None
-
-    # Validate required args per mode
-    # Mode 'single' requires environment and algorithm config
-    if args.mode == "single":
-        if not is_resume:
-            if not args.env_config:
-                raise ValueError("--env-config is required for new single runs")
-            if not args.algorithm_config:
-                raise ValueError("--algorithm-config is required for new single runs")
-    # Mode 'tune' requires environment, algorithm, and tune config, and number of samples
-    elif args.mode == "tune":
-        if not is_resume:
-            if not args.env_config:
-                raise ValueError("--env-config is required for new tune experiments")
-            if not args.algorithm_config:
-                raise ValueError("--algorithm-config is required for new tune experiments")
-            if not args.tune_config:
-                raise ValueError("--tune-config is required for new tune experiments")
-            if args.num_samples is None:
-                raise ValueError("--num-samples is required for new tune experiments")
-    # Mode 'evaluate' requires checkpoint directory or experiment name
-    elif args.mode == "evaluate":
-        if args.checkpoint_dir and args.experiment_name:
-            raise ValueError(
-                "Cannot specify both --checkpoint-dir and --experiment-name. "
-                "Use one or the other."
-            )
-        if not args.checkpoint_dir and not args.experiment_name:
-            raise ValueError(
-                "For evaluate mode, either --checkpoint-dir or --experiment-name "
-                "(with optional --checkpoint-number) must be specified."
-            )
-        if args.checkpoint_number is not None and not args.experiment_name:
-            raise ValueError(
-                "--checkpoint-number can only be used with --experiment-name, "
-                "not with --checkpoint-dir (which already points to a specific checkpoint)."
-            )
+    args = parse_args()    
 
     # Dispatch experiments based on mode
     # Run a single experiment if mode is "single"
@@ -1010,7 +848,7 @@ def main():
     # Run a hyperparameter tuning if mode is "tune"
     elif args.mode == "tune":
          # If resuming, get the experiment path and resume the experiment
-        if is_resume:
+        if args.resume_from is not None:
             # Resolve the experiment directory from --resume-from name
             experiment_path = str(find_experiment_dir(args.storage_dir, args.resume_from))
 
