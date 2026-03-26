@@ -58,6 +58,9 @@ search_space:
     rolling_demand_mean:
       type: choice
       values: [1, 0]
+    demand_forecast:
+      type: choice
+      values: [1, 0]
     days_of_supply:
       type: choice
       values: [1, 0]

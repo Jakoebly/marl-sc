@@ -156,21 +156,21 @@ ray start --head \
 
 # Set output directory and experiment name
 STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_ASHA_SimplifiedEnv"
-
-# python src/experiments/run_experiment.py \
-#     --mode tune \
-#     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
-#     --algorithm-config ./config_files/algorithms/mappo.yaml \
-#     --tune-config ./config_files/experiments/tune_config_simplified.yaml \
-#     --num-samples 1000 \
-#     --storage-dir "${STORAGE_DIR}" \
-#     --experiment-name "${EXPERIMENT_NAME}" \
-#     --wandb-project marl-sc \
-#     --root-seed 42
+EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv"
 
 python src/experiments/run_experiment.py \
-  --mode tune \
-  --resume-from "${EXPERIMENT_NAME}" \
-  --storage-dir "${STORAGE_DIR}" \
-  --wandb-project marl-sc
+    --mode tune \
+    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
+    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --tune-config ./config_files/experiments/tune_config_simplified.yaml \
+    --num-samples 350 \
+    --storage-dir "${STORAGE_DIR}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
+    --wandb-project marl-sc \
+    --root-seed 42
+
+# python src/experiments/run_experiment.py \
+#   --mode tune \
+#   --resume-from "${EXPERIMENT_NAME}" \
+#   --storage-dir "${STORAGE_DIR}" \
+#   --wandb-project marl-sc
