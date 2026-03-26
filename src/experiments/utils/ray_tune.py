@@ -405,7 +405,7 @@ def get_tune_search_algorithm(
     # Return the corresponding Ray Tune search algorithm
     if search_config.type == "optuna":
         from ray.tune.search.optuna import OptunaSearch
-        return OptunaSearch(metric=metric, mode=mode, seed=seed, sampler=TPESampler, **kwargs)
+        return OptunaSearch(metric=metric, mode=mode, seed=seed, **kwargs)
     elif search_config.type == "bayesopt":
         from ray.tune.search.bayesopt import BayesOptSearch
         return BayesOptSearch(metric=metric, mode=mode, random_state=seed, **kwargs)
