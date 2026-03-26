@@ -405,7 +405,7 @@ def get_tune_search_algorithm(
     # Return the corresponding Ray Tune search algorithm
     if search_config.type == "optuna":
         from ray.tune.search.optuna import OptunaSearch
-        return OptunaSearch(metric=metric, mode=mode, seed=seed, **kwargs)
+        return OptunaSearch(metric=metric, mode=mode, seed=seed, sampler=TPESampler, **kwargs)
     elif search_config.type == "bayesopt":
         from ray.tune.search.bayesopt import BayesOptSearch
         return BayesOptSearch(metric=metric, mode=mode, random_state=seed, **kwargs)
@@ -754,13 +754,24 @@ def print_and_save_best_results(
         best_trial_last_k_metric = None
         selection_scope = "last"
     
+    print(f"[DEBUG] Best trial: {best_trial}")
+    print(f"[DEBUG] Best trial last-k metric: {best_trial_last_k_metric}")
+    print(f"[DEBUG] Selection scope: {selection_scope}")
+    print("-" * 80)
+
     # Extract best trial information
     best_trial_dir = best_trial.path 
     best_trial_name = Path(best_trial_dir).name
     best_trial_metrics_df = best_trial.metrics_dataframe
-    best_trial_config = best_trial.config_dict
+    best_trial_config = best_trial.config
     best_trial_env_config = merge_env_tune_params(best_trial_config["env_config"], best_trial_config)
     best_trial_algorithm_config = merge_tune_params(best_trial_config["algorithm_config"], best_trial_config)
+
+    print(f"[DEBUG] Best trial directory: {best_trial_dir}")
+    print(f"[DEBUG] Best trial name: {best_trial_name}")
+    print(f"[DEBUG] Best trial metrics dataframe: {best_trial_metrics_df}")
+    print(f"[DEBUG] Best trial config: {best_trial_config}")
+    print("-" * 80)
     
     # Latest metric of best trial
     best_trial_latest_metric = extract_nested_metric(best_trial.metrics, metric)
