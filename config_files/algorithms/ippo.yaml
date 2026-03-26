@@ -3,10 +3,10 @@ algorithm:
   shared:
     num_iterations: 300
     checkpoint_freq: 100
-    batch_size: 4000
-    num_epochs: 15
-    num_minibatches: 4
-    learning_rate: 0.000307235166535234
+    batch_size: 0
+    num_epochs: 0
+    num_minibatches: 0
+    learning_rate: 0
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
@@ -19,10 +19,10 @@ algorithm:
     lam: 0.95
     gamma: 0.99
     use_kl_loss: false
-    grad_clip: 10
-    entropy_coeff: 0.0016691489138332635
-    vf_loss_coeff: 0.7698963105417195
-    clip_param: 0.2
+    grad_clip: 0
+    entropy_coeff: 0
+    vf_loss_coeff: 0
+    clip_param: 0
     vf_clip_param: 100000000000
     logstd_init: 0
     logstd_floor: -100000000000
@@ -43,13 +43,13 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [64, 64]
+          hidden_sizes: [0]
           activation: "relu"
           output_activation: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [256, 256]
+          hidden_sizes: [0]
           activation: "relu"
           output_activation: null
 
