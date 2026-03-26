@@ -15,58 +15,54 @@
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
 
+
 ##############################
 # Parse arguments
 ##############################
 
 # Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]
-# Example: sbatch run_evaluation_batch.sh WorkingConfig_Phase1.4
-# Example: sbatch run_evaluation_batch.sh experiment_outputs/WorkingConfig_Phase1.4 50
-
-PARENT_DIR=${1:?"Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]
-
-  ParentFolder:     Folder containing experiment subfolders. Can be a bare name (e.g. WorkingConfig_Phase1.4)
-                    which is resolved to experiment_outputs/<name>, or a full path.
-  CheckpointNumber: Optional. E.g. 50 for checkpoint_50. Default: checkpoint_final
-
-  Loops over each subfolder, runs manual evaluation with --visualize for each."}
+PARENT_DIR=${1:?"Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]"}
 CHECKPOINT_NUMBER=${2:-""}
 
+# Print the parent directory and checkpoint number
 echo "PARENT_DIR=${PARENT_DIR}"
 if [ -n "${CHECKPOINT_NUMBER}" ]; then
     echo "CHECKPOINT_NUMBER=${CHECKPOINT_NUMBER}"
     CHECKPOINT_DIR="checkpoint_${CHECKPOINT_NUMBER}"
 else
-    echo "CHECKPOINT_NUMBER=final (default)"
-    CHECKPOINT_DIR="checkpoint_final"
+    echo "CHECKPOINT_NUMBER=best (default)"
+    CHECKPOINT_DIR="checkpoint_best"
 fi
 
-# Resolve path: if not found and name has no path separators, try under experiment_outputs
-# (e.g. WorkingConfig_Phase1.4 -> experiment_outputs/WorkingConfig_Phase1.4)
+# If parent directory is not found and the name has no path separators, try under 
+# experiment_outputs 
 if [ ! -d "${PARENT_DIR}" ]; then
     if [[ "${PARENT_DIR}" != */* ]] && [ -d "experiment_outputs/${PARENT_DIR}" ]; then
         PARENT_DIR="experiment_outputs/${PARENT_DIR}"
-        echo "Resolved to: ${PARENT_DIR}"
+        echo "Resolved parent directory to: ${PARENT_DIR}"
     else
         echo "[ERROR] Parent directory does not exist: ${PARENT_DIR}"
         exit 1
     fi
 fi
 
+
 ##############################
 # Load modules + env
 ##############################
 
-module load miniforge/25.11.0-0                 # Load the Python distribution
-cd /home/jakobeh/projects/marl-sc              # Change to the project directory
-source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment
+module load miniforge/25.11.0-0                 
+cd /home/jakobeh/projects/marl-sc               
+source ~/projects/marl-sc/.venv/bin/activate    
 
+# Set the Python path and unbuffer the output
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 
-# How many CPUs Slurm actually gave you
+# Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
-
 echo "Starting Ray with ${CPUS} CPUs"
 
 # Clean up stale Ray state and ensure we use a fresh local cluster
@@ -79,28 +75,32 @@ ray start --head \
   --include-dashboard=false \
   --disable-usage-stats
 
+
 ##############################
 # Loop over subfolders and run evaluation
 ##############################
 
-# --storage-dir is the base for find_experiment_dir (parent of experiment subfolders)
 count=0
 skipped=0
 
+# Loop over each subfolder in the parent directory and run evaluation
 for subdir in "${PARENT_DIR}"/*/; do
-    [ -d "${subdir}" ] || continue
+    # Skip if not a directory
+    [ -d "${subdir}" ] || continue 
     name=$(basename "${subdir}")
-    # Skip if no checkpoint
+    # Skip if no checkpoint directory exists
     if [ ! -d "${subdir}/${CHECKPOINT_DIR}" ]; then
         echo "[SKIP] ${name}: no ${CHECKPOINT_DIR} found"
         ((skipped++)) || true
         continue
     fi
+
     echo ""
     echo "=========================================="
     echo "[EVAL] Running evaluation for: ${name}"
     echo "=========================================="
 
+    # Assemble evaluation command
     EVAL_CMD=(
         python src/experiments/run_experiment.py
         --mode evaluate
@@ -110,10 +110,12 @@ for subdir in "${PARENT_DIR}"/*/; do
         --root-seed 42
     )
 
+    # Add checkpoint number if provided
     if [ -n "${CHECKPOINT_NUMBER}" ]; then
         EVAL_CMD+=(--checkpoint-number "${CHECKPOINT_NUMBER}")
     fi
 
+    # Run evaluation
     if "${EVAL_CMD[@]}"; then
         ((count++)) || true
         echo "[OK] Completed: ${name}"
@@ -127,6 +129,7 @@ echo "=========================================="
 echo "Batch evaluation finished: ${count} completed, ${skipped} skipped"
 echo "=========================================="
 
+# If no evaluations were completed and no evaluations were skipped, exit with error
 if [ "${count}" -eq 0 ] && [ "${skipped}" -eq 0 ]; then
     echo "[WARN] No experiment subfolders found in ${PARENT_DIR}"
     exit 1

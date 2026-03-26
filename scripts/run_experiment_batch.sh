@@ -14,14 +14,17 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-11%12                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-11%12                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
 # Parse arguments
 ##############################
 
-ARRAY_NAME=${1:-}
+# Usage: sbatch run_experiment_batch.sh [ArrayName]
+ARRAY_NAME=${1:-""}
+
+# Print the array name
 if [ -n "$ARRAY_NAME" ]; then
   echo "ARRAY_NAME=${ARRAY_NAME}"
 else
@@ -33,61 +36,31 @@ fi
 # Load modules + env
 ##############################
 
-module load miniforge/25.11.0-0                 # Load the Python distribution
-cd /home/jakobeh/projects/marl-sc               # Change to the project directory
-source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment
+module load miniforge/25.11.0-0                 
+cd /home/jakobeh/projects/marl-sc              
+source ~/projects/marl-sc/.venv/bin/activate   
 
+# Set the Python path, unbuffer the output, and set the Python hash seed
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
 
 ##############################
-# Map SLURM_ARRAY_TASK_ID -> run parameters
+# Map SLURM_ARRAY_TASK_ID to config and run number
 ##############################
 
-# #### INDEX ARITHMETICS ####
-# # Define possible values for max quantity and entropy coefficient
-# MAX_QTYS=(20 30 40)
-# LEARNING_RATES=(0.0003 0.001)
-# VF_CLIP_PARAMS=(30000 100000 10000000000)
-
-# # Get the number of possible values for max quantity and entropy coefficient
-# N_QTYS=${#MAX_QTYS[@]}
-# N_LRS=${#LEARNING_RATES[@]}
-# N_VFCLIPS=${#VF_CLIP_PARAMS[@]}
-
-# # Get the ID of the current task for indexing the MAX_QTYS and ENTROPY_COEFFS arrays
-# ID=${SLURM_ARRAY_TASK_ID}
-# QTY_IDX=$(( ID % N_QTYS ))
-# LR_IDX=$(( (ID / N_QTYS) % N_LRS ))
-# VFC_IDX=$(( (ID / ( N_QTYS*N_LRS )) ))
-
-# # Get the max quantity and entropy coefficient for this task
-# MAX_QTY=${MAX_QTYS[$QTY_IDX]}
-# LEARNING_RATE=${LEARNING_RATES[$LR_IDX]}
-# VF_CLIP_PARAM=${VF_CLIP_PARAMS[$VFC_IDX]}
-
-# echo "Task $ID -> max_qty=$MAX_QTY, learning_rate=$LEARNING_RATE, vf_clip_param=$VF_CLIP_PARAM"
-
-#### CASE LOOKUP ####
-
-# ID=${SLURM_ARRAY_TASK_ID}
-
-# case $ID in
-#     0) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=False; OBS_NORM="meanstd_custom" ;;
-#     1) HIDDEN_SIZES="[64]";   PARAMETER_SHARING=True;  OBS_NORM="meanstd_custom" ;;
-# esac
-
-# echo "Task $ID -> hidden_sizes=$HIDDEN_SIZES, parameter_sharing=$PARAMETER_SHARING, obs_norm=$OBS_NORM"
-
-#### CONFIG x RUNS GRID ####
+# Set the number of runs per config
 N_RUNS=3
 
+# Use the ID of the current task to compute the config index and run number
 ID=${SLURM_ARRAY_TASK_ID}
 CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
+# Map the config index to run configs
 case $CONFIG_IDX in
     0) BETA="None" ;;
     1) BETA=0.3 ;;
@@ -95,12 +68,12 @@ case $CONFIG_IDX in
     3) BETA=0.7 ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
-
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
 echo "  beta=$BETA"
 
+
 ##############################
-# Create temporary config with overrides
+# Create temporary configs with overrides
 ##############################
 
 # Set environment and algorithm name
@@ -111,6 +84,7 @@ ALGO_NAME="ippo"
 TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
 TEMP_ALGO_CONFIG=$(mktemp --suffix=.yaml)
 
+# Override values in the environment and algorithm configs
 python - <<PY
 import yaml
 
@@ -232,17 +206,6 @@ trap cleanup EXIT
 # Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
-# Print the current task's ports and Ray components
-echo "Array tasks:     ${N_TASKS} (max id ${MAX_TASK_ID})"
-echo "Port base/range: ${BASE_PORT}-${MAX_PORT} (available ${AVAILABLE})"
-echo "Block size:      ${BLOCK_SIZE} ports per task (workers: $((BLOCK_SIZE - RESERVED_WITHIN_BLOCK)))"
-echo "Job slots:       ${ARRAY_SLOTS} (using slot ${ARRAY_SLOT})"
-echo "Ray head:        ${RAY_ADDRESS}"
-echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
-echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
-echo "Worker ports:    ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT}"
-echo "Ray temp dir:    ${RAY_TMPDIR}"
-
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
   --port="${RAY_GCS_PORT}" \
@@ -251,11 +214,12 @@ ray start --head \
   --min-worker-port="${RAY_MIN_WORKER_PORT}" \
   --max-worker-port="${RAY_MAX_WORKER_PORT}" \
   --num-cpus="${CPUS}" \
-    --memory="${RAY_MEMORY_BYTES}" \
+  --memory="${RAY_MEMORY_BYTES}" \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
   || { echo "ERROR: ray start failed"; exit 1; }
+echo "Ray started successfully"
 
 
 ##############################
@@ -268,9 +232,9 @@ if [ -n "$ARRAY_NAME" ]; then
 else
   STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.10"  
 fi
-
 EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Beta${BETA}_Run${RUN_NUMBER}"
 
+# Run training
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config "$TEMP_ENV_CONFIG" \
@@ -280,6 +244,7 @@ python src/experiments/run_experiment.py \
     --wandb-project marl-sc \
     --root-seed 42
 
+# Run evaluation
 python src/experiments/run_experiment.py \
     --mode evaluate \
     --storage-dir "${STORAGE_DIR}" \

@@ -15,12 +15,16 @@
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
 
+
 ##############################
 # Parse arguments
 ##############################
 
+# Usage: sbatch run_evaluation.sh <ExperimentName|TrainablePrefix> [CheckpointNumber]
 EXPERIMENT_NAME=${1:?"Usage: sbatch run_evaluation.sh <ExperimentName|TrainablePrefix> [CheckpointNumber]"}
 CHECKPOINT_NUMBER=${2:-""}
+
+# Print the experiment name and checkpoint number
 echo "EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 if [ -n "${CHECKPOINT_NUMBER}" ]; then
     echo "CHECKPOINT_NUMBER=${CHECKPOINT_NUMBER}"
@@ -28,21 +32,24 @@ else
     echo "CHECKPOINT_NUMBER=best (default, falls back to final)"
 fi
 
+
 ##############################
 # Load modules + env
 ##############################
 
-module load miniforge/25.11.0-0                 # Load the Python distribution
-cd /home/jakobeh/projects/marl-sc               # Change to the project directory
-source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment
+module load miniforge/25.11.0-0                 
+cd /home/jakobeh/projects/marl-sc               
+source ~/projects/marl-sc/.venv/bin/activate    
 
+# Set the Python path and unbuffer the output
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export RAY_DEDUP_LOGS=0
 
-# How many CPUs Slurm actually gave you
+# Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
-
 echo "Starting Ray with ${CPUS} CPUs"
 
 # Clean up stale Ray state and ensure we use a fresh local cluster
@@ -55,10 +62,12 @@ ray start --head \
   --include-dashboard=false \
   --disable-usage-stats
 
+
 ##############################
 # Run evaluation with visualization
 ##############################
 
+# Assemble evaluation command
 EVAL_CMD=(
     python src/experiments/run_experiment.py
     --mode evaluate
@@ -71,6 +80,7 @@ if [ -n "${CHECKPOINT_NUMBER}" ]; then
     EVAL_CMD+=(--checkpoint-number "${CHECKPOINT_NUMBER}")
 fi
 
+# Run evaluation
 "${EVAL_CMD[@]}"
 
 

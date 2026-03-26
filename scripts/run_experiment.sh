@@ -15,18 +15,22 @@
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
 
+
 ##############################
 # Load modules + env
 ##############################
 
-module load miniforge/25.11.0-0                 # Load the Python distribution
-cd /home/jakobeh/projects/marl-sc               # Change to the project directory
-source ~/projects/marl-sc/.venv/bin/activate    # Activate the virtual environment
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment
+module load miniforge/25.11.0-0                 
+cd /home/jakobeh/projects/marl-sc               
+source ~/projects/marl-sc/.venv/bin/activate    
 
+# Set the Python path, unbuffer the output, and set the Python hash seed
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
-export RAY_DEDUP_LOGS=0
+
 
 ##############################
 # Start Ray explicitly (with port allocation)
@@ -105,32 +109,14 @@ fi
 RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
-# Redirect Ray result logs to local scratch to avoid NFS stale-file-handle errors
-export RAY_RESULTS="/tmp/ray_results_${SLURM_JOB_ID}_${TASK_ID}"
-mkdir -p "$RAY_RESULTS"
-
 # Cleanup function for Ray and Wandb
 cleanup() {
   rm -rf "$RAY_TMPDIR" >/dev/null 2>&1 || true
-  rm -rf "$RAY_RESULTS" >/dev/null 2>&1 || true
-  rm -rf ~/ray_results/ >/dev/null 2>&1 || true
-  rm -rf ./wandb/ >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 # Force the current task's driver to coDefaultModelConfigect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
-
-# Print the current task's ports and Ray components
-echo "Array tasks:     ${N_TASKS} (max id ${MAX_TASK_ID})"
-echo "Port base/range: ${BASE_PORT}-${MAX_PORT} (available ${AVAILABLE})"
-echo "Block size:      ${BLOCK_SIZE} ports per task (workers: $((BLOCK_SIZE - RESERVED_WITHIN_BLOCK)))"
-echo "Job slots:       ${ARRAY_SLOTS} (using slot ${ARRAY_SLOT})"
-echo "Ray head:        ${RAY_ADDRESS}"
-echo "Node mgr port:   ${RAY_NODE_MANAGER_PORT}"
-echo "Object mgr port: ${RAY_OBJECT_MANAGER_PORT}"
-echo "Worker ports:    ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT}"
-echo "Ray temp dir:    ${RAY_TMPDIR}"
 
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
@@ -144,6 +130,8 @@ ray start --head \
   --include-dashboard=false \
   --disable-usage-stats \
   || { echo "ERROR: ray start failed"; exit 1; }
+echo "Ray started successfully"
+
 
 ##############################
 # Run training
@@ -153,6 +141,7 @@ ray start --head \
 STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
 EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_OldHPs"
 
+# Run training
 python src/experiments/run_experiment.py \
     --mode single \
     --env-config ./config_files/environments/env_simplified_symmetric.yaml \
@@ -162,6 +151,7 @@ python src/experiments/run_experiment.py \
     --wandb-project marl-sc \
     --root-seed 42
 
+# Run evaluation
 python src/experiments/run_experiment.py \
     --mode evaluate \
     --storage-dir "${STORAGE_DIR}" \
