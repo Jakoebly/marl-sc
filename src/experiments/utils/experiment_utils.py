@@ -255,6 +255,34 @@ def find_experiment_dir_from_checkpoint(checkpoint_dir: str) -> Path:
 
     return experiment_dir
 
+def checkpoint_suffix(checkpoint_dir: str) -> str:
+    """
+    Derives a short label from a checkpoint directory name. 
+    Examples: 
+        - ``checkpoint_best`` -> ``best``
+        - ``checkpoint_final`` -> ``final``
+        - ``checkpoint_42`` -> ``chkpt42``
+        - ``checkpoint_42`` -> ``chkpt42``
+
+    Args:
+        checkpoint_dir (str): Path to a checkpoint directory.
+
+    Returns:
+        suffix (str): Short suffix string.
+    """
+    
+    # Get the checkpoint name
+    checkpoint_name = Path(checkpoint_dir).name
+
+    # Extract the suffix from the checkpoint name
+    if checkpoint_name in ("checkpoint_final", "checkpoint_best"):
+        suffix = checkpoint_name.replace("checkpoint_", "")
+        return suffix
+    if checkpoint_name.startswith("checkpoint_"):
+        suffix = f"chkpt{checkpoint_name.replace('checkpoint_', '')}"
+        return suffix
+    return checkpoint_name
+
 def generate_experiment_name(
     env_config_path: str,
     algorithm_config_path: str,

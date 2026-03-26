@@ -40,13 +40,13 @@ from src.experiments.utils.experiment_utils import (
 )
 
 
+TUNE_METRIC = "env_runners/episode_return_mean"
+TUNE_MODE = "max"
+
+
 # ============================================================================
 # Run Experiment Functions
 # ============================================================================
-
-# Constants 
-TUNE_METRIC = "env_runners/episode_return_mean"
-TUNE_MODE = "max"
 
 def run_single_experiment(
     env_config_path: Optional[str] = None,
@@ -426,8 +426,8 @@ def resume_tune_experiment(
 
 def _run_post_tune_analysis(
     analysis: tune.ResultGrid,
-    metric: str = "env_runners/episode_return_mean",
-    mode: str = "max",
+    metric: str = TUNE_METRIC,
+    mode: str = TUNE_MODE,
     root_seed: Optional[int] = None,
     last_k: Optional[int] = 10,
 ):
