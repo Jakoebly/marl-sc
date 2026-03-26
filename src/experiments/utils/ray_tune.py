@@ -753,11 +753,6 @@ def print_and_save_best_results(
         best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="last")
         best_trial_last_k_metric = None
         selection_scope = "last"
-    
-    print(f"[DEBUG] Best trial: {best_trial}")
-    print(f"[DEBUG] Best trial last-k metric: {best_trial_last_k_metric}")
-    print(f"[DEBUG] Selection scope: {selection_scope}")
-    print("-" * 80)
 
     # Extract best trial information
     best_trial_dir = best_trial.path 
@@ -766,12 +761,6 @@ def print_and_save_best_results(
     best_trial_config = best_trial.config
     best_trial_env_config = merge_env_tune_params(best_trial_config["env_config"], best_trial_config)
     best_trial_algorithm_config = merge_tune_params(best_trial_config["algorithm_config"], best_trial_config)
-
-    print(f"[DEBUG] Best trial directory: {best_trial_dir}")
-    print(f"[DEBUG] Best trial name: {best_trial_name}")
-    print(f"[DEBUG] Best trial metrics dataframe: {best_trial_metrics_df}")
-    print(f"[DEBUG] Best trial config: {best_trial_config}")
-    print("-" * 80)
     
     # Latest metric of best trial
     best_trial_latest_metric = extract_nested_metric(best_trial.metrics, metric)
@@ -849,6 +838,31 @@ def print_and_save_best_results(
     return best_results
 
 
+def _extract_trial_index(result) -> int:
+    """
+    Extract the sequential trial index from a Ray Tune Result's directory name.
+
+    Ray Tune names trial directories as
+    ``trainable_{trial_id}_{index}_{params}_{date}_{time}``
+    where *index* is the 0-based creation order assigned by the scheduler.
+    This order matches the sequence in which the search algorithm (e.g. Optuna
+    TPE) proposed configurations, making it the correct chronological axis for
+    running-best convergence curves.
+
+    Args:
+        result (Result): Ray Tune result object
+
+    Returns:
+        trial_index (int): Sequential trial index
+    """
+    try:
+        trial_name = Path(result.path).name
+        parts = trial_name.split("_")
+        return int(parts[2])
+    except (IndexError, ValueError, AttributeError):
+        return 2**31
+
+
 def analyze_tune_convergence(
     analysis: ResultGrid,
     metric: str = "env_runners/episode_return_mean",
@@ -878,9 +892,8 @@ def analyze_tune_convergence(
     # Get the tune sections
     tune_sections = list(TUNE_SEARCH_SPACE_SECTIONS)
 
-    # 1. Collect metrics & configs from completed trials
-    metrics_list: List[float] = []
-    configs_list: List[Dict[str, Any]] = []
+    # 1. Collect metrics, configs, and trial indices from completed trials
+    trial_data: List[Tuple[int, float, Dict[str, Any]]] = []
     for r in analysis:
         if last_k is not None:
             val = _compute_trial_last_k_metric(r, metric, last_k)
@@ -889,14 +902,17 @@ def analyze_tune_convergence(
         else:
             val = None
         if val is not None:
-            metrics_list.append(val)
-            configs_list.append(r.config)
+            trial_data.append((_extract_trial_index(r), val, r.config))
 
-    n_trials = len(metrics_list)
+    n_trials = len(trial_data)
     if n_trials == 0:
         print("[WARNING] No completed trials with metrics found - skipping convergence analysis.")
         return {}
 
+    # Sort by trial creation order so running-best reflects actual search progression
+    trial_data.sort(key=lambda x: x[0])
+    metrics_list = [d[1] for d in trial_data]
+    configs_list = [d[2] for d in trial_data]
     metrics_arr = np.array(metrics_list)
 
     # 2. Running-best curve

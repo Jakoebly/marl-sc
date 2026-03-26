@@ -17,10 +17,16 @@ search_space:
 
   # --- Algorithm-specific hyperparameters ---
   algorithm_specific:
+    use_kl_loss:
+      type: choice
+      values: [1, 0]
+    grad_clip:
+      type: choice
+      values: [5.0, 10.0, 20.0, 40.0, 100000]
     entropy_coeff:
       type: loguniform
       low: 0.001
-      high: 0.2
+      high: 0.1
     vf_loss_coeff:
       type: uniform
       low: 0.1
@@ -28,9 +34,21 @@ search_space:
     clip_param:
       type: choice
       values: [0.1, 0.2, 0.3]
-    grad_clip:
+    vf_clip_param:
+      type: loguniform
+      low: 200
+      high: 15000
+    logstd_init:
+      type: uniform
+      low: -2.0
+      high: 0.0
+    logstd_floor:
+      type: uniform
+      low: -4.0
+      high: -0.5
+    obs_normalization:
       type: choice
-      values: [5.0, 10.0, 20.0, 40.0, 100000]
+      values: ["meanstd_grouped", "meanstd_custom"]
     # parameter_sharing:
     #   type: choice
     #   values: [0, 1]
@@ -68,6 +86,12 @@ search_space:
       type: choice
       values: [1, 0]
     demand_variability:
+      type: choice
+      values: [1, 0]
+    inventory_aggregate:
+      type: choice
+      values: [1, 0]
+    pipeline_aggregate:
       type: choice
       values: [1, 0]
 
