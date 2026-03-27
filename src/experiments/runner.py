@@ -1,3 +1,11 @@
+"""
+Core experiment runners for training and evaluation.
+
+``ExperimentRunner`` wraps the train loop (algorithm build, training iterations,
+checkpointing, W&B logging), while ``EvaluationRunner`` loads a checkpoint,
+runs rollout episodes, and generates visualizations.
+"""
+
 from typing import Dict, Any, Optional, Callable
 from pathlib import Path
 import shutil

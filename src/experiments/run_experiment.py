@@ -1,3 +1,10 @@
+"""
+CLI entry point for running, resuming, and evaluating RL experiments.
+
+Orchestrates single-seed runs, Ray Tune hyperparameter sweeps, and
+checkpoint-based evaluation via ``ExperimentRunner`` / ``EvaluationRunner``.
+"""
+
 import json
 import yaml
 from argparse import Namespace
