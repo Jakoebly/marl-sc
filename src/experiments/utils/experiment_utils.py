@@ -1,3 +1,11 @@
+"""
+Shared helpers for experiment file I/O and directory resolution.
+
+Provides utilities for generating experiment names, saving/loading run
+metadata, locating experiment and checkpoint directories, and resolving
+saved config files.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,61 +13,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import yaml
+
 from src.config.loader import (
     load_algorithm_config,
     load_environment_config,
 )
 
 if TYPE_CHECKING:
+    from src.config.schema import EnvironmentConfig
     from src.experiments.runner import ExperimentRunner
 
 
 # ============================================================================
-# Helper functions for run_experiment.py
+# Directory and Loading Helpers
 # ============================================================================
-
-def save_run_metadata(
-    output_dir: str,
-    runner: ExperimentRunner,
-    ray_trial_id: Optional[str] = None,
-    root_seed: Optional[int] = None,
-):
-    """
-    Writes a one-time ``metadata.json`` at the start of a run or trial.
-
-    Args:
-        output_dir (str): Directory to write the metadata file into.
-        runner (ExperimentRunner): Experiment runner (provides RLlib config).
-        ray_trial_id (Optional[str]): Ray Tune trial ID, or ``None`` for single runs.
-        root_seed (Optional[int]): Root seed used for reproducibility.
-    """
-
-    # Set the filename for the metadata file
-    METADATA_FILENAME = "metadata.json"
-
-    # Create the path to the metadata file and check if it already exists
-    meta_path = Path(output_dir) / METADATA_FILENAME
-    if meta_path.exists():
-        return
-
-    # Get the trainer from the runner instance
-    trainer = runner.algorithm.trainer
-
-    # Create the metadata dictionary
-    meta = {
-        "ray_trial_id": ray_trial_id or "single",
-        "root_seed": root_seed,
-        "config": trainer.config.to_dict(),
-    }
-
-    # Create the directory if it does not exist
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Save the metadata to the file
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, default=str)
-
-    print(f"[INFO] Saved run metadata to: {meta_path}")
 
 def load_root_seed_from_metadata(experiment_dir: Path) -> Optional[int]:
     """
@@ -283,6 +251,11 @@ def checkpoint_suffix(checkpoint_dir: str) -> str:
         return suffix
     return checkpoint_name
 
+
+# ============================================================================
+# Experiment Name Helpers
+# ============================================================================
+
 def generate_experiment_name(
     env_config_path: str,
     algorithm_config_path: str,
@@ -332,3 +305,96 @@ def generate_experiment_name(
     experiment_name = "_".join(name_parts)
     
     return experiment_name
+
+def generate_baseline_experiment_name(env_config: "EnvironmentConfig") -> str:
+    """
+    Generates a experiment name for baseline runs.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+
+    Returns:
+        str: Folder name in the form ``BASELINE_<W>WH_<S>SKU_<timestamp>``.
+    """
+
+    # Get current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
+    # Build the experiment name
+    experiment_name = [
+        f"BASELINE_{env_config.n_warehouses}WH_{env_config.n_skus}SKU_{timestamp}"
+        ]
+
+    return experiment_name
+
+
+# ============================================================================
+# Output Helpers
+# ============================================================================
+
+def save_run_metadata(
+    output_dir: str,
+    runner: ExperimentRunner,
+    ray_trial_id: Optional[str] = None,
+    root_seed: Optional[int] = None,
+) -> None:
+    """
+    Writes a one-time ``metadata.json`` at the start of a run or trial.
+
+    Args:
+        output_dir (str): Directory to write the metadata file into.
+        runner (ExperimentRunner): Experiment runner (provides RLlib config).
+        ray_trial_id (Optional[str]): Ray Tune trial ID, or ``None`` for single runs.
+        root_seed (Optional[int]): Root seed used for reproducibility.
+    """
+
+    # Set the filename for the metadata file
+    METADATA_FILENAME = "metadata.json"
+
+    # Create the path to the metadata file and check if it already exists
+    meta_path = Path(output_dir) / METADATA_FILENAME
+    if meta_path.exists():
+        return
+
+    # Get the trainer from the runner instance
+    trainer = runner.algorithm.trainer
+
+    # Create the metadata dictionary
+    meta = {
+        "ray_trial_id": ray_trial_id or "single",
+        "root_seed": root_seed,
+        "config": trainer.config.to_dict(),
+    }
+
+    # Create the directory if it does not exist
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save the metadata to the file
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, default=str)
+
+    print(f"[INFO] Saved run metadata to: {meta_path}")
+
+def save_env_config(env_config: EnvironmentConfig, experiment_dir: Path) -> None:
+    """
+    Saves an ``EnvironmentConfig`` to ``env_config.yaml`` in
+    ``experiment_dir``. Skips writing if the file already exists.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        experiment_dir (Path): Experiment output directory.
+    """
+
+    # Set the filename for the environment config file
+    env_config_path = experiment_dir / "env_config.yaml"
+
+    # Save the environment config if the file does not exist
+    if not env_config_path.exists():
+        with open(env_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(
+                {"environment": env_config.model_dump()},
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+        print(f"[INFO] Saved environment config to: {env_config_path}")
