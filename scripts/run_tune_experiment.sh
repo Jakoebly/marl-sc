@@ -157,7 +157,7 @@ EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv"
 #     --wandb-project marl-sc \
 #     --root-seed 42
 
-Resume existing tune experiment
+#Resume existing tune experiment
 python src/experiments/run_experiment.py \
   --mode tune \
   --resume-from "${EXPERIMENT_NAME}" \

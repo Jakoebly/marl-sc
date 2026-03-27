@@ -145,7 +145,7 @@ def validate_args(args: Namespace):
         args (Namespace): Parsed command line arguments
     
     Returns:
-        None
+        args (Namespace): Validated command line arguments
     """
 
     # Determine whether this is a resume run
@@ -187,3 +187,5 @@ def validate_args(args: Namespace):
                 "--checkpoint-number can only be used with --experiment-name, "
                 "not with --checkpoint-dir (which already points to a specific checkpoint)."
             )
+
+    return args
