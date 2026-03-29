@@ -4,13 +4,13 @@ algorithm:
     num_iterations: 300
     checkpoint_freq: 100
     batch_size: 8000
-    num_epochs: 15
+    num_epochs: 10
     num_minibatches: 10
-    learning_rate: 0.001
+    learning_rate: 0.0003
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
-    eval_interval: 50
+    eval_interval: 5
     num_eval_episodes: 5  
     evaluation_parallel_to_training: false
 
@@ -19,13 +19,13 @@ algorithm:
     lam: 0.95
     gamma: 0.99
     use_kl_loss: false
-    grad_clip: 10
+    grad_clip: 0
     entropy_coeff: 0.01
-    vf_loss_coeff: 1
+    vf_loss_coeff: 0.5
     clip_param: 0.2
-    vf_clip_param: 1000
-    logstd_init: -1.0
-    logstd_floor: -2.0
+    vf_clip_param: 100000000000
+    logstd_init: 0
+    logstd_floor: -100000000000
     obs_normalization: "meanstd_grouped"
     parameter_sharing: true
     actor_obs_type: "local"
