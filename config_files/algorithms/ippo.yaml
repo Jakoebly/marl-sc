@@ -3,10 +3,10 @@ algorithm:
   shared:
     num_iterations: 300
     checkpoint_freq: 100
-    batch_size: 8000
-    num_epochs: 10
-    num_minibatches: 10
-    learning_rate: 0.0003
+    batch_size: 16000
+    num_epochs: 20
+    num_minibatches: 1
+    learning_rate: 0.00018462968432503076
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
@@ -18,15 +18,15 @@ algorithm:
     use_gae: true
     lam: 0.95
     gamma: 0.99
-    use_kl_loss: false
-    grad_clip: 0
-    entropy_coeff: 0.01
-    vf_loss_coeff: 0.5
-    clip_param: 0.2
-    vf_clip_param: 100000000000
-    logstd_init: 0
-    logstd_floor: -100000000000
-    obs_normalization: "meanstd_grouped"
+    use_kl_loss: true
+    grad_clip: 100000.0
+    entropy_coeff: 0.001977483493615786
+    vf_loss_coeff: 0.9498293544107581
+    clip_param: 0.1
+    vf_clip_param: 2410.0972240934834
+    logstd_init: -0.9732360725408918
+    logstd_floor: -3.196156924471197
+    obs_normalization: "meanstd_custom"
     parameter_sharing: true
     actor_obs_type: "local"
     critic_obs_type: "local"
@@ -43,13 +43,13 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [64]
+          hidden_sizes: [256, 256]
           activation: "relu"
           output_activation: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [64]
+          hidden_sizes: [128]
           activation: "relu"
           output_activation: null
 
