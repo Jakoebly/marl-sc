@@ -21,8 +21,8 @@ from src.experiments.runner import ExperimentRunner
 from src.experiments.run_experiment import (
     run_single_experiment,
     run_tune_experiment,
-    generate_experiment_name,
 )
+from src.experiments.utils.experiment_utils import generate_experiment_name
 from src.experiments.utils.ray_tune import (
     create_tune_config,
     get_tune_scheduler,

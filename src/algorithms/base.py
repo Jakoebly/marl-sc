@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from src.config.schema import AlgorithmConfig, EnvironmentConfig
     from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 
+from src.experiments.utils.experiment_utils import save_env_config
+
 
 class BaseAlgorithmWrapper(ABC):
     """Base class for RLlib algorithm wrappers."""
@@ -274,16 +276,7 @@ class BaseAlgorithmWrapper(ABC):
 
         # Save environment config if provided
         if env_config is not None:
-            env_config_path = experiment_dir / "env_config.yaml"
-            if not env_config_path.exists():
-                with open(env_config_path, "w", encoding="utf-8") as f:
-                    yaml.dump(
-                        {"environment": env_config.model_dump()},
-                        f,
-                        default_flow_style=False,
-                        sort_keys=False,
-                    )
-                print(f"[INFO] Saved environment config to: {env_config_path}")
+            save_env_config(env_config, experiment_dir)
 
         # Save algorithm config if provided
         if algorithm_config is not None:
