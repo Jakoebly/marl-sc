@@ -8,7 +8,6 @@ checkpoint-based evaluation via ``ExperimentRunner`` / ``EvaluationRunner``.
 import json
 import yaml
 from argparse import Namespace
-from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import ray
@@ -47,8 +46,9 @@ from src.experiments.utils.experiment_utils import (
 )
 
 
-TUNE_METRIC = "env_runners/episode_return_mean"
+TUNE_METRIC = "eval/episode_return_mean"
 TUNE_MODE = "max"
+CONVERGENCE_METRIC = "train/episode_return_mean"
 
 
 # ============================================================================
@@ -302,19 +302,13 @@ def run_tune_experiment(
     # Wrap trainable with resources
     trainable_with_resources = tune.with_resources(trainable, resources_per_trial)
 
-    # Set metric and mode and add it to the search config
-    metric = TUNE_METRIC
-    mode = TUNE_MODE
-    search_config["tune_metric"] = metric
-    search_config["tune_mode"] = mode
-
     # Add root seed to the search config
     search_config["root_seed"] = root_seed
 
     # Setup scheduler and search algorithm from validated config objects
-    scheduler = get_tune_scheduler(scheduler_config, metric=metric, mode=mode)
+    scheduler = get_tune_scheduler(scheduler_config, metric=TUNE_METRIC, mode=TUNE_MODE)
     search_seed = seed_manager.get_seed_int('train')
-    search_alg = get_tune_search_algorithm(search_algorithm_config, metric=metric, mode=mode, seed=search_seed)
+    search_alg = get_tune_search_algorithm(search_algorithm_config, metric=TUNE_METRIC, mode=TUNE_MODE, seed=search_seed)
 
     # Create a tuner
     # search_config: base configs and hyperparameter search spaces (passed to trainable)
@@ -340,7 +334,7 @@ def run_tune_experiment(
     analysis = tuner.fit()
 
     # Run post-tune analysis including best results, evaluation, convergence
-    _run_post_tune_analysis(analysis, metric=metric, mode=mode, root_seed=root_seed)
+    _run_post_tune_analysis(analysis, metric=TUNE_METRIC, mode=TUNE_MODE, root_seed=root_seed)
     
     return analysis
 
@@ -436,7 +430,6 @@ def _run_post_tune_analysis(
     metric: str = TUNE_METRIC,
     mode: str = TUNE_MODE,
     root_seed: Optional[int] = None,
-    last_k: Optional[int] = 10,
 ):
     """
     Prints and saves best results, evaluates the best trial's checkpoint,
@@ -447,16 +440,13 @@ def _run_post_tune_analysis(
         metric (str): Metric to optimize.
         mode (str): Optimization mode (``"min"`` or ``"max"``).
         root_seed (Optional[int]): Root seed forwarded to the evaluation runner.
-        last_k (Optional[int]): Number of last reported values to average
-            when selecting the best trial. Defaults to 10.
     """
 
-    # Print and save best results
+    # Print and save best results 
     best_info = print_and_save_best_results(
         analysis=analysis,
         metric=metric,
         mode=mode,
-        last_k=last_k,
     )
 
     # Get the best checkpoint and trial directory
@@ -473,13 +463,13 @@ def _run_post_tune_analysis(
         eval_result = run_evaluation(
             checkpoint_dir=best_checkpoint,
             experiment_dir=best_trial_dir,
-            eval_episodes=50,
+            eval_episodes=100,
             root_seed=root_seed,
             visualize=True,
         )
 
         # Update best trial results with the evaluation reward from the best checkpoint
-        eval_reward = eval_result.get("evaluation", {}).get("episode_reward_mean")
+        eval_reward = eval_result.get("evaluation", {}).get("episode_return_mean")
         if eval_reward is not None:
             results_yaml_path = Path(analysis.experiment_path) / "best_trial_results.yaml"
             if results_yaml_path.exists():
@@ -488,18 +478,17 @@ def _run_post_tune_analysis(
                 updated = {}
                 for k, v in saved.items():
                     updated[k] = v
-                    if k == "best_trial_best_metric":
+                    if k == "best_trial_best_train_metric":
                         updated["best_trial_eval_metric"] = float(eval_reward)
                 with open(results_yaml_path, "w") as f:
                     yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
                 print(f"[INFO] Eval metric ({eval_reward:.4f}) saved to: {results_yaml_path}")
 
-    # Create a tuner convergence report
+    # Create a convergence report
     analyze_tune_convergence(
         analysis=analysis,
-        metric=metric,
+        metric=CONVERGENCE_METRIC,
         mode=mode,
-        last_k=last_k,
     )
 
 
@@ -565,11 +554,32 @@ def trainable(config: Dict[str, Any]):
             root_seed=root_seed,
         )
 
-    # Create callback for reporting single iterations to Ray Tune
-    tune_callback = partial(report_tune_metrics, required_metrics=config["tune_metric"])
+    # Run the experiment and report metrics each iteration via report_tune_metrics
+    result = runner.run(tune_callback=report_tune_metrics)
 
-    # Run the experiment and return the result
-    result = runner.run(tune_callback=tune_callback)
+    # End-of-training deterministic evaluation (100 episodes) to produce a
+    # definitive eval metric for Optuna and trial selection.
+    eval_result = runner.algorithm.evaluate(eval_episodes=100)
+    eval_reward = (
+        eval_result
+        .get("evaluation", {})
+        .get("env_runners", {})
+        .get("episode_return_mean")
+    )
+    train_reward = (
+        result
+        .get("env_runners", {})
+        .get("episode_return_mean")
+    )
+
+    # Final report with the definitive 100-episode eval reward.
+    # This becomes the last entry in the trial's metrics, which is what
+    # scope="last" and Optuna's on_trial_complete pick up.
+    tune.report({
+        "training_iteration": result.get("training_iteration"),
+        "train/episode_return_mean": train_reward,
+        "eval/episode_return_mean": eval_reward if eval_reward is not None else train_reward,
+    })
 
     return result
 
