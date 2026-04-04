@@ -139,7 +139,7 @@ echo "Ray started successfully"
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs"
-EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_TEST2"
+EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_TEST3"
 
 # Run training
 python src/experiments/run_experiment.py \
