@@ -69,11 +69,11 @@ def log_wandb_metrics(result: Dict[str, Any], iteration: int) -> None:
     if env_runners:
         # Episode return metrics (aggregate across all agents)
         if "episode_return_mean" in env_runners:
-            metrics["train/episode_reward_mean"] = env_runners["episode_return_mean"]
+            metrics["train/episode_return_mean"] = env_runners["episode_return_mean"]
         if "episode_return_max" in env_runners:
-            metrics["train/episode_reward_max"] = env_runners["episode_return_max"]
+            metrics["train/episode_return_max"] = env_runners["episode_return_max"]
         if "episode_return_min" in env_runners:
-            metrics["train/episode_reward_min"] = env_runners["episode_return_min"]
+            metrics["train/episode_return_min"] = env_runners["episode_return_min"]
         
         # Episode length metrics (aggregate across all agents)
         if "episode_len_mean" in env_runners:
@@ -149,11 +149,11 @@ def log_wandb_metrics(result: Dict[str, Any], iteration: int) -> None:
         eval_env_runners = eval_metrics.get("env_runners", {})
         if eval_env_runners:
             if "episode_return_mean" in eval_env_runners:
-                metrics["eval/episode_reward_mean"] = eval_env_runners["episode_return_mean"]
+                metrics["eval/episode_return_mean"] = eval_env_runners["episode_return_mean"]
             if "episode_return_max" in eval_env_runners:
-                metrics["eval/episode_reward_max"] = eval_env_runners["episode_return_max"]
+                metrics["eval/episode_return_max"] = eval_env_runners["episode_return_max"]
             if "episode_return_min" in eval_env_runners:
-                metrics["eval/episode_reward_min"] = eval_env_runners["episode_return_min"]
+                metrics["eval/episode_return_min"] = eval_env_runners["episode_return_min"]
             if "episode_len_mean" in eval_env_runners:
                 metrics["eval/episode_len_mean"] = eval_env_runners["episode_len_mean"]
             if "num_episodes" in eval_env_runners:

@@ -609,165 +609,85 @@ def extract_nested_metric(data: Dict[str, Any], metric_path: str) -> Any:
 def report_tune_metrics(
     result: Dict[str, Any],
     checkpoint_path: Optional[str] = None,
-    required_metrics: List[str] | str = ["env_runners/episode_return_mean"],
 ) -> None:
     """
-    Reports results and optionally a checkpoint to Ray Tune.
-    
-    Args:
-        result (Dict[str, Any]): Result dictionary from training iteration
-        checkpoint_path (Optional[str]): Path to checkpoint directory
-        required_metrics (List[str] | str): List of metrics to report or single metric string
-    """
-    
-    # Handle both single metric string and list of metrics strings by normalizing to list
-    if isinstance(required_metrics, str):
-        metrics_list = [required_metrics]
-    else:
-        metrics_list = required_metrics
-    
-    # Initialize tune metrics to report with training iteration
-    tune_metrics = {
-        "training_iteration": result.get("training_iteration")
-    }
+    Reports training and evaluation metrics to Ray Tune each iteration.
 
-    # Extract the required metrics from nested result dictionary and add to tune metrics
-    for metric in metrics_list:
-        metric_value = extract_nested_metric(result, metric)
-        tune_metrics[metric] = metric_value
+    Always reports two metric keys:
+
+    - ``train/episode_return_mean`` - training return (always available).
+    - ``eval/episode_return_mean`` - evaluation return when available,
+      otherwise falls back to the training return so that the key is
+      always present (required by ``OptunaSearch.on_trial_result``).
+
+    Args:
+        result: Result dictionary from one RLlib training iteration.
+        checkpoint_path: Optional path to a checkpoint directory to report.
+    """
+
+    # Extract training and evaluation return metrics
+    train_return = extract_nested_metric(result, "env_runners/episode_return_mean")
+    eval_return = extract_nested_metric(
+        result, "evaluation/env_runners/episode_return_mean",
+    )
+
+    # Assemble all metrics to report
+    tune_metrics = {
+        "training_iteration": result.get("training_iteration"),
+        "train/episode_return_mean": train_return,
+        "eval/episode_return_mean": (
+            eval_return if eval_return is not None else train_return
+        ),
+    }
 
     # Report results including checkpoint if provided
     if checkpoint_path:
         tune.report(
             tune_metrics,
-            checkpoint=tune.Checkpoint.from_directory(checkpoint_path)
+            checkpoint=tune.Checkpoint.from_directory(checkpoint_path),
         )
     else:
         tune.report(tune_metrics)
 
-def _compute_trial_last_k_metric(
-    result,
-    metric: str,
-    k: int,
-) -> Optional[float]:
-    """
-    Computes the mean of the last *k* reported values of *metric* for a trial.
-    
-    Args:
-        result (Result): Ray Tune result object
-        metric (str): Metric name to compute the mean of
-        k (int): Number of last values to average
-        
-    Returns:
-        last_k_metric (float): Mean of the last *k* reported values of *metric* for a trial
-    """
-
-    # Get the metrics dataframe from the result
-    df = result.metrics_dataframe
-
-    # Check if the metrics dataframe is empty or the metric is not in the dataframe
-    if df is None or df.empty or metric not in df:
-        return None
-    
-    # Get the values of the metric from the dataframe
-    values = df[metric].dropna()
-    if len(values) == 0:
-        return None
-
-    # Compute the mean of the last *k* reported values of *metric* for a trial
-    last_k_metric = float(values.tail(min(k, len(values))).mean())
-
-    return last_k_metric
-
-
-def _select_best_trial_last_k(
-    analysis: ResultGrid,
-    metric: str,
-    mode: str,
-    k: int,
-):
-    """
-    Selects the best trial from *analysis* using the last-*k* average of *metric*.
-    
-    Args:
-        analysis (ResultGrid): Ray Tune analysis object
-        metric (str): Metric name to optimize.
-        mode (str): Optimization mode ("min" or "max").
-        k (int): Number of last values to average.
-    
-    Returns:
-        best_result (Result): Best trial result
-        best_val (float): Best trial metric value
-    """
-
-    # Initialize best result and value
-    best_result = None
-    best_val = None
-
-    # Iterate over all trials and select the best one based on the last-k average of the metric
-    for r in analysis:
-        val = _compute_trial_last_k_metric(r, metric, k)
-        if val is None:
-            continue
-        if best_val is None:
-            best_val = val
-            best_result = r
-        elif mode == "max" and val > best_val:
-            best_val = val
-            best_result = r
-        elif mode == "min" and val < best_val:
-            best_val = val
-            best_result = r
-    return best_result, best_val
-
-
 def print_and_save_best_results(
     analysis: ResultGrid,
-    metric: str = "env_runners/episode_reward_mean",
+    metric: str = "eval/episode_return_mean",
     mode: str = "max",
-    last_k: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Prints and saves the best trial results from tuning.
-    
+    Prints and saves the best trial results from tuning. Selects the best trial
+    based on the final reported value of ``metric``. 
+
     Args:
-        analysis (ResultGrid): Ray Tune analysis object
-        metric (str): Metric name to optimize. Default: "episode_reward_mean"
-        mode (str): Optimization mode ("min" or "max"). Default: "max"
-        last_k (Optional[int]): If set, select the best trial by averaging the
-            last *k* reported values of *metric* instead of a single point
-            estimate. Recommended: 10.
-        
+        analysis (ResultGrid): Ray Tune analysis object.
+        metric (str): Metric name to optimize.
+        mode (str): Optimization mode (``"min"`` or ``"max"``).
+
     Returns:
-        best_trial_info (Dict[str, Any]): Dictionary with best trial information
+        best_trial_info (Dict[str, Any]): Dictionary with best trial information.
     """
-    
-    if last_k is not None:
-        best_trial, best_trial_last_k_metric = _select_best_trial_last_k(
-            analysis, metric, mode, last_k,
-        )
-        if best_trial is None:
-            raise RuntimeError("No completed trials with metrics found.")
-        selection_scope = f"last-{last_k}-avg"
-    else:
-        best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="last")
-        best_trial_last_k_metric = None
-        selection_scope = "last"
+
+    # Get the best trial based on the final reported value of metric
+    best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="last")
 
     # Extract best trial information
-    best_trial_dir = best_trial.path 
+    best_trial_dir = best_trial.path
     best_trial_name = Path(best_trial_dir).name
     best_trial_metrics_df = best_trial.metrics_dataframe
     best_trial_config = best_trial.config
     best_trial_env_config = merge_env_tune_params(best_trial_config["env_config"], best_trial_config)
     best_trial_algorithm_config = merge_tune_params(best_trial_config["algorithm_config"], best_trial_config)
     
-    # Latest metric of best trial
-    best_trial_latest_metric = extract_nested_metric(best_trial.metrics, metric)
+    # Get the final evaluation return of the best trial
+    best_trial_latest_eval_metric = extract_nested_metric(best_trial.metrics, metric) # Get the final reported value of metric of the best trial
 
-    # Best metric of best trial
-    best_trial_best_metric = best_trial_metrics_df[metric].max() if mode == "max" else best_trial_metrics_df[metric].min()
-    
+    # Get the best training return of the best trial
+    best_trial_best_train_metric = (
+        best_trial_metrics_df["train/episode_return_mean"].max()
+        if mode == "max"
+        else best_trial_metrics_df["train/episode_return_mean"].min()
+    )
+
     # Resolve checkpoint_best saved by ExperimentRunner in the trial directory
     best_trial_best_checkpoint_path = Path(best_trial_dir) / "checkpoint_best"
     best_trial_best_checkpoint = str(best_trial_best_checkpoint_path) if best_trial_best_checkpoint_path.exists() else None
@@ -776,13 +696,10 @@ def print_and_save_best_results(
     print("\n" + "=" * 80)
     print("BEST TRIAL RESULTS")
     print("=" * 80)
-    print(f"Selection Scope: {selection_scope}")
     print(f"Best Trial Name: {best_trial_name}")
     print(f"Best Trial Path: {best_trial_dir}")
-    print(f"Best Trial Latest Metric {metric}: {best_trial_latest_metric}")
-    print(f"Best Trial Best Metric {metric}: {best_trial_best_metric}")
-    if best_trial_last_k_metric is not None:
-        print(f"Best Trial Last-{last_k}-Avg Metric {metric}: {best_trial_last_k_metric}")
+    print(f"Best Trial Latest Evaluation Metric {metric}: {best_trial_latest_eval_metric}")
+    print(f"Best Trial Best Training Metric {'train/episode_return_mean'}: {best_trial_best_train_metric}")
     print(f"\nBest Trial Hyperparameters (Tuned):")
     if "shared" in best_trial_config:
         print("  Shared:")
@@ -800,41 +717,37 @@ def print_and_save_best_results(
         print("  Features:")
         for key, value in best_trial_config["features"].items():
             print(f"    {key}: {value}")
-    
+
     # Print best checkpoint of best trial
     if best_trial_best_checkpoint:
         print(f"\nBest Checkpoint: {best_trial_best_checkpoint}")
     else:
         print("\nBest Checkpoint: None (no checkpoint_best found in trial directory)")
-    
+
     print("=" * 80 + "\n")
-    
+
     # Save best trial results to file
     output_path = Path(analysis.experiment_path)
     best_results = {
-        "best_trial_selection_scope": selection_scope,
+        "best_trial_selection_scope": "last",
         "best_trial_name": best_trial_name,
         "best_trial_path": best_trial_dir,
         "best_trial_metric": metric,
-        "best_trial_latest_metric": float(best_trial_latest_metric),
-        "best_trial_best_metric": float(best_trial_best_metric),
-    }
-    if best_trial_last_k_metric is not None:
-        best_results[f"best_trial_last_{last_k}_avg_metric"] = float(best_trial_last_k_metric)
-    best_results.update({
+        "best_trial_latest_eval_metric": float(best_trial_latest_eval_metric),
+        "best_trial_best_train_metric": float(best_trial_best_train_metric),
         "best_trial_env_config": best_trial_env_config,
         "best_trial_algorithm_config": best_trial_algorithm_config,
         "best_trial_best_checkpoint": best_trial_best_checkpoint,
-    })
-    
+    }
+
     # Save to YAML
     best_results_path = output_path / "best_trial_results.yaml"
     with open(best_results_path, "w") as f:
         yaml.dump(best_results, f, default_flow_style=False, sort_keys=False)
-    
+
     print(f"Best results saved to:")
     print(f"  YAML: {best_results_path}")
-    
+
     return best_results
 
 
@@ -865,10 +778,9 @@ def _extract_trial_index(result) -> int:
 
 def analyze_tune_convergence(
     analysis: ResultGrid,
-    metric: str = "env_runners/episode_return_mean",
+    metric: str = "train/episode_return_mean",
     mode: str = "max",
     top_n: int = 10,
-    last_k: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Analyzes the convergence of a Ray Tune experiment and saves a report.
@@ -877,13 +789,13 @@ def analyze_tune_convergence(
     parameter, and generates a recommendation (no further tuning, narrow
     refinement, more trials, etc.).
 
+    Each trial's metric is the final reported value (``scope="last"``).
+
     Args:
         analysis (ResultGrid): Ray Tune results.
         metric (str): Metric to optimize.
-        mode (str): "max" or "min".
+        mode (str): ``"max"`` or ``"min"``.
         top_n (int): Number of top trials to analyze for agreement.
-        last_k (Optional[int]): If set, each trial's metric is the mean of its
-            last *k* reported values rather than the single last value.
 
     Returns:
         report (Dict[str, Any]): Full convergence report dict.
@@ -892,15 +804,10 @@ def analyze_tune_convergence(
     # Get the tune sections
     tune_sections = list(TUNE_SEARCH_SPACE_SECTIONS)
 
-    # 1. Collect metrics, configs, and trial indices from completed trials
+    # 1. Collect final metric, config, and trial index from completed trials
     trial_data: List[Tuple[int, float, Dict[str, Any]]] = []
     for r in analysis:
-        if last_k is not None:
-            val = _compute_trial_last_k_metric(r, metric, last_k)
-        elif r.metrics and metric in r.metrics:
-            val = r.metrics[metric]
-        else:
-            val = None
+        val = r.metrics.get(metric) if r.metrics else None
         if val is not None:
             trial_data.append((_extract_trial_index(r), val, r.config))
 
@@ -1057,13 +964,12 @@ def analyze_tune_convergence(
         top_trials.append(trial)
 
     # 8. Assemble report
-    metric_scope = f"last-{last_k}-avg" if last_k is not None else "last"
     report = {
         "summary": {
             "total_trials": n_trials,
             "best_metric": round(float(running_best[-1]), 4),
             "metric_name": metric,
-            "metric_scope": metric_scope,
+            "metric_scope": "last",
             "mode": mode,
         },
         "convergence": {
@@ -1089,7 +995,7 @@ def analyze_tune_convergence(
     print("\n" + "=" * 80)
     print("CONVERGENCE ANALYSIS")
     print("=" * 80)
-    print(f"Metric scope: {metric_scope}")
+    print(f"Metric scope: last")
     print(f"Total trials: {n_trials}")
     print(f"Best metric: {running_best[-1]:.4f}")
     print(f"Improvement last 20%: {improvement_last_20:.4f}")

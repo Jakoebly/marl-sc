@@ -171,14 +171,10 @@ class ExperimentRunner:
             print(
                 f"[INFO] Best checkpoint: iteration {best_iteration} with reward: {best_metric_value:.4f}"
             )
-        
-        # If in tune mode, report final metrics to Ray Tun
-        if tune_callback:
-            tune_callback(result, None)
 
         # If not in tune mode and checkpoint directory exists, save final checkpoint
         # and export module weights
-        elif self.checkpoint_dir:
+        if not tune_callback and self.checkpoint_dir:
             # Save final checkpoint
             final_checkpoint_path = self.checkpoint_dir / "checkpoint_final"
             final_checkpoint_path.mkdir(parents=True, exist_ok=True)
@@ -328,9 +324,9 @@ class EvaluationRunner:
             total_rewards = [ep["rewards"].sum() for ep in episodes_data]
             result = {
                 "evaluation": {
-                    "episode_reward_mean": float(np.mean(total_rewards)),
-                    "episode_reward_min": float(np.min(total_rewards)),
-                    "episode_reward_max": float(np.max(total_rewards)),
+                    "episode_return_mean": float(np.mean(total_rewards)),
+                    "episode_return_min": float(np.min(total_rewards)),
+                    "episode_return_max": float(np.max(total_rewards)),
                     "num_episodes": num_episodes,
                     "visualizations_dir": str(visualization_dir),
                 }
@@ -348,8 +344,8 @@ class EvaluationRunner:
             # Build a lightweight result dict from evaluation metrics
             result = {
                 "evaluation": {
-                    "episode_reward_mean": float(eval_results.get("episode_return_mean", 0)),
-                    "episode_reward_min": float(eval_results.get("episode_return_min", 0)),
+                    "episode_return_mean": float(eval_results.get("episode_return_mean", 0)),
+                    "episode_return_min": float(eval_results.get("episode_return_min", 0)),
                     "episode_reward_max": float(eval_results.get("episode_return_max", 0)),
                     "num_episodes": num_episodes,
                 }
@@ -362,9 +358,9 @@ class EvaluationRunner:
         print("=" * 60)
         print(f"  Checkpoint:  {Path(self.checkpoint_dir).name}")
         print(f"  Episodes:    {eval_metrics.get('num_episodes')}")
-        print(f"  Mean Reward: {eval_metrics.get('episode_reward_mean', 0):.4f}")
-        print(f"  Min  Reward: {eval_metrics.get('episode_reward_min', 0):.4f}")
-        print(f"  Max  Reward: {eval_metrics.get('episode_reward_max', 0):.4f}")
+        print(f"  Mean Return: {eval_metrics.get('episode_return_mean', 0):.4f}")
+        print(f"  Min  Return: {eval_metrics.get('episode_return_min', 0):.4f}")
+        print(f"  Max  Return: {eval_metrics.get('episode_return_max', 0):.4f}")
         if "visualizations_dir" in eval_metrics:
             print(f"  Viz saved:   {eval_metrics['visualizations_dir']}")
         print("=" * 60 + "\n")
