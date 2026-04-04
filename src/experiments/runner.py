@@ -1,3 +1,11 @@
+"""
+Core experiment runners for training and evaluation.
+
+``ExperimentRunner`` wraps the train loop (algorithm build, training iterations,
+checkpointing, W&B logging), while ``EvaluationRunner`` loads a checkpoint,
+runs rollout episodes, and generates visualizations.
+"""
+
 from typing import Dict, Any, Optional, Callable
 from pathlib import Path
 import shutil
@@ -13,10 +21,11 @@ from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.utils.wandb import log_wandb_metrics
 from src.utils.seed_manager import SeedManager
 from src.utils.obs_stats import compute_obs_statistics
+from src.experiments.utils.experiment_utils import checkpoint_suffix
 
 
 class ExperimentRunner:
-    """Implements an experiment runner that orchestrates the training loop for RLlib algorithms."""
+    """Orchestrates the training loop for RLlib algorithms."""
     
     def __init__(
         self,
@@ -27,14 +36,12 @@ class ExperimentRunner:
         wandb_config: Optional[Dict[str, Any]] = None,
     ):
         """
-        Initializes the experiment runner.
-        
         Args:
-            env_config (EnvironmentConfig): Environment configuration
-            algorithm_config (AlgorithmConfig): Algorithm configuration
+            env_config (EnvironmentConfig): Environment configuration.
+            algorithm_config (AlgorithmConfig): Algorithm configuration.
             seed_manager (Optional[SeedManager]): Experiment-level seed manager.
-            checkpoint_dir (Optional[str]): Directory for saving checkpoints
-            wandb_config (Optional[Dict[str, Any]]): WandB configuration dict (project, name, tags, etc.)
+            checkpoint_dir (Optional[str]): Directory for saving checkpoints.
+            wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
         # Derive train / eval / obs_stats seeds from the SeedManager
@@ -83,17 +90,17 @@ class ExperimentRunner:
     ) -> Dict[str, Any]:
         """
         Runs the full training loop.
-        
-        When tune_callback is provided (Ray Tune mode), only checkpoint_best is saved
+
+        When ``tune_callback`` is provided (tune mode), only ``checkpoint_best`` is saved
         and metrics are reported without checkpoint tracking. Periodic checkpoints,
-        checkpoint_final, and module_weights.pt are skipped to minimize disk I/O.
-        
+        ``checkpoint_final``, and ``module_weights.pt`` are skipped to minimize disk I/O.
+
         Args:
-            tune_callback (Callable): Ray Tune callback for reporting metrics each
-                iteration. When set, enables tune mode. Defaults to None.
-        
+            tune_callback (Optional[Callable]): Callback for reporting metrics
+                to Ray Tune each iteration.
+
         Returns:
-            result (Dict[str, Any]): Final training metrics
+            result (Dict[str, Any]): Final training metrics.
         """
 
         # Get number of iterations and checkpoint frequency
@@ -132,12 +139,14 @@ class ExperimentRunner:
                     algorithm_config=self.algorithm_config,
                 )
                 print(
-                    f"[INFO] New best checkpoint at iteration {iteration} with reward: {current_metric:.4f}"
+                    f"[INFO] New best checkpoint at iteration {iteration}: "
+                    f"Reward: {current_metric:.4f}"
                 )
             
             # If in tune mode, report metrics to Ray Tune
             if tune_callback:
                 tune_callback(result, None)
+
             # If not in tune mode and checkpoint frequency is reached, save periodic checkpoint
             elif iteration % checkpoint_freq == 0 and self.checkpoint_dir:
                     print(f"[INFO] Saving checkpoint at iteration {iteration}")
@@ -151,17 +160,24 @@ class ExperimentRunner:
                     if self.wandb_config:
                         wandb.log({"checkpoint_iteration": iteration})
             
-            print(f"[INFO] Training iteration {iteration} of {num_iterations}: Reward: {current_metric:.4f}")
+            # Print training progress
+            print(
+                f"[INFO] Training iteration {iteration} of {num_iterations}: "
+                f"Reward: {current_metric:.4f}"
+            )
 
+        # Print best checkpoint
         if best_iteration is not None:
             print(
                 f"[INFO] Best checkpoint: iteration {best_iteration} with reward: {best_metric_value:.4f}"
             )
         
-        # If in tune mode, report final metrics to Ray Tune
+        # If in tune mode, report final metrics to Ray Tun
         if tune_callback:
             tune_callback(result, None)
-        # If not in tune mode and checkpoint directory exists, save final checkpoint and export module weights
+
+        # If not in tune mode and checkpoint directory exists, save final checkpoint
+        # and export module weights
         elif self.checkpoint_dir:
             # Save final checkpoint
             final_checkpoint_path = self.checkpoint_dir / "checkpoint_final"
@@ -202,18 +218,14 @@ class EvaluationRunner:
         wandb_config: Optional[Dict[str, Any]] = None,
     ):
         """
-        Initializes the evaluation runner.
-        
         Args:
             env_config (EnvironmentConfig): Environment configuration.
             algorithm_config (AlgorithmConfig): Algorithm configuration.
-            checkpoint_dir (str): Path to the checkpoint to evaluate (required).
-            experiment_dir (str): Path to the experiment directory (receives eval
-                outputs like eval_results.yaml and visualizations).
+            checkpoint_dir (str): Path to the checkpoint to evaluate.
+            experiment_dir (str): Path to the experiment directory.
             eval_episodes (Optional[int]): Number of evaluation episodes.
-                If None, uses num_eval_episodes from algorithm config.
             seed_manager (Optional[SeedManager]): Experiment-level seed manager.
-            visualize (bool): If True, run manual rollout and generate visualization plots.
+            visualize (bool): If True, generate visualization plots.
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
@@ -266,9 +278,11 @@ class EvaluationRunner:
 
     def run(self) -> Dict[str, Any]:
         """
-        Runs evaluation and returns metrics. If visualize is True, also runs a manual 
-        rollout to collect per-step data and generates visualization plots.
+        Runs the evaluation loop. 
         
+        When ``visualize`` is True, performs a manual
+        rollout and generates per-step visualization plots.
+
         Returns:
             result (Dict[str, Any]): Evaluation metrics dictionary.
         """
@@ -282,7 +296,7 @@ class EvaluationRunner:
 
         # If visualize is True, run manual rollout and generate visualization plots
         if self.visualize:
-            # Create the environment metadata for the rollout environment
+            # Create environment metadata for the rollout environment
             rollout_env_meta = {
                 "data_mode": "val",
                 "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
@@ -301,25 +315,13 @@ class EvaluationRunner:
             # Run manual rollout for detailed per-step data collection
             episodes_data = self.algorithm.rollout(rollout_env, num_episodes=num_episodes)
 
-            # Get the checkpoint name and subfolder name
-            from src.experiments.visualization import generate_visualizations
-            checkpoint_name = Path(self.checkpoint_dir).name
-            if checkpoint_name == "checkpoint_final":
-                viz_subfolder = "visualization_final"
-                eval_suffix = "final"
-            elif checkpoint_name == "checkpoint_best":
-                viz_subfolder = "visualization_best"
-                eval_suffix = "best"
-            elif checkpoint_name.startswith("checkpoint_"):
-                chkpt_num = checkpoint_name.replace("checkpoint_", "")
-                viz_subfolder = f"visualization_chkpt{chkpt_num}"
-                eval_suffix = f"chkpt{chkpt_num}"
-            else:
-                viz_subfolder = f"visualization_{checkpoint_name}"
-                eval_suffix = checkpoint_name
-
-            # Generate and save visualizations in a checkpoint-specific subfolder
+            # Derive suffix and visualization subfolder from checkpoint name
+            eval_suffix = checkpoint_suffix(self.checkpoint_dir)
+            viz_subfolder = f"visualization_{eval_suffix}"
             visualization_dir = self.experiment_dir / "visualizations" / viz_subfolder
+
+            # Generate and save visualizations
+            from src.experiments.visualization import generate_visualizations
             generate_visualizations(episodes_data, str(visualization_dir))
 
             # Build a lightweight result dict from rollout data
@@ -336,27 +338,19 @@ class EvaluationRunner:
 
         # If visualize is False, run standard RLlib evaluation (aggregated metrics only)
         else:
-            raw = self.algorithm.evaluate(eval_episodes=num_episodes)
-            eval_env = raw.get("evaluation", {}).get("env_runners", {})
+            # Run RLlib evaluation
+            raw_results = self.algorithm.evaluate(eval_episodes=num_episodes)
+            eval_results = raw_results.get("evaluation", {}).get("env_runners", {})
 
-            # Get the checkpoint name
-            checkpoint_name = Path(self.checkpoint_dir).name
-            if checkpoint_name == "checkpoint_final":
-                eval_suffix = "final"
-            elif checkpoint_name == "checkpoint_best":
-                eval_suffix = "best"
-            elif checkpoint_name.startswith("checkpoint_"):
-                chkpt_num = checkpoint_name.replace("checkpoint_", "")
-                eval_suffix = f"chkpt{chkpt_num}"
-            else:
-                eval_suffix = checkpoint_name
+            # Derive suffix from checkpoint name
+            eval_suffix = checkpoint_suffix(self.checkpoint_dir)
 
             # Build a lightweight result dict from evaluation metrics
             result = {
                 "evaluation": {
-                    "episode_reward_mean": float(eval_env.get("episode_return_mean", 0)),
-                    "episode_reward_min": float(eval_env.get("episode_return_min", 0)),
-                    "episode_reward_max": float(eval_env.get("episode_return_max", 0)),
+                    "episode_reward_mean": float(eval_results.get("episode_return_mean", 0)),
+                    "episode_reward_min": float(eval_results.get("episode_return_min", 0)),
+                    "episode_reward_max": float(eval_results.get("episode_return_max", 0)),
                     "num_episodes": num_episodes,
                 }
             }
@@ -375,7 +369,7 @@ class EvaluationRunner:
             print(f"  Viz saved:   {eval_metrics['visualizations_dir']}")
         print("=" * 60 + "\n")
 
-        # Save checkpoint-specific eval results (prevents overwrites across evaluations)
+        # Save checkpoint-specific eval results
         eval_results_path = self.experiment_dir / f"eval_results_{eval_suffix}.yaml"
         eval_results = {
             "checkpoint": str(self.checkpoint_dir),
