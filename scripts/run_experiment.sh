@@ -138,13 +138,13 @@ echo "Ray started successfully"
 ##############################
 
 # Set output directory and experiment name
-STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
-EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_OldHPs"
+STORAGE_DIR="./experiment_outputs"
+EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_TEST"
 
 # Run training
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
+    --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
     --algorithm-config ./config_files/algorithms/ippo.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
