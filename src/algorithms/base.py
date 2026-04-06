@@ -361,7 +361,7 @@ class BaseAlgorithmWrapper(ABC):
         """
         from ray.tune.logger import UnifiedLogger
 
-        logdir = tempfile.mkdtemp(prefix="ray_noop_", dir="/tmp")
+        logdir = tempfile.mkdtemp(prefix="ray_noop_")
         return UnifiedLogger(config, logdir, loggers=[])
 
     @staticmethod

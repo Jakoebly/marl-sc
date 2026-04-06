@@ -562,7 +562,6 @@ def trainable(config: Dict[str, Any]):
     eval_result = runner.algorithm.evaluate(eval_episodes=100)
     eval_reward = (
         eval_result
-        .get("evaluation", {})
         .get("env_runners", {})
         .get("episode_return_mean")
     )
@@ -576,12 +575,11 @@ def trainable(config: Dict[str, Any]):
     # This becomes the last entry in the trial's metrics, which is what
     # scope="last" and Optuna's on_trial_complete pick up.
     tune.report({
-        "training_iteration": result.get("training_iteration"),
         "train/episode_return_mean": train_reward,
         "eval/episode_return_mean": eval_reward if eval_reward is not None else train_reward,
     })
 
-    return result
+    return None
 
 
 # ============================================================================

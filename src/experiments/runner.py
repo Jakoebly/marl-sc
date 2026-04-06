@@ -336,7 +336,7 @@ class EvaluationRunner:
         else:
             # Run RLlib evaluation
             raw_results = self.algorithm.evaluate(eval_episodes=num_episodes)
-            eval_results = raw_results.get("evaluation", {}).get("env_runners", {})
+            eval_results = raw_results.get("env_runners", {})
 
             # Derive suffix from checkpoint name
             eval_suffix = checkpoint_suffix(self.checkpoint_dir)
@@ -346,7 +346,7 @@ class EvaluationRunner:
                 "evaluation": {
                     "episode_return_mean": float(eval_results.get("episode_return_mean", 0)),
                     "episode_return_min": float(eval_results.get("episode_return_min", 0)),
-                    "episode_reward_max": float(eval_results.get("episode_return_max", 0)),
+                    "episode_return_max": float(eval_results.get("episode_return_max", 0)),
                     "num_episodes": num_episodes,
                 }
             }
