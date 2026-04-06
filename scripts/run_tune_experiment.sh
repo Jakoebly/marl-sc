@@ -55,7 +55,7 @@ MAX_PORT=65535
 AVAILABLE=$((MAX_PORT - BASE_PORT + 1))
 
 # Define the preferred block size (i.e., number of ports) per task
-PREFERRED_BLOCK_SIZE=200
+PREFERRED_BLOCK_SIZE=1000
 
 # Reserve the first 20 ports in the block for fixed components and leave the rest for workers
 RESERVED_WITHIN_BLOCK=20
