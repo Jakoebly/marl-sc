@@ -1,0 +1,9 @@
+search_space:
+  shared:
+    learning_rate:
+      type: choice
+      values: [0.001, 0.0005]
+scheduler:
+  type: fifo
+search_algorithm:
+  type: optuna

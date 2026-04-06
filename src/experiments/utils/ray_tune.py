@@ -649,19 +649,39 @@ def report_tune_metrics(
     else:
         tune.report(tune_metrics)
 
+def _extract_short_trial_id(trial_dir_name: str) -> str:
+    """
+    Extracts a short trial ID from a Ray Tune trial directory name.
+
+    Ray Tune names directories as
+    ``trainable_{hash}_{index}_{params}_{date}_{time}``.
+    This function returns the ``trainable_{hash}_{index}`` prefix.
+    """
+
+    # Extract the short trial ID from the trial directory name
+    parts = trial_dir_name.split("_")
+    if len(parts) >= 3:
+        return "_".join(parts[:3])
+
+    return trial_dir_name
+
+
 def print_and_save_best_results(
     analysis: ResultGrid,
     metric: str = "eval/episode_return_mean",
     mode: str = "max",
+    top_k: int = 10,
 ) -> Dict[str, Any]:
     """
     Prints and saves the best trial results from tuning. Selects the best trial
-    based on the final reported value of ``metric``. 
+    based on the final reported value of ``metric``. Also saves the top-K
+    trials with short trial IDs for automated multi-seed validation.
 
     Args:
         analysis (ResultGrid): Ray Tune analysis object.
         metric (str): Metric name to optimize.
         mode (str): Optimization mode (``"min"`` or ``"max"``).
+        top_k (int): Number of top trials to save for seed evaluation.
 
     Returns:
         best_trial_info (Dict[str, Any]): Dictionary with best trial information.
@@ -679,7 +699,7 @@ def print_and_save_best_results(
     best_trial_algorithm_config = merge_tune_params(best_trial_config["algorithm_config"], best_trial_config)
     
     # Get the final evaluation return of the best trial
-    best_trial_latest_eval_metric = extract_nested_metric(best_trial.metrics, metric) # Get the final reported value of metric of the best trial
+    best_trial_latest_eval_metric = extract_nested_metric(best_trial.metrics, metric)
 
     # Get the best training return of the best trial
     best_trial_best_train_metric = (
@@ -691,6 +711,26 @@ def print_and_save_best_results(
     # Resolve checkpoint_best saved by ExperimentRunner in the trial directory
     best_trial_best_checkpoint_path = Path(best_trial_dir) / "checkpoint_best"
     best_trial_best_checkpoint = str(best_trial_best_checkpoint_path) if best_trial_best_checkpoint_path.exists() else None
+
+    # Collect and rank all completed trials by the metric for top-K selection
+    trial_ranking: List[Tuple[float, str, str]] = []
+    for r in analysis:
+        val = r.metrics.get(metric) if r.metrics else None
+        if val is not None and r.path:
+            trial_name = Path(r.path).name
+            trial_ranking.append((val, trial_name, r.path))
+    trial_ranking.sort(key=lambda x: x[0], reverse=(mode == "max"))
+    actual_k = min(top_k, len(trial_ranking))
+
+    top_k_trials = []
+    for rank, (val, name, path) in enumerate(trial_ranking[:actual_k]):
+        short_id = _extract_short_trial_id(name)
+        top_k_trials.append({
+            "rank": rank + 1,
+            "short_id": short_id,
+            "trial_path": path,
+            "eval_metric": round(float(val), 4),
+        })
 
     # Print results
     print("\n" + "=" * 80)
@@ -724,6 +764,11 @@ def print_and_save_best_results(
     else:
         print("\nBest Checkpoint: None (no checkpoint_best found in trial directory)")
 
+    # Print top-K trial summary
+    print(f"\nTop-{actual_k} Trials (by {metric}):")
+    for t in top_k_trials:
+        print(f"  #{t['rank']}: {t['short_id']}  eval={t['eval_metric']}")
+
     print("=" * 80 + "\n")
 
     # Save best trial results to file
@@ -738,6 +783,7 @@ def print_and_save_best_results(
         "best_trial_env_config": best_trial_env_config,
         "best_trial_algorithm_config": best_trial_algorithm_config,
         "best_trial_best_checkpoint": best_trial_best_checkpoint,
+        "top_k_trials": top_k_trials,
     }
 
     # Save to YAML
