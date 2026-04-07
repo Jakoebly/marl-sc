@@ -2,7 +2,7 @@
 
 ## Overview and Approach
 
-The experimental strategy follows a **simplify-first** principle: start with a highly simplified, symmetric environment where the optimal policy is known analytically (a roughly constant order quantity), make the IPPO algorithm learn this policy, and only then add complexity (heterogeneous demand, geographic imbalance, multi-agent coupling, MAPPO).
+The experimental strategy follows a **simplify-first** principle: start with a highly simplified, symmetric environment where the optimal policy is known analytically (a roughly constant order quantity), make the IPPO algorithm learn this policy, and only then add complexity (heterogeneous demand, geographic imbalance, multi-agent coupling, MAPPO, etc...).
 
 The project has progressed through **Phases 1.1–1.8**. A critical evaluation bug (weight synchronization) was discovered in Phase 1.4, meaning all custom evaluation rewards before that point were measured with randomly initialized weights. After fixing this, all prior phases were re-evaluated, revealing that IPPO was learning effectively much earlier than originally believed. Phases 1.6–1.7 further improved IPPO through observation space enrichment and hyperparameter tuning. Phase 1.8 introduced MAPPO (centralized critic), uncovering a critical observation routing bug and identifying entropy collapse as the primary remaining challenge for continuous-action multi-agent PPO.
 
@@ -34,7 +34,7 @@ Three baseline policies were evaluated to establish performance bounds:
 
 The constant order policy of 12 units per SKU effectively matches the newsvendor optimal. The goal for IPPO is to approach this reward level. For the 1WH/1SKU single-agent variant, the baseline is approximately −38.1 (scaled).
 
-> **Note on baselines:** Exact baseline values vary slightly by seed. Phase 1.5 uses a 3WH/2SKU baseline of −154.5 (scaled, base-stock z=2). Phase 1.4 uses a 1WH/1SKU baseline of −38.1 (scaled).
+> **Note on baselines:** Exact baseline values vary slightly by seed and exact environment configuration (e.g., initial inventory, ...). Phase 1.5 uses a 3WH/2SKU baseline of −154.5 (scaled, base-stock z=2). Phase 1.4 uses a 1WH/1SKU baseline of −38.1 (scaled).
 
 ---
 
