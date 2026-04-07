@@ -10,7 +10,7 @@
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node 
 #SBATCH --cpus-per-task=96                      # CPU cores per task
 #SBATCH --mem=256G                              # Memory allocation
-#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
+#SBATCH --time=10:00:00                         # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%j.out         # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
@@ -146,20 +146,20 @@ STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
 EXPERIMENT_NAME="IPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv"
 
 # Run tune experiment
-python src/experiments/run_experiment.py \
-    --mode tune \
-    --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
-    --algorithm-config ./config_files/algorithms/ippo.yaml \
-    --tune-config ./config_files/experiments/tune_config.yaml \
-    --num-samples 800 \
-    --storage-dir "${STORAGE_DIR}" \
-    --experiment-name "${EXPERIMENT_NAME}" \
-    --wandb-project marl-sc \
-    --root-seed 42
+# python src/experiments/run_experiment.py \
+#     --mode tune \
+#     --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
+#     --algorithm-config ./config_files/algorithms/ippo.yaml \
+#     --tune-config ./config_files/experiments/tune_config.yaml \
+#     --num-samples 800 \
+#     --storage-dir "${STORAGE_DIR}" \
+#     --experiment-name "${EXPERIMENT_NAME}" \
+#     --wandb-project marl-sc \
+#     --root-seed 42
 
 # # Resume existing tune experiment
-# python src/experiments/run_experiment.py \
-#   --mode tune \
-#   --resume-from "${EXPERIMENT_NAME}" \
-#   --storage-dir "${STORAGE_DIR}" \
-#   --wandb-project marl-sc
+python src/experiments/run_experiment.py \
+  --mode tune \
+  --resume-from "${EXPERIMENT_NAME}" \
+  --storage-dir "${STORAGE_DIR}" \
+  --wandb-project marl-sc
