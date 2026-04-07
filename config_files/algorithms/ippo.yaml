@@ -5,7 +5,7 @@ algorithm:
     checkpoint_freq: 100
     batch_size: 16000
     num_epochs: 20
-    num_minibatches: 1
+    num_minibatches: 20
     learning_rate: 0.00018462968432503076
     num_env_runners: 2
     num_envs_per_env_runner: 10
