@@ -26,7 +26,7 @@ algorithm:
     vf_clip_param: 2410.0972240934834
     logstd_init: -0.9732360725408918
     logstd_floor: -3.196156924471197
-    obs_normalization: "meanstd_custom
+    obs_normalization: "meanstd_custom"
     parameter_sharing: true
     actor_obs_type: "local"
     critic_obs_type: "global"
