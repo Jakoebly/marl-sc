@@ -66,8 +66,7 @@ def compute_obs_statistics(
 
     if mode == "meanstd_grouped":
         obs_mean, obs_std = _compute_grouped_stats(
-            all_local_obs, n_skus, env.max_expected_lead_time,
-            env.rolling_window, env.feature_config,
+            all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,
         )
     else:
         obs_mean = all_local_obs.mean(axis=0)
@@ -87,7 +86,6 @@ def _compute_grouped_stats(
     all_obs: np.ndarray,
     n_skus: int,
     max_expected_lead_time: int,
-    rolling_window: int,
     feature_config: FeatureConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -129,14 +127,14 @@ def _compute_grouped_stats(
         groups.append((n_skus, features.rolling_demand_mean_aggregate))
     if features.demand_forecast:
         groups.append((n_skus, features.demand_forecast_aggregate))
-    if features.days_of_supply:
-        groups.append((n_skus, False))
-    if features.net_inventory_position:
-        groups.append((n_skus, False))
-    if features.demand_variability:
-        groups.append((n_skus, False))
-    if features.demand_history:
-        groups.append((rolling_window * n_skus, False))
+    # if features.days_of_supply:
+    #     groups.append((n_skus, False))
+    # if features.net_inventory_position:
+    #     groups.append((n_skus, False))
+    # if features.demand_variability:
+    #     groups.append((n_skus, False))
+    # if features.demand_history:
+    #     groups.append((rolling_window * n_skus, False))
 
     # Initialize mean and std arrays
     feature_dim = all_obs.shape[1]
