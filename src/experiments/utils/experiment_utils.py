@@ -9,10 +9,13 @@ saved config files.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import numpy as np
+from scipy import stats as scipy_stats
 import yaml
 
 from src.config.loader import (
@@ -375,6 +378,89 @@ def save_run_metadata(
 
     print(f"[INFO] Saved run metadata to: {meta_path}")
 
+def compute_seed_statistics(
+    name: str,
+    seed_values: list[tuple[int, float]],
+    confidence: float = 0.95,
+) -> dict:
+    """
+    Computes mean, std, and confidence interval for a set of seed evaluation results.
+
+    Args:
+        name (str): Config / group name.
+        seed_values (list[tuple[int, float]]): ``(seed_number, metric_value)`` pairs.
+        confidence (float): Confidence level for the CI (default 0.95).
+
+    Returns:
+        stats (dict): Dictionary with keys ``name``, ``mean``, ``std``,
+            ``ci_95``, ``n_seeds``, and ``per_seed``.
+    """
+
+    # Sort the seed values by seed number and get the mean and std values
+    seed_values_sorted = sorted(seed_values, key=lambda x: x[0])
+    values = np.array([v for _, v in seed_values_sorted])
+    n = len(values)
+    mean = float(values.mean())
+    std = float(values.std(ddof=1)) if n > 1 else 0.0
+
+    # Compute the confidence interval if there are multiple seeds
+    if n > 1:
+        se = std / np.sqrt(n)
+        alpha = 1.0 - confidence
+        t_crit = float(scipy_stats.t.ppf(1.0 - alpha / 2, df=n - 1))
+        ci_low = mean - t_crit * se
+        ci_high = mean + t_crit * se
+    else:
+        ci_low = ci_high = mean
+
+    # Create the stats dictionary
+    stats = {
+        "name": name,
+        "mean": round(mean, 4),
+        "std": round(std, 4),
+        "ci_95": [round(ci_low, 4), round(ci_high, 4)],
+        "n_seeds": n,
+        "per_seed": [
+            {"seed": s, "value": round(v, 4)} for s, v in seed_values_sorted
+        ],
+    }
+
+    return stats
+
+def print_seed_evaluation_table(
+    configs: list[dict],
+    summary_path: Optional[Path] = None,
+) -> None:
+    """
+    Prints a ranked summary table of seed evaluation results.
+
+    Args:
+        configs (list[dict]): Config statistics dicts as returned by
+            :func:`compute_seed_statistics`, sorted best-first.
+        summary_path (Optional[Path]): If given, prints the save location.
+    """
+
+    # Print results
+    print(f"\n{'=' * 70}")
+    print(f"Seed Evaluation Summary ({len(configs)} config(s))")
+    print(f"{'=' * 70}")
+    print(
+        f"{'Rank':<6}{'Name':<35}{'Mean':>10}{'Std':>10}"
+        f"{'95% CI':>20}{'N':>5}"
+    )
+    print(f"{'-' * 86}")
+    for i, c in enumerate(configs):
+        ci_str = f"[{c['ci_95'][0]:.2f}, {c['ci_95'][1]:.2f}]"
+        print(
+            f"{i + 1:<6}{c['name']:<35}{c['mean']:>10.4f}"
+            f"{c['std']:>10.4f}{ci_str:>20}{c['n_seeds']:>5}"
+        )
+    print(f"{'=' * 86}")
+    print(f"Best config: {configs[0]['name']} (mean={configs[0]['mean']:.4f})")
+    if summary_path:
+        print(f"Summary saved to: {summary_path}")
+
+
 def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
     """
     Scans a ``seed_evaluation/`` directory, groups runs by config name,
@@ -394,81 +480,60 @@ def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
         summary (dict): Aggregated results with per-config statistics.
     """
 
-    import re
-
-    import numpy as np
-    from scipy import stats as scipy_stats
-
+    # Get the seed evaluation directory and check if it exists
     seed_eval_dir = Path(seed_eval_dir)
     if not seed_eval_dir.exists():
         raise FileNotFoundError(
             f"Seed evaluation directory not found: {seed_eval_dir}"
         )
 
+    # Compile regex pattern and initialize groups
     pattern = re.compile(r"^(.+)_seed(\d+)$")
     groups: dict[str, list[tuple[int, float]]] = {}
 
+    # Iterate over the subdirectories in the seed evaluation directory
     for subdir in sorted(seed_eval_dir.iterdir()):
+        # Check if the subdirectory is a directory
         if not subdir.is_dir():
             continue
+        # Check if the subdirectory name matches the pattern and skip if not
         match = pattern.match(subdir.name)
         if not match:
             continue
-
+        
+        # Extract the config name and seed number from the subdirectory name
         config_name = match.group(1)
         seed_number = int(match.group(2))
 
-        eval_files = list(subdir.glob("eval_results_*.yaml"))
-        if not eval_files:
-            print(f"[WARN] No eval_results_*.yaml in {subdir.name}, skipping")
+        # Get the evaluation results file and check if it exists
+        eval_file = subdir / "eval_results_best.yaml"
+        if not eval_file.exists():
+            print(f"[WARN] No eval_results_best.yaml in {subdir.name}, skipping")
             continue
-
-        with open(eval_files[0], "r", encoding="utf-8") as f:
+        with open(eval_file, encoding="utf-8") as f:
             eval_data = yaml.safe_load(f)
 
         reward = eval_data.get("episode_return_mean")
         if reward is None:
             print(
-                f"[WARN] No episode_return_mean in {eval_files[0].name} "
+                f"[WARN] No episode_return_mean in {eval_file.name} "
                 f"({subdir.name}), skipping"
             )
             continue
-
+        
+        # Add the reward to its corresponding config group
         groups.setdefault(config_name, []).append((seed_number, float(reward)))
 
+    # Check if any valid seed evaluation results were found
     if not groups:
         raise ValueError(
             f"No valid seed evaluation results found in {seed_eval_dir}"
         )
 
-    configs: list[dict] = []
-    for name, seed_values in sorted(groups.items()):
-        seed_values.sort(key=lambda x: x[0])
-        values = np.array([v for _, v in seed_values])
-        n = len(values)
-        mean = float(values.mean())
-        std = float(values.std(ddof=1)) if n > 1 else 0.0
-
-        if n > 1:
-            se = std / np.sqrt(n)
-            t_crit = float(scipy_stats.t.ppf(0.975, df=n - 1))
-            ci_low = mean - t_crit * se
-            ci_high = mean + t_crit * se
-        else:
-            ci_low = mean
-            ci_high = mean
-
-        configs.append({
-            "name": name,
-            "mean": round(mean, 4),
-            "std": round(std, 4),
-            "ci_95": [round(ci_low, 4), round(ci_high, 4)],
-            "n_seeds": n,
-            "per_seed": [
-                {"seed": s, "value": round(v, 4)} for s, v in seed_values
-            ],
-        })
-
+    configs = [
+        compute_seed_statistics(name, seeds)
+        for name, seeds in sorted(groups.items())
+    ]
     configs.sort(key=lambda c: c["mean"], reverse=True)
 
     summary = {
@@ -483,23 +548,7 @@ def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
     with open(summary_path, "w", encoding="utf-8") as f:
         yaml.dump(summary, f, default_flow_style=False, sort_keys=False)
 
-    print(f"\n{'=' * 70}")
-    print(f"Seed Evaluation Summary ({len(configs)} config(s))")
-    print(f"{'=' * 70}")
-    print(
-        f"{'Rank':<6}{'Name':<35}{'Mean':>10}{'Std':>10}"
-        f"{'95% CI':>20}{'N':>5}"
-    )
-    print(f"{'-' * 86}")
-    for i, c in enumerate(configs):
-        ci_str = f"[{c['ci_95'][0]:.2f}, {c['ci_95'][1]:.2f}]"
-        print(
-            f"{i + 1:<6}{c['name']:<35}{c['mean']:>10.4f}"
-            f"{c['std']:>10.4f}{ci_str:>20}{c['n_seeds']:>5}"
-        )
-    print(f"{'=' * 86}")
-    print(f"Best config: {configs[0]['name']} (mean={configs[0]['mean']:.4f})")
-    print(f"Summary saved to: {summary_path}")
+    print_seed_evaluation_table(configs, summary_path)
 
     return summary
 
