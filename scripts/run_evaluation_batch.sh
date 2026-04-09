@@ -20,22 +20,42 @@
 # Parse arguments
 ##############################
 
-# Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]
-PARENT_DIR=${1:?"Usage: sbatch run_evaluation_batch.sh <ParentFolder> [CheckpointNumber]"}
-CHECKPOINT_NUMBER=${2:-""}
+# Usage: sbatch run_evaluation_batch.sh --name <ParentFolder> [--checkpoint-number N]
+PARENT_DIR=""
+CHECKPOINT_NUMBER=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --name requires a value" >&2; exit 1; }
+      PARENT_DIR="$2"; shift 2 ;;
+    --checkpoint-number)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --checkpoint-number requires a value" >&2; exit 1; }
+      [[ "$2" =~ ^[0-9]+$ ]]       || 
+        { echo "ERROR: --checkpoint-number must be a non-negative integer, got: $2" >&2; exit 1; }
+      CHECKPOINT_NUMBER="$2"; shift 2 ;;
+    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Validate that name is provided
+if [ -z "$PARENT_DIR" ]; then
+  echo "Usage: sbatch run_evaluation_batch.sh --name <ParentFolder> [--checkpoint-number N]" 
+  exit 1
+fi
 
 # Print the parent directory and checkpoint number
 echo "PARENT_DIR=${PARENT_DIR}"
 if [ -n "${CHECKPOINT_NUMBER}" ]; then
     echo "CHECKPOINT_NUMBER=${CHECKPOINT_NUMBER}"
-    CHECKPOINT_DIR="checkpoint_${CHECKPOINT_NUMBER}"
 else
-    echo "CHECKPOINT_NUMBER=best (default)"
-    CHECKPOINT_DIR="checkpoint_best"
+    echo "CHECKPOINT_NUMBER=(auto: best > final > latest)"
 fi
 
-# If parent directory is not found and the name has no path separators, try under 
-# experiment_outputs 
+# If parent directory is not found and the name has no path separators, try under
+# experiment_outputs
 if [ ! -d "${PARENT_DIR}" ]; then
     if [[ "${PARENT_DIR}" != */* ]] && [ -d "experiment_outputs/${PARENT_DIR}" ]; then
         PARENT_DIR="experiment_outputs/${PARENT_DIR}"
@@ -88,9 +108,19 @@ for subdir in "${PARENT_DIR}"/*/; do
     # Skip if not a directory
     [ -d "${subdir}" ] || continue 
     name=$(basename "${subdir}")
-    # Skip if no checkpoint directory exists
-    if [ ! -d "${subdir}/${CHECKPOINT_DIR}" ]; then
-        echo "[SKIP] ${name}: no ${CHECKPOINT_DIR} found"
+    # Skip if no checkpoint directories exist at all
+    shopt -s nullglob
+    _ckpts=("${subdir}"/checkpoint_*/)
+    shopt -u nullglob
+    if [ ${#_ckpts[@]} -eq 0 ]; then
+        echo "[SKIP] ${name}: no checkpoints found"
+        ((skipped++)) || true
+        continue
+    fi
+
+    # Skip if a requested checkpoint directory does not exist
+    if [ -n "${CHECKPOINT_NUMBER}" ] && [ ! -d "${subdir}/checkpoint_${CHECKPOINT_NUMBER}" ]; then
+        echo "[SKIP] ${name}: no checkpoint_${CHECKPOINT_NUMBER} found"
         ((skipped++)) || true
         continue
     fi
