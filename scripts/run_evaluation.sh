@@ -20,16 +20,37 @@
 # Parse arguments
 ##############################
 
-# Usage: sbatch run_evaluation.sh <ExperimentName|TrainablePrefix> [CheckpointNumber]
-EXPERIMENT_NAME=${1:?"Usage: sbatch run_evaluation.sh <ExperimentName|TrainablePrefix> [CheckpointNumber]"}
-CHECKPOINT_NUMBER=${2:-""}
+# Usage: sbatch run_evaluation.sh --name <ExperimentName|TrainablePrefix> [--checkpoint-number N]
+EXPERIMENT_NAME=""
+CHECKPOINT_NUMBER=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --name requires a value" >&2; exit 1; }
+      EXPERIMENT_NAME="$2"; shift 2 ;;
+    --checkpoint-number)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --checkpoint-number requires a value" >&2; exit 1; }
+      [[ "$2" =~ ^[0-9]+$ ]]       || 
+        { echo "ERROR: --checkpoint-number must be a non-negative integer, got: $2" >&2; exit 1; }
+      CHECKPOINT_NUMBER="$2"; shift 2 ;;
+    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Validate that name is provided
+if [ -z "$EXPERIMENT_NAME" ]; then
+  echo "Usage: sbatch run_evaluation.sh --name <ExperimentName|TrainablePrefix> [--checkpoint-number N]"
+  exit 1
+fi
 
 # Print the experiment name and checkpoint number
 echo "EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 if [ -n "${CHECKPOINT_NUMBER}" ]; then
     echo "CHECKPOINT_NUMBER=${CHECKPOINT_NUMBER}"
 else
-    echo "CHECKPOINT_NUMBER=best (default, falls back to final)"
+    echo "CHECKPOINT_NUMBER=(auto: best > final > latest)"
 fi
 
 
@@ -82,6 +103,7 @@ fi
 
 # Run evaluation
 "${EVAL_CMD[@]}"
+
 
 
 

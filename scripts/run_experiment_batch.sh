@@ -7,7 +7,7 @@
 #SBATCH --job-name=marl-training                # Name of the job
 #SBATCH --partition=mit_normal                  # Partition
 #SBATCH --nodes=1                               # Number of nodes
-#SBATCH --ntasks-per-node=1                     # Number of tasks per node 
+#SBATCH --ntasks-per-node=1                     # Number of tasks per node
 #SBATCH --cpus-per-task=3                       # CPU cores per task
 #SBATCH --mem=16G                               # Memory allocation
 #SBATCH --time=10:00:00                         # Maximum walltime (hh:mm:ss)
@@ -21,14 +21,23 @@
 # Parse arguments
 ##############################
 
-# Usage: sbatch run_experiment_batch.sh [ArrayName]
-ARRAY_NAME=${1:-""}
+# Usage: sbatch run_experiment_batch.sh --name <FolderName>
+FOLDER_NAME=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --name requires a value" >&2; exit 1; }
+      FOLDER_NAME="$2"; shift 2 ;;
+    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
 
-# Print the array name
-if [ -n "$ARRAY_NAME" ]; then
-  echo "ARRAY_NAME=${ARRAY_NAME}"
+# Print the folder name
+if [ -n "$FOLDER_NAME" ]; then
+  echo "FOLDER_NAME=${FOLDER_NAME}"
 else
-  echo "ARRAY_NAME=not specified"
+  echo "FOLDER_NAME=not specified"
 fi
 
 
@@ -168,7 +177,7 @@ ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH)) # number of arrays with the same size a
 
 # Sanity check if the number of array slots is at least 1
 if [ $ARRAY_SLOTS -lt 1 ]; then
-  echo "ERROR: Not enough port space for even one array slot (this should not happen if BLOCK_SIZE check passed)."
+  echo "ERROR: Not enough port space for even one array slot."
   exit 1
 fi
 
@@ -226,11 +235,10 @@ echo "Ray started successfully"
 # Run training + evaluation
 ##############################
 
-# Set output directory and experiment name
-if [ -n "$ARRAY_NAME" ]; then
-  STORAGE_DIR="./experiment_outputs/Phase1/${ARRAY_NAME}"
+if [ -n "$FOLDER_NAME" ]; then
+  STORAGE_DIR="./experiment_outputs/Runs/${FOLDER_NAME}"
 else
-  STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.10"  
+  STORAGE_DIR="./experiment_outputs/Runs"
 fi
 EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Beta${BETA}_Run${RUN_NUMBER}"
 
@@ -251,8 +259,3 @@ python src/experiments/run_experiment.py \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --root-seed 42
-
-
-##############################
-# Cleanup
-##############################

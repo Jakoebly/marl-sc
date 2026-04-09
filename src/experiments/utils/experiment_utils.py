@@ -375,6 +375,135 @@ def save_run_metadata(
 
     print(f"[INFO] Saved run metadata to: {meta_path}")
 
+def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
+    """
+    Scans a ``seed_evaluation/`` directory, groups runs by config name,
+    and computes per-config statistics (mean, std, 95% CI).
+
+    Expects subdirectory names matching ``{name}_seed{N}``.  Each
+    subdirectory must contain an ``eval_results_*.yaml`` with an
+    ``episode_return_mean`` key.
+
+    Writes ``seed_evaluation_summary.yaml`` into ``seed_eval_dir`` and
+    returns the summary as a dict.
+
+    Args:
+        seed_eval_dir (str | Path): Path to the ``seed_evaluation/`` directory.
+
+    Returns:
+        summary (dict): Aggregated results with per-config statistics.
+    """
+
+    import re
+
+    import numpy as np
+    from scipy import stats as scipy_stats
+
+    seed_eval_dir = Path(seed_eval_dir)
+    if not seed_eval_dir.exists():
+        raise FileNotFoundError(
+            f"Seed evaluation directory not found: {seed_eval_dir}"
+        )
+
+    pattern = re.compile(r"^(.+)_seed(\d+)$")
+    groups: dict[str, list[tuple[int, float]]] = {}
+
+    for subdir in sorted(seed_eval_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        match = pattern.match(subdir.name)
+        if not match:
+            continue
+
+        config_name = match.group(1)
+        seed_number = int(match.group(2))
+
+        eval_files = list(subdir.glob("eval_results_*.yaml"))
+        if not eval_files:
+            print(f"[WARN] No eval_results_*.yaml in {subdir.name}, skipping")
+            continue
+
+        with open(eval_files[0], "r", encoding="utf-8") as f:
+            eval_data = yaml.safe_load(f)
+
+        reward = eval_data.get("episode_return_mean")
+        if reward is None:
+            print(
+                f"[WARN] No episode_return_mean in {eval_files[0].name} "
+                f"({subdir.name}), skipping"
+            )
+            continue
+
+        groups.setdefault(config_name, []).append((seed_number, float(reward)))
+
+    if not groups:
+        raise ValueError(
+            f"No valid seed evaluation results found in {seed_eval_dir}"
+        )
+
+    configs: list[dict] = []
+    for name, seed_values in sorted(groups.items()):
+        seed_values.sort(key=lambda x: x[0])
+        values = np.array([v for _, v in seed_values])
+        n = len(values)
+        mean = float(values.mean())
+        std = float(values.std(ddof=1)) if n > 1 else 0.0
+
+        if n > 1:
+            se = std / np.sqrt(n)
+            t_crit = float(scipy_stats.t.ppf(0.975, df=n - 1))
+            ci_low = mean - t_crit * se
+            ci_high = mean + t_crit * se
+        else:
+            ci_low = mean
+            ci_high = mean
+
+        configs.append({
+            "name": name,
+            "mean": round(mean, 4),
+            "std": round(std, 4),
+            "ci_95": [round(ci_low, 4), round(ci_high, 4)],
+            "n_seeds": n,
+            "per_seed": [
+                {"seed": s, "value": round(v, 4)} for s, v in seed_values
+            ],
+        })
+
+    configs.sort(key=lambda c: c["mean"], reverse=True)
+
+    summary = {
+        "configs": configs,
+        "best_config": {
+            "name": configs[0]["name"],
+            "mean": configs[0]["mean"],
+        },
+    }
+
+    summary_path = seed_eval_dir / "seed_evaluation_summary.yaml"
+    with open(summary_path, "w", encoding="utf-8") as f:
+        yaml.dump(summary, f, default_flow_style=False, sort_keys=False)
+
+    print(f"\n{'=' * 70}")
+    print(f"Seed Evaluation Summary ({len(configs)} config(s))")
+    print(f"{'=' * 70}")
+    print(
+        f"{'Rank':<6}{'Name':<35}{'Mean':>10}{'Std':>10}"
+        f"{'95% CI':>20}{'N':>5}"
+    )
+    print(f"{'-' * 86}")
+    for i, c in enumerate(configs):
+        ci_str = f"[{c['ci_95'][0]:.2f}, {c['ci_95'][1]:.2f}]"
+        print(
+            f"{i + 1:<6}{c['name']:<35}{c['mean']:>10.4f}"
+            f"{c['std']:>10.4f}{ci_str:>20}{c['n_seeds']:>5}"
+        )
+    print(f"{'=' * 86}")
+    print(f"Best config: {configs[0]['name']} (mean={configs[0]['mean']:.4f})")
+    print(f"Summary saved to: {summary_path}")
+
+    return summary
+
+
 def save_env_config(env_config: EnvironmentConfig, experiment_dir: Path) -> None:
     """
     Saves an ``EnvironmentConfig`` to ``env_config.yaml`` in

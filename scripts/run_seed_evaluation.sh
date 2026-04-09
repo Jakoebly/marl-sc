@@ -1,8 +1,8 @@
 #!/bin/bash
 
-##############################
+# ============================================================================
 # SBATCH directives
-##############################
+# ============================================================================
 
 #SBATCH --job-name=marl-seed-eval              # Name of the job
 #SBATCH --partition=mit_normal                 # Partition
@@ -17,31 +17,72 @@
 #SBATCH --array=0-11%12                        # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
-##############################
+# ============================================================================
 # Parse arguments
-##############################
+# ============================================================================
 
-# Usage: sbatch run_seed_evaluation.sh <TuneName> [n_seeds] [num_iterations]
-TUNE_NAME=${1:?"ERROR: TuneName is required as first argument"}
-N_SEEDS=${2:-3}
-NUM_ITERATIONS=${3:-""}
+# Usage:
+#   sbatch run_seed_evaluation.sh --mode tune   --name <TuneName>   [--n-seeds 3] [--num-iterations N]
+#   sbatch run_seed_evaluation.sh --mode single --name <RunName>    [--n-seeds 3] [--num-iterations N]
+#   sbatch run_seed_evaluation.sh --mode aggregate --name <Name>
 
-# Set the experiment path
-EXPERIMENT_PATH="experiment_outputs/Tuning/${TUNE_NAME}"
-if [ ! -d "$EXPERIMENT_PATH" ]; then
-  echo "ERROR: Experiment directory not found: ${EXPERIMENT_PATH}"
+MODE=""
+NAME=""
+N_SEEDS=3
+NUM_ITERATIONS=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --mode requires a value" >&2; exit 1; }
+      MODE="$2"; shift 2 ;;
+    --name)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --name requires a value" >&2; exit 1; }
+      NAME="$2"; shift 2 ;;
+    --n-seeds)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --n-seeds requires a value" >&2; exit 1; }
+      [[ "$2" =~ ^[1-9][0-9]*$ ]]  || 
+        { echo "ERROR: --n-seeds must be a positive integer, got: $2" >&2; exit 1; }
+      N_SEEDS="$2"; shift 2 ;;
+    --num-iterations)
+      [[ $# -ge 2 && "$2" != -* ]] || 
+        { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
+      [[ "$2" =~ ^[1-9][0-9]*$ ]]  || 
+        { echo "ERROR: --num-iterations must be a positive integer, got: $2" >&2; exit 1; }
+      NUM_ITERATIONS="$2"; shift 2 ;;
+    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Validate that both mode and name are provided
+if [ -z "$MODE" ] || [ -z "$NAME" ]; then
+  echo "Usage: run_seed_evaluation.sh --mode <tune|single|aggregate> --name <name> [--n-seeds N] [--num-iterations N]"
   exit 1
 fi
 
-echo "TUNE_NAME=${TUNE_NAME}"
-echo "EXPERIMENT_PATH=${EXPERIMENT_PATH}"
+# Validate that mode is one of the allowed values
+if [[ "$MODE" != "tune" && "$MODE" != "single" && "$MODE" != "aggregate" ]]; then
+  echo "ERROR: --mode must be one of: tune, single, aggregate (got: ${MODE})"
+  exit 1
+fi
+
+# Print the mode, name, number of seeds, and number of iterations
+echo "MODE=${MODE}"
+echo "NAME=${NAME}"
 echo "N_SEEDS=${N_SEEDS}"
-echo "NUM_ITERATIONS=${NUM_ITERATIONS:-'(use trial default)'}"
+if [ -n "${NUM_ITERATIONS}" ]; then
+  echo "NUM_ITERATIONS=${NUM_ITERATIONS}"
+else
+  echo "NUM_ITERATIONS=(use default)"
+fi
 
 
-##############################
+# ============================================================================
 # Load modules + env
-##############################
+# ============================================================================
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment
@@ -55,17 +96,99 @@ export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
 
-##############################
-# Map SLURM_ARRAY_TASK_ID to trial config and seed
-##############################
+# ============================================================================
+# Process seed evaluation results (no Ray / SLURM array needed)
+# ============================================================================
+
+# ------------------------------------------------------------------
+# Aggregate mode
+# ------------------------------------------------------------------
+
+# Aggregate seed evaluation results with inline python
+if [ "$MODE" = "aggregate" ]; then
+
+python - <<PY
+import sys
+from pathlib import Path
+from src.experiments.utils.experiment_utils import find_experiment_dir, aggregate_seed_evaluation
+
+name = "${NAME}"
+matches = []
+
+# Search for the experiment folder under experiment_outputs/Tuning/ and experiment_outputs/Runs/
+for base_dir in ["experiment_outputs/Tuning", "experiment_outputs/Runs"]:
+    if not Path(base_dir).exists():
+        continue
+    try:
+        matches.append(find_experiment_dir(base_dir, name))
+    except FileNotFoundError:
+        pass
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# If no matches are found, raise an error
+if len(matches) == 0:
+    print(
+        f"ERROR: No experiment '{name}' found under "
+        f"experiment_outputs/Tuning/ or experiment_outputs/Runs/",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+# If multiple matches are found, raise an error
+if len(matches) > 1:
+    paths_str = "\n  ".join(str(m) for m in matches)
+    print(
+        f"ERROR: Multiple matches for '{name}':\n  {paths_str}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# Get the first match and check if the seed evaluation directory exists
+experiment_dir = matches[0]
+seed_eval_dir = experiment_dir / "seed_evaluation"
+if not seed_eval_dir.exists():
+    print(
+        f"ERROR: No seed_evaluation/ directory in {experiment_dir}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# Run the aggregate_seed_evaluation function
+aggregate_seed_evaluation(seed_eval_dir)
+PY
+
+  exit $?
+fi
+
+
+# ============================================================================
+# Map SLURM_ARRAY_TASK_ID to config and seed
+# ============================================================================
 
 # Use the ID of the current task to compute the config index and seed number
 ID=${SLURM_ARRAY_TASK_ID}
 CONFIG_IDX=$(( ID / N_SEEDS ))
 SEED_NUMBER=$(( ID % N_SEEDS + 1 ))
 
-# Read trial path from best_trial_results.yaml via inline Python
-read -r TRIAL_PATH SHORT_ID < <(python - <<PY
+# ------------------------------------------------------------------
+# Tune mode
+# ------------------------------------------------------------------
+
+# Map SLURM_ARRAY_TASK_ID to config and seed for tune mode
+if [ "$MODE" = "tune" ]; then
+  # Check if a tuning experiment with the given name exists
+  EXPERIMENT_PATH="experiment_outputs/Tuning/${NAME}"
+  if [ ! -d "$EXPERIMENT_PATH" ]; then
+    echo "ERROR: Experiment directory not found: ${EXPERIMENT_PATH}"
+    exit 1
+  fi
+
+  # Read trial_path and short_id from best_trial_results.yaml for the current config index
+  PYTHON_OUTPUT=$(python - <<PY
 import yaml, sys
 
 yaml_path = "${EXPERIMENT_PATH}/best_trial_results.yaml"
@@ -76,26 +199,78 @@ trials = data.get("top_k_trials", [])
 idx = ${CONFIG_IDX}
 if idx >= len(trials):
     print(
-      f"ERROR: CONFIG_IDX={idx} exceeds top_k_trials count ({len(trials)})", file=sys.stderr
+        f"ERROR: CONFIG_IDX={idx} exceeds top_k_trials count ({len(trials)})",
+        file=sys.stderr,
     )
     sys.exit(1)
 
-print(trials[idx]["trial_path"], trials[idx]["short_id"])
+trial = trials[idx]
+print(trial["trial_path"], f"{trial['short_id']}")
 PY
-)
+  )
+  PYTHON_EXIT=$? 
 
-if [ $? -ne 0 ] || [ -z "$TRIAL_PATH" ]; then
-  echo "ERROR: Failed to resolve trial path for CONFIG_IDX=${CONFIG_IDX}"
-  exit 1
+  # Check if the Python script failed or the output is empty (and exit if so)
+  if [ $PYTHON_EXIT -ne 0 ] || [ -z "$PYTHON_OUTPUT" ]; then
+    echo "ERROR: Failed to resolve trial path for CONFIG_IDX=${CONFIG_IDX}"
+    exit 1
+  fi
+
+  # Store the output of the Python script as CONFIG_PATH and CONFIG_NAME 
+  read -r CONFIG_PATH CONFIG_NAME <<< "$PYTHON_OUTPUT"
+
+  STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation"
+
+
+# ------------------------------------------------------------------
+# Single mode
+# ------------------------------------------------------------------
+
+# Map SLURM_ARRAY_TASK_ID to config and seed for single mode
+elif [ "$MODE" = "single" ]; then
+  # Check if the config index is 0 (and exit if not)
+  if [ $CONFIG_IDX -ne 0 ]; then
+    echo "ERROR: Single mode only supports 1 config (CONFIG_IDX=${CONFIG_IDX} != 0)."
+    echo "  Array size should be N_SEEDS (${N_SEEDS}), got SLURM_ARRAY_TASK_ID=${ID}."
+    exit 1
+  fi
+
+  # Search for the experiment folder under experiment_outputs/Runs/
+  EXPERIMENT_PATH=$(python - <<PY
+import sys
+from src.experiments.utils.experiment_utils import find_experiment_dir
+
+try:
+    experiment_dir = find_experiment_dir("experiment_outputs/Runs", "${NAME}")
+    print(str(experiment_dir))
+except (FileNotFoundError, ValueError) as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(1)
+PY
+  )
+
+  if [ $? -ne 0 ] || [ -z "$EXPERIMENT_PATH" ]; then
+    echo "ERROR: Failed to find experiment '${NAME}' under experiment_outputs/Runs/"
+    exit 1
+  fi
+
+  CONFIG_PATH="${EXPERIMENT_PATH}"
+  CONFIG_NAME="${NAME}"
+  STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation"
+
 fi
 
-echo "Task $ID -> Trial #${CONFIG_IDX} (${SHORT_ID}), Seed #${SEED_NUMBER}"
-echo "  Trial path: ${TRIAL_PATH}"
+EXPERIMENT_NAME="${CONFIG_NAME}_seed${SEED_NUMBER}"
+
+echo "Task $ID -> Config #${CONFIG_IDX} (${CONFIG_NAME}), Seed #${SEED_NUMBER}"
+echo "  Config path: ${CONFIG_PATH}"
+echo "  Storage dir:   ${STORAGE_DIR}"
+echo "  Experiment:    ${EXPERIMENT_NAME}"
 
 
-##############################
+# ============================================================================
 # Create temporary configs with overrides
-##############################
+# ============================================================================
 
 # Create temporary config files 
 TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
@@ -106,9 +281,9 @@ python - <<PY
 import yaml, sys
 from pathlib import Path
 
-trial_path = Path("${TRIAL_PATH}")
-env_cfg_path = trial_path / "env_config.yaml"
-algo_cfg_path = trial_path / "algorithm_config.yaml"
+config_path = Path("${CONFIG_PATH}")
+env_cfg_path = config_path / "env_config.yaml"
+algo_cfg_path = config_path / "algorithm_config.yaml"
 
 if not env_cfg_path.exists():
     print(f"ERROR: {env_cfg_path} not found", file=sys.stderr)
@@ -117,13 +292,11 @@ if not algo_cfg_path.exists():
     print(f"ERROR: {algo_cfg_path} not found", file=sys.stderr)
     sys.exit(1)
 
-# Load environment config (no modifications needed)
 with open(env_cfg_path, "r") as f:
     env_cfg = yaml.safe_load(f)
 with open("${TEMP_ENV_CONFIG}", "w") as f:
     yaml.safe_dump(env_cfg, f, default_flow_style=False, sort_keys=False)
 
-# Load algorithm config and optionally override num_iterations
 with open(algo_cfg_path, "r") as f:
     algo_cfg = yaml.safe_load(f)
 
@@ -135,6 +308,7 @@ with open("${TEMP_ALGO_CONFIG}", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
 PY
 
+# Check if the Python script failed and exit if so
 if [ $? -ne 0 ]; then
   echo "ERROR: Failed to create temporary config files"
   rm -f "$TEMP_ENV_CONFIG" "$TEMP_ALGO_CONFIG"
@@ -142,9 +316,9 @@ if [ $? -ne 0 ]; then
 fi
 
 
-##############################
+# ============================================================================
 # Start Ray explicitly (with port allocation)
-##############################
+# ============================================================================
 
 # Make Ray not accidentally attach somewhere else
 unset RAY_ADDRESS
@@ -200,7 +374,6 @@ fi
 # Get the array slot for the current array
 ARRAY_SLOT=$((SLURM_JOB_ID % ARRAY_SLOTS))
 
-# Compute the first port for the current task
 TASK_ID=${SLURM_ARRAY_TASK_ID}
 P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 
@@ -247,13 +420,9 @@ ray start --head \
 echo "Ray started successfully"
 
 
-##############################
+# ============================================================================
 # Run training + evaluation
-##############################
-
-# Set output directory and experiment name
-STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation"
-EXPERIMENT_NAME="${SHORT_ID}_seed${SEED_NUMBER}"
+# ============================================================================
 
 # Set the root seed as a deterministic but well-separated number (e.g., 100, 200, 300, ...)
 ROOT_SEED=$(( SEED_NUMBER * 100 ))
@@ -278,6 +447,3 @@ python src/experiments/run_experiment.py \
     --root-seed ${ROOT_SEED}
 
 
-##############################
-# Cleanup
-##############################
