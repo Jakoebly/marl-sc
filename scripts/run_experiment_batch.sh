@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-11%12                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-2%3                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -66,19 +66,15 @@ N_RUNS=3
 
 # Use the ID of the current task to compute the config index and run number
 ID=${SLURM_ARRAY_TASK_ID}
-CONFIG_IDX=$(( ID / N_RUNS ))
+# CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
-# Map the config index to run configs
-case $CONFIG_IDX in
-    0) BETA="None" ;;
-    1) BETA=0.3 ;;
-    2) BETA=0.5 ;;
-    3) BETA=0.7 ;;
-    *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
-esac
-echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
-echo "  beta=$BETA"
+# # Map the config index to run configs
+# case $CONFIG_IDX in
+#     0) BETA="None" ;;
+#     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
+# esac
+# echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
 
 
 ##############################
@@ -101,12 +97,6 @@ import yaml
 ENV_NAME = "$ENV_NAME"
 ALGO_NAME = "$ALGO_NAME"
 
-_raw_beta = "$BETA".strip()
-if _raw_beta.lower() in ("none", "null", ""):
-    beta = None
-else:
-    beta = float(_raw_beta)
-
 # --- Environment config ---
 with open(f"config_files/environments/{ENV_NAME}.yaml", "r") as f:
     env_cfg = yaml.safe_load(f)
@@ -117,8 +107,6 @@ with open("$TEMP_ENV_CONFIG", "w") as f:
 # --- Algorithm config ---
 with open(f"config_files/algorithms/{ALGO_NAME}.yaml", "r") as f:
     algo_cfg = yaml.safe_load(f)
-
-algo_cfg["algorithm"]["algorithm_specific"]["hysteretic_beta"] = beta
 
 with open("$TEMP_ALGO_CONFIG", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
@@ -240,7 +228,7 @@ if [ -n "$FOLDER_NAME" ]; then
 else
   STORAGE_DIR="./experiment_outputs/Runs"
 fi
-EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Beta${BETA}_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Run${RUN_NUMBER}"
 
 # Run training
 python src/experiments/run_experiment.py \
