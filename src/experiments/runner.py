@@ -161,9 +161,10 @@ class ExperimentRunner:
                         wandb.log({"checkpoint_iteration": iteration})
             
             # Print training progress
+            reward_str = f"{current_metric:.4f}" if current_metric is not None else "N/A"
             print(
                 f"[INFO] Training iteration {iteration} of {num_iterations}: "
-                f"Reward: {current_metric:.4f}"
+                f"Reward: {reward_str}"
             )
 
         # Print best checkpoint

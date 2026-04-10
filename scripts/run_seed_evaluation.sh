@@ -8,8 +8,8 @@
 #SBATCH --partition=mit_normal                 # Partition
 #SBATCH --nodes=1                              # Number of nodes
 #SBATCH --ntasks-per-node=1                    # Number of tasks per node
-#SBATCH --cpus-per-task=3                      # CPU cores per task
-#SBATCH --mem=16G                              # Memory allocation
+#SBATCH --cpus-per-task=16                      # CPU cores per task
+#SBATCH --mem=64G                              # Memory allocation
 #SBATCH --time=12:00:00                        # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out     # Standard output
@@ -304,6 +304,11 @@ num_iterations = "${NUM_ITERATIONS}".strip()
 if num_iterations:
     algo_cfg["algorithm"]["shared"]["num_iterations"] = int(num_iterations)
 
+# Override resource settings to match the seed evaluation SLURM budget
+algo_cfg["algorithm"]["shared"]["num_env_runners"] = 0
+algo_cfg["algorithm"]["shared"]["num_envs_per_env_runner"] = 1
+algo_cfg["algorithm"]["shared"]["evaluation_parallel_to_training"] = False
+
 with open("${TEMP_ALGO_CONFIG}", "w") as f:
     yaml.safe_dump(algo_cfg, f, default_flow_style=False, sort_keys=False)
 PY
@@ -381,6 +386,7 @@ P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
+RAY_METRICS_EXPORT_PORT=$((P + 3))
 RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
 RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
 
@@ -404,6 +410,10 @@ trap cleanup EXIT
 # Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
+# Disable Ray's application-level OOM killer to prevent the kill-restart
+# death spiral; rely on SLURM's cgroup memory enforcement instead
+export RAY_memory_monitor_refresh_ms=0
+
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
   --port="${RAY_GCS_PORT}" \
@@ -416,6 +426,7 @@ ray start --head \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
+  --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
   || { echo "ERROR: ray start failed"; exit 1; }
 echo "Ray started successfully"
 
@@ -436,6 +447,13 @@ python src/experiments/run_experiment.py \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
     --root-seed ${ROOT_SEED}
+TRAIN_EXIT=$?
+
+# Check if training succeeded before running evaluation
+if [ $TRAIN_EXIT -ne 0 ]; then
+  echo "ERROR: Training failed with exit code ${TRAIN_EXIT}, skipping evaluation."
+  exit $TRAIN_EXIT
+fi
 
 # Run evaluation on the trained checkpoint
 python src/experiments/run_experiment.py \
