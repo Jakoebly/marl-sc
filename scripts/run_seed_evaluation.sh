@@ -9,7 +9,7 @@
 #SBATCH --nodes=1                              # Number of nodes
 #SBATCH --ntasks-per-node=1                    # Number of tasks per node
 #SBATCH --cpus-per-task=3                      # CPU cores per task
-#SBATCH --mem=16G                              # Memory allocation
+#SBATCH --mem=12G                              # Memory allocation
 #SBATCH --time=12:00:00                        # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out     # Standard output
@@ -416,6 +416,9 @@ export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 # Disable Ray's application-level OOM killer to prevent the kill-restart
 # death spiral; rely on SLURM's cgroup memory enforcement instead
 export RAY_memory_monitor_refresh_ms=0
+
+# Give Ray more time to start up to avoid premature termination due to heavy loads
+export RAY_raylet_start_wait_time_s=120
 
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
