@@ -9,7 +9,7 @@
 #SBATCH --nodes=1                              # Number of nodes
 #SBATCH --ntasks-per-node=1                    # Number of tasks per node
 #SBATCH --cpus-per-task=5                      # CPU cores per task
-#SBATCH --mem=32G                              # Memory allocation
+#SBATCH --mem=16G                              # Memory allocation
 #SBATCH --time=12:00:00                        # Maximum walltime (hh:mm:ss)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out     # Standard output
