@@ -36,13 +36,13 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Set the storage directory and experiment name
-STORAGE_DIR="./experiment_outputs/Phase1/WorkingConfig_Phase1.9"
-EXPERIMENT_NAME="BASELINES_3WH2SKUS_SimplifiedEnv"
+STORAGE_DIR="./experiment_outputs/Tuning/IPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv/"
+EXPERIMENT_NAME="baselines"
 
 # Run baselines
 python src/experiments/run_baselines.py \
-    --env-config ./config_files/environments/env_simplified_symmetric.yaml \
+    --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
-    --num-episodes 5 \
+    --num-episodes 100 \
     --root-seed 42
