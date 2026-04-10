@@ -387,6 +387,9 @@ RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
 RAY_METRICS_EXPORT_PORT=$((P + 3))
+RAY_DASHBOARD_AGENT_GRPC_PORT=$((P + 4))
+RAY_DASHBOARD_AGENT_HTTP_PORT=$((P + 5))
+RAY_RUNTIME_ENV_AGENT_PORT=$((P + 6))
 RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
 RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
 
@@ -427,6 +430,9 @@ ray start --head \
   --include-dashboard=false \
   --disable-usage-stats \
   --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
+  --dashboard-agent-grpc-port="${RAY_DASHBOARD_AGENT_GRPC_PORT}" \
+  --dashboard-agent-listen-port="${RAY_DASHBOARD_AGENT_HTTP_PORT}" \
+  --runtime-env-agent-port="${RAY_RUNTIME_ENV_AGENT_PORT}" \
   || { echo "ERROR: ray start failed"; exit 1; }
 echo "Ray started successfully"
 
