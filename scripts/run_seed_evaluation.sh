@@ -418,7 +418,8 @@ export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 export RAY_memory_monitor_refresh_ms=0
 
 # Give Ray more time to start up to avoid premature termination due to heavy loads
-export RAY_raylet_start_wait_time_s=120
+export RAY_raylet_start_wait_time_s=300
+sleep $(( RANDOM % 45 ))
 
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
