@@ -82,7 +82,7 @@ RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 ##############################
 
 # Set environment and algorithm name
-ENV_NAME="env_symmetric_3WH2SKUs"
+ENV_NAME="env_symmetric_3WH2SKU"
 ALGO_NAME="ippo"
 
 # Create temporary config files 
