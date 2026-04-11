@@ -7,10 +7,10 @@ environment:
     #     - 15
     #     - 15
     type: direct
-      params:
-        max_order_quantities:
-          - 40
-          - 40
+    params:
+      max_order_quantities:
+        - 40
+        - 40
   n_warehouses: 3
   n_skus: 2
   n_regions: 3
