@@ -9,7 +9,6 @@ saved config files.
 from __future__ import annotations
 
 import json
-import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -406,7 +405,7 @@ def compute_seed_statistics(
 
     # Compute the confidence interval if there are multiple seeds
     if n > 1:
-        se = std / math.sqrt(n)
+        se = std / np.sqrt(n)
         alpha = 1.0 - confidence
         t_crit = float(scipy_stats.t.ppf(1.0 - alpha / 2, df=n - 1))
         ci_low = float(mean - t_crit * se)
