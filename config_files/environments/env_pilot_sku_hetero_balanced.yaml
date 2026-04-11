@@ -3,9 +3,9 @@ environment:
   action_space:
     type: direct
     params:
-      max_quantity_adjustment:
-        - 15
-        - 15
+      max_order_quantities:
+        - 40
+        - 40
   n_warehouses: 3
   n_skus: 2
   n_regions: 3
@@ -18,9 +18,9 @@ environment:
     type: "custom"
     params:
       values:
-        - [60, 60]
-        - [60, 60]
-        - [60, 60]
+        - [100, 30]
+        - [100, 30]
+        - [100, 30]
   cost_structure:
     holding_cost: 1.0
     penalty_cost:
@@ -44,8 +44,8 @@ environment:
         - [1.0, 1.0]
         - [1.0, 1.0]
     sku_weights:
-      - 1.0
-      - 1.0
+      - 0.5
+      - 10.0
     distances:
       - [50, 500, 500]
       - [500, 50, 500]
@@ -63,9 +63,9 @@ environment:
           - 0.667
           - 0.667
         lambda_quantity:
-          - [5, 5]
-          - [5, 5]
-          - [5, 5]
+          - [8, 3]
+          - [8, 3]
+          - [8, 3]
     demand_allocator:
       type: "greedy"
       params:
