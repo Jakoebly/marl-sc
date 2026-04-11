@@ -1,11 +1,16 @@
 environment:
   feature_config_path: config_files/features/feature_config.yaml
   action_space:
-    type: demand_centered
-    params:
-      max_quantity_adjustment:
-        - 15
-        - 15
+    # type: demand_centered
+    # params:
+    #   max_quantity_adjustment:
+    #     - 15
+    #     - 15
+    type: direct
+      params:
+        max_order_quantities:
+          - 40
+          - 40
   n_warehouses: 3
   n_skus: 2
   n_regions: 3
