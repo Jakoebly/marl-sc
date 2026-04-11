@@ -55,3 +55,28 @@ algorithm:
           output_activation: null
           # output_dim: null
 
+
+# features:
+#   # Core features (always on)
+#   inventory: true
+#   pipeline: true
+
+#   # Optional features
+#   incoming_demand_home: false
+#   units_shipped_home: false
+#   units_shipped_away: false
+#   stockout: false
+#   rolling_demand_mean: true
+#   demand_forecast: false
+#   days_of_supply: false
+#   net_inventory_position: true
+#   demand_variability: true
+#   demand_history: true
+
+#   # Aggregate toggles (only valid when parent feature is enabled)
+#   inventory_aggregate: true
+#   pipeline_aggregate: false
+#   incoming_demand_home_aggregate: false
+#   units_shipped_away_aggregate: false
+#   rolling_demand_mean_aggregate: false
+#   demand_forecast_aggregate: false
