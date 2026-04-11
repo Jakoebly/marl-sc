@@ -57,26 +57,28 @@ def make_random_action_fn(rng: np.random.Generator) -> Callable:
 
     return action_fn
 
-def make_constant_action_fn(quantity: float) -> Callable:
+def make_constant_action_fn(quantity: float, max_order_quantities: np.ndarray) -> Callable:
     """
     Returns an action function that orders a fixed ``quantity`` for every
     warehouse-SKU pair at each timestep.
 
+    Requires a ``"direct"`` action space so that the mapping from order
+    quantity to normalized ``[-1, 1]`` action is a simple linear rescaling.
+
     Args:
         quantity (float): Fixed order quantity.
+        max_order_quantities (np.ndarray): Maximum order quantities per SKU
+            (from ``env_config.action_space.params.max_order_quantities``).
 
     Returns:
         action_fn (Callable): Action function that produces actions in ``[-1, 1]`` 
             for each agent.
     """
-
+    
     # Define action function for constant orders
     def action_fn(env, obs):
-        action = 2.0 * quantity / env.max_order_quantities - 1.0
-        actions = {
-            agent_id: action.astype(np.float32)
-            for agent_id in env.agents
-        }
+        static_action = (2.0 * quantity / max_order_quantities - 1.0).astype(np.float32)
+        actions = {agent_id: static_action for agent_id in env.agents}
         return actions
 
     return action_fn
@@ -322,6 +324,14 @@ def run_all_baselines(
             baseline experiments.
     """
 
+    # Check that the action space is direct; required for constant baseline
+    if env_config.action_space.type != "direct":
+        raise ValueError(
+            f"Baselines require action_space.type='direct', "
+            f"got '{env_config.action_space.type}'. "
+            f"Update the environment config to use a 'direct' action space."
+        )
+
     # Initialize results dictionary
     results: Dict[str, Any] = {"baselines": {}, "comparison": {}}
 
@@ -351,7 +361,7 @@ def run_all_baselines(
     # Define sweep parameters and values
     step_size = 1
     sweep_max = 30
-    constant_amounts = list(range(step_size, sweep_max + 1, step_size))
+    constant_amounts = list(range(1, sweep_max + 1, step_size))
 
     # Run rollout for each constant order quantity
     const_sweep_stats, best_const_idx, best_const_episodes = run_sweep(
@@ -359,7 +369,10 @@ def run_all_baselines(
         eval_seed=eval_seed,
         num_episodes=num_episodes,
         sweep_values=constant_amounts,
-        make_action_fn=lambda amount: make_constant_action_fn(float(amount)),
+        make_action_fn=lambda amount: make_constant_action_fn(
+            float(amount),
+            np.array(env_config.action_space.params.max_order_quantities, dtype=float),
+        ),
         label_fn=lambda amount: f"qty={amount:3g}",
     )
 
