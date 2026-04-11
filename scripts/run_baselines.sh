@@ -36,7 +36,7 @@ export PYTHONUNBUFFERED=1
 ##############################
 
 # Set the storage directory and experiment name
-STORAGE_DIR="./experiment_outputs/Tuning/IPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv/"
+STORAGE_DIR="./experiment_outputs/"
 EXPERIMENT_NAME="baselines"
 
 # Run baselines
@@ -45,4 +45,4 @@ python src/experiments/run_baselines.py \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 100 \
-    --root-seed 42
+    --root-seed 100

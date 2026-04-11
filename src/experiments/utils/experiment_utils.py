@@ -9,6 +9,7 @@ saved config files.
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -405,23 +406,24 @@ def compute_seed_statistics(
 
     # Compute the confidence interval if there are multiple seeds
     if n > 1:
-        se = std / np.sqrt(n)
+        se = std / math.sqrt(n)
         alpha = 1.0 - confidence
         t_crit = float(scipy_stats.t.ppf(1.0 - alpha / 2, df=n - 1))
-        ci_low = mean - t_crit * se
-        ci_high = mean + t_crit * se
+        ci_low = float(mean - t_crit * se)
+        ci_high = float(mean + t_crit * se)
     else:
-        ci_low = ci_high = mean
+        ci_low = ci_high = float(mean)
 
-    # Create the stats dictionary
+    # Create the stats dictionary (plain float/int so yaml.safe_dump stays readable)
     stats = {
         "name": name,
-        "mean": round(mean, 4),
-        "std": round(std, 4),
-        "ci_95": [round(ci_low, 4), round(ci_high, 4)],
+        "mean": float(round(mean, 4)),
+        "std": float(round(std, 4)),
+        "ci_95": [float(round(ci_low, 4)), float(round(ci_high, 4))],
         "n_seeds": n,
         "per_seed": [
-            {"seed": s, "value": round(v, 4)} for s, v in seed_values_sorted
+            {"seed": s, "value": float(round(float(v), 4))}
+            for s, v in seed_values_sorted
         ],
     }
 
@@ -540,13 +542,13 @@ def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
         "configs": configs,
         "best_config": {
             "name": configs[0]["name"],
-            "mean": configs[0]["mean"],
+            "mean": float(configs[0]["mean"]),
         },
     }
 
     summary_path = seed_eval_dir / "seed_evaluation_summary.yaml"
     with open(summary_path, "w", encoding="utf-8") as f:
-        yaml.dump(summary, f, default_flow_style=False, sort_keys=False)
+        yaml.safe_dump(summary, f, default_flow_style=False, sort_keys=False)
 
     print_seed_evaluation_table(configs, summary_path)
 
