@@ -152,12 +152,12 @@ class CostRewardCalculator(BaseRewardCalculator):
         inbound_shipment_costs_total = inbound_fixed_costs_total + inbound_variable_costs_total # Shape: (n_warehouses,)
         
         # Compute weighted total costs for each warehouse
-        #costs_per_warehouse = (
-        #    self.cost_weights[0] * holding_costs_total +
-        #    self.cost_weights[1] * penalty_costs_total +
-        #    self.cost_weights[2] * outbound_shipment_costs_total +
-        #    self.cost_weights[3] * inbound_shipment_costs_total
-        #) # Shape: (n_warehouses,)
+        costs_per_warehouse = (
+           self.cost_weights[0] * holding_costs_total +
+           self.cost_weights[1] * penalty_costs_total +
+           self.cost_weights[2] * outbound_shipment_costs_total +
+           self.cost_weights[3] * inbound_shipment_costs_total
+        ) # Shape: (n_warehouses,)
         
         # Compute unweighted total costs for each warehouse
         costs_per_warehouse = (

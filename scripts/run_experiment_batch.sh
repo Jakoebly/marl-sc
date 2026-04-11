@@ -71,9 +71,7 @@ RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 # # Map the config index to run configs
 case $CONFIG_IDX in
-    0) ENV_CONFIG="env_pilot_sku_hetero"         ; CONFIG_NAME="SKUHetero" ;;
-    1) ENV_CONFIG="env_pilot_sku_hetero_balanced" ; CONFIG_NAME="SKUHeteroBalanced" ;;
-    2) ENV_CONFIG="env_pilot_demand_hetero"       ; CONFIG_NAME="DemandHetero" ;;
+    0) ENV_CONFIG="env_pilot_sku_hetero_balanced" ; CONFIG_NAME="SKUHeteroBalanced" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
