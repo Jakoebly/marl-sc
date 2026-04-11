@@ -159,13 +159,13 @@ class CostRewardCalculator(BaseRewardCalculator):
            self.cost_weights[3] * inbound_shipment_costs_total
         ) # Shape: (n_warehouses,)
         
-        # Compute unweighted total costs for each warehouse
-        costs_per_warehouse = (
-            holding_costs_total +
-            penalty_costs_total +
-            outbound_shipment_costs_total +
-            inbound_shipment_costs_total
-        ) # Shape: (n_warehouses,)
+        # # Compute unweighted total costs for each warehouse
+        # costs_per_warehouse = (
+        #     holding_costs_total +
+        #     penalty_costs_total +
+        #     outbound_shipment_costs_total +
+        #     inbound_shipment_costs_total
+        # ) # Shape: (n_warehouses,)
 
         # Store individual cost components for visualization (before scaling)
         self._cost_breakdown = {
