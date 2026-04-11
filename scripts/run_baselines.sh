@@ -37,11 +37,11 @@ export PYTHONUNBUFFERED=1
 
 # Set the storage directory and experiment name
 STORAGE_DIR="./experiment_outputs/Runs/Pilot"
-EXPERIMENT_NAME="BASELINE_3WH1SKU_DemandHetero"
+EXPERIMENT_NAME="BASELINE_3WH1SKU_SKUHetero"
 
 # Run baselines
 python src/experiments/run_baselines.py \
-    --env-config ./config_files/environments/env_pilot_demand_hetero.yaml \
+    --env-config ./config_files/environments/env_pilot_sku_hetero.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --num-episodes 100 \
