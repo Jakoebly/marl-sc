@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-2%3                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-8%9                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 ##############################
@@ -66,15 +66,17 @@ N_RUNS=3
 
 # Use the ID of the current task to compute the config index and run number
 ID=${SLURM_ARRAY_TASK_ID}
-# CONFIG_IDX=$(( ID / N_RUNS ))
+CONFIG_IDX=$(( ID / N_RUNS ))
 RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 # # Map the config index to run configs
-# case $CONFIG_IDX in
-#     0) BETA="None" ;;
-#     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
-# esac
-# echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
+case $CONFIG_IDX in
+    0) ENV_CONFIG="env_pilot_sku_hetero"         ; CONFIG_NAME="SKUHetero" ;;
+    1) ENV_CONFIG="env_pilot_sku_hetero_balanced" ; CONFIG_NAME="SKUHeteroBalanced" ;;
+    2) ENV_CONFIG="env_pilot_demand_hetero"       ; CONFIG_NAME="DemandHetero" ;;
+    *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
+esac
+echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
 
 
 ##############################
@@ -82,8 +84,8 @@ RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 ##############################
 
 # Set environment and algorithm name
-ENV_NAME="env_symmetric_3WH2SKU"
-ALGO_NAME="ippo"
+ENV_NAME=$ENV_CONFIG
+ALGO_NAME="mappo_best_3WH2SKU"
 
 # Create temporary config files 
 TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
@@ -226,9 +228,10 @@ echo "Ray started successfully"
 if [ -n "$FOLDER_NAME" ]; then
   STORAGE_DIR="./experiment_outputs/Runs/${FOLDER_NAME}"
 else
-  STORAGE_DIR="./experiment_outputs/Runs"
+  STORAGE_DIR="./experiment_outputs/Runs/Pilot"
 fi
-EXPERIMENT_NAME="IPPO_3WH2SKU_SimplifiedEnv_Run${RUN_NUMBER}"
+EXPERIMENT_NAME="MAPPO_3WH2SKU_${CONFIG_NAME}_seed${RUN_NUMBER}"
+ROOT_SEED=$(( RUN_NUMBER * 100 ))
 
 # Run training
 python src/experiments/run_experiment.py \
@@ -238,7 +241,7 @@ python src/experiments/run_experiment.py \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
-    --root-seed 42
+    --root-seed ${ROOT_SEED}
 
 # Run evaluation
 python src/experiments/run_experiment.py \
@@ -246,4 +249,5 @@ python src/experiments/run_experiment.py \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
-    --root-seed 42
+    --eval-episodes 100 \
+    --root-seed ${ROOT_SEED}
