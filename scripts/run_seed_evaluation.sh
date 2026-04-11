@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out     # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err      # Standard error
-#SBATCH --array=0-29%10                        # 10 configs x 3 runs = 30 tasks (indices 0-29), max 12 concurrent
+#SBATCH --array=0                       # 10 configs x 3 runs = 30 tasks (indices 0-29), max 12 concurrent
 
 
 # ============================================================================
