@@ -1,8 +1,8 @@
 #!/bin/bash
 
-##############################
+# ============================================================================
 # SBATCH directives
-##############################
+# ============================================================================
 
 #SBATCH --job-name=marl-training                # Name of the job
 #SBATCH --partition=mit_normal                  # Partition
@@ -17,9 +17,9 @@
 #SBATCH --array=0-8%9                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
-##############################
+# ============================================================================
 # Parse arguments
-##############################
+# ============================================================================
 
 # Usage: sbatch run_experiment_batch.sh --name <FolderName>
 FOLDER_NAME=""
@@ -41,9 +41,9 @@ else
 fi
 
 
-##############################
+# ============================================================================
 # Load modules + env
-##############################
+# ============================================================================
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment
@@ -57,9 +57,9 @@ export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
 
-##############################
+# ============================================================================
 # Map SLURM_ARRAY_TASK_ID to config and run number
-##############################
+# ============================================================================
 
 # Set the number of runs per config
 N_RUNS=3
@@ -79,9 +79,9 @@ esac
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
 
 
-##############################
+# ============================================================================
 # Create temporary configs with overrides
-##############################
+# ============================================================================
 
 # Set environment and algorithm name
 ENV_NAME=$ENV_CONFIG
@@ -115,9 +115,9 @@ with open("$TEMP_ALGO_CONFIG", "w") as f:
 PY
 
 
-##############################
+# ============================================================================
 # Start Ray explicitly (with port allocation)
-##############################
+# ============================================================================
 
 # Make Ray not accidentally attach somewhere else
 unset RAY_ADDRESS
@@ -182,8 +182,13 @@ P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
+RAY_METRICS_EXPORT_PORT=$((P + 3))
+RAY_DASHBOARD_AGENT_GRPC_PORT=$((P + 4))
+RAY_DASHBOARD_AGENT_HTTP_PORT=$((P + 5))
+RAY_RUNTIME_ENV_AGENT_PORT=$((P + 6))
 RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
 RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
+
 
 # Sanity check if the maximum worker port is within the available port range
 if [ $RAY_MAX_WORKER_PORT -gt $MAX_PORT ]; then
@@ -205,6 +210,15 @@ trap cleanup EXIT
 # Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
+# Disable Ray's application-level OOM killer to prevent the kill-restart
+# death spiral; rely on SLURM's cgroup memory enforcement instead
+export RAY_memory_monitor_refresh_ms=0
+export PYTHONWARNINGS="ignore::DeprecationWarning"
+
+# Give Ray more time to start up to avoid premature termination due to heavy loads
+export RAY_raylet_start_wait_time_s=300
+sleep $(( RANDOM % 45 ))
+
 # Start Ray explicitly with ports and number of CPUs
 ray start --head \
   --port="${RAY_GCS_PORT}" \
@@ -217,13 +231,17 @@ ray start --head \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
+  --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
+  --dashboard-agent-grpc-port="${RAY_DASHBOARD_AGENT_GRPC_PORT}" \
+  --dashboard-agent-listen-port="${RAY_DASHBOARD_AGENT_HTTP_PORT}" \
+  --runtime-env-agent-port="${RAY_RUNTIME_ENV_AGENT_PORT}" \
   || { echo "ERROR: ray start failed"; exit 1; }
 echo "Ray started successfully"
 
 
-##############################
+# ============================================================================
 # Run training + evaluation
-##############################
+# ============================================================================
 
 if [ -n "$FOLDER_NAME" ]; then
   STORAGE_DIR="./experiment_outputs/Runs/${FOLDER_NAME}"

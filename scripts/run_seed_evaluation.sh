@@ -379,6 +379,7 @@ fi
 # Get the array slot for the current array
 ARRAY_SLOT=$((SLURM_JOB_ID % ARRAY_SLOTS))
 
+# Compute the first port for the current task
 TASK_ID=${SLURM_ARRAY_TASK_ID}
 P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 
