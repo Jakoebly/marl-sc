@@ -248,7 +248,7 @@ if [ -n "$FOLDER_NAME" ]; then
 else
   STORAGE_DIR="./experiment_outputs/Runs/Pilot"
 fi
-EXPERIMENT_NAME="MAPPO_3WH2SKU_${CONFIG_NAME}_seed${RUN_NUMBER}"
+EXPERIMENT_NAME="MAPPO_3WH2SKU_${CONFIG_NAME}_Seed${RUN_NUMBER}"
 ROOT_SEED=$(( RUN_NUMBER * 100 ))
 
 # Run training
