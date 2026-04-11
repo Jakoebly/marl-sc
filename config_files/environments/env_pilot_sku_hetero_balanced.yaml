@@ -1,11 +1,11 @@
 environment:
   feature_config_path: config_files/features/feature_config.yaml
   action_space:
-    type: direct  
+    type: direct
     params:
-      max_order_quantities:
-        - 40
-        - 40
+      max_quantity_adjustment:
+        - 15
+        - 15
   n_warehouses: 3
   n_skus: 2
   n_regions: 3
