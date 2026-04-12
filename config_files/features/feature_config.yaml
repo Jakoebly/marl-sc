@@ -1,22 +1,24 @@
 features:
   # Core features (always on)
   inventory: true
+  inventory_aggregate: true
   pipeline: true
+  rolling_demand_mean: true
+
+  # Excluded features
+  stockout: false
 
   # Optional features
   incoming_demand_home: false
   units_shipped_home: false
   units_shipped_away: false
-  stockout: false
-  rolling_demand_mean: true
   demand_forecast: false
   days_of_supply: false
-  net_inventory_position: true
-  demand_variability: true
-  demand_history: true
+  net_inventory_position: false
+  demand_history: false
+  demand_variability: false
 
   # Aggregate toggles (only valid when parent feature is enabled)
-  inventory_aggregate: true
   pipeline_aggregate: false
   incoming_demand_home_aggregate: false
   units_shipped_away_aggregate: false

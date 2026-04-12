@@ -1,8 +1,8 @@
 #!/bin/bash
 
-##############################
+# ============================================================================
 # SBATCH directives
-##############################
+# ============================================================================
 
 #SBATCH --job-name=marl-tune                    # Name of the job
 #SBATCH --partition=mit_normal                  # Partition
@@ -16,9 +16,9 @@
 #SBATCH --error=scripts/logs/%x_%j.err          # Standard error
 
 
-##############################
+# ============================================================================
 # Load modules + env
-##############################
+# ============================================================================
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment
@@ -32,9 +32,9 @@ export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
 
-##############################
+# ============================================================================
 # Start Ray explicitly (with port allocation)
-##############################
+# ============================================================================
 
 # Make Ray not accidentally attach somewhere else
 unset RAY_ADDRESS
@@ -79,8 +79,8 @@ if [ $BLOCK_SIZE -lt $MIN_BLOCK_SIZE ]; then
 fi
 
 # Define the job width (i.e., number of ports per job)
-ARRAY_WIDTH=$((N_TASKS * BLOCK_SIZE))
-ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH))
+ARRAY_WIDTH=$((N_TASKS * BLOCK_SIZE)) # total number of ports for all jobs in the array
+ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH)) # number of arrays with the same size as the current array that can fit in the available port range
 
 # Sanity check if the number of array slots is at least 1
 if [ $ARRAY_SLOTS -lt 1 ]; then
@@ -99,6 +99,10 @@ P=$((BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
 RAY_GCS_PORT=$((P + 0))
 RAY_NODE_MANAGER_PORT=$((P + 1))
 RAY_OBJECT_MANAGER_PORT=$((P + 2))
+RAY_METRICS_EXPORT_PORT=$((P + 3))
+RAY_DASHBOARD_AGENT_GRPC_PORT=$((P + 4))
+RAY_DASHBOARD_AGENT_HTTP_PORT=$((P + 5))
+RAY_RUNTIME_ENV_AGENT_PORT=$((P + 6))
 RAY_MIN_WORKER_PORT=$((P + RESERVED_WITHIN_BLOCK))
 RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
 
@@ -121,6 +125,15 @@ trap cleanup EXIT
 # Force the current task's driver to connect to the current task's head
 export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
 
+# Disable Ray's application-level OOM killer to prevent the kill-restart
+# death spiral; rely on SLURM's cgroup memory enforcement instead
+export RAY_memory_monitor_refresh_ms=0
+export PYTHONWARNINGS="ignore::DeprecationWarning"
+
+# Give Ray more time to start up to avoid premature termination due to heavy loads
+export RAY_raylet_start_wait_time_s=300
+sleep $(( RANDOM % 45 ))
+
 # Start Ray explicitly with ports, CPUs, and memory
 ray start --head \
   --port="${RAY_GCS_PORT}" \
@@ -133,33 +146,37 @@ ray start --head \
   --temp-dir="${RAY_TMPDIR}" \
   --include-dashboard=false \
   --disable-usage-stats \
+  --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
+  --dashboard-agent-grpc-port="${RAY_DASHBOARD_AGENT_GRPC_PORT}" \
+  --dashboard-agent-listen-port="${RAY_DASHBOARD_AGENT_HTTP_PORT}" \
+  --runtime-env-agent-port="${RAY_RUNTIME_ENV_AGENT_PORT}" \
   || { echo "ERROR: ray start failed"; exit 1; }
 echo "Ray started successfully"
 
 
-##############################
+# ============================================================================
 # Run tune experiment
-##############################
+# ============================================================================
 
 # Set output directory and experiment name
 STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_Tune_3WH_2SKUS_Optuna_FIFO_SimplifiedEnv"
+EXPERIMENT_NAME="IPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
 
 # Run tune experiment
-# python src/experiments/run_experiment.py \
-#     --mode tune \
-#     --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
-#     --algorithm-config ./config_files/algorithms/mappo.yaml \
-#     --tune-config ./config_files/experiments/tune_config.yaml \
-#     --num-samples 800 \
-#     --storage-dir "${STORAGE_DIR}" \
-#     --experiment-name "${EXPERIMENT_NAME}" \
-#     --wandb-project marl-sc \
-#     --root-seed 42
+python src/experiments/run_experiment.py \
+    --mode tune \
+    --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
+    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --tune-config ./config_files/experiments/tune_config.yaml \
+    --num-samples 1000 \
+    --storage-dir "${STORAGE_DIR}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
+    --wandb-project marl-sc \
+    --root-seed 42
 
 # Resume existing tune experiment
-python src/experiments/run_experiment.py \
-  --mode tune \
-  --resume-from "${EXPERIMENT_NAME}" \
-  --storage-dir "${STORAGE_DIR}" \
-  --wandb-project marl-sc
+# python src/experiments/run_experiment.py \
+#   --mode tune \
+#   --resume-from "${EXPERIMENT_NAME}" \
+#   --storage-dir "${STORAGE_DIR}" \
+#   --wandb-project marl-sc

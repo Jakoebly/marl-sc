@@ -17,6 +17,12 @@ search_space:
 
   # --- Algorithm-specific hyperparameters ---
   algorithm_specific:
+    lam:
+      type: choice
+      values: [0.9, 0.95, 0.97, 0.99]
+    gamma:
+      type: choice
+      values: [0.95, 0.99, 0.995]
     use_kl_loss:
       type: choice
       values: [1, 0]
@@ -36,8 +42,8 @@ search_space:
       values: [0.1, 0.2, 0.3]
     vf_clip_param:
       type: loguniform
-      low: 200
-      high: 15000
+      low: 10
+      high: 10000
     logstd_init:
       type: uniform
       low: -1.5
@@ -46,18 +52,15 @@ search_space:
       type: uniform
       low: -4.0
       high: -1.5
-    obs_normalization:
-      type: choice
-      values: ["meanstd_grouped", "meanstd_custom"]
     # parameter_sharing:
     #   type: choice
     #   values: [0, 1]
     actor_hidden_size:
       type: choice
-      values: [64, 128, 256, "64_64", "128_128", "256_256"]
+      values: [64, 128, 256, 512, "64_64", "128_128", "256_256", "128_256", "256_128"]
     critic_hidden_size:
       type: choice
-      values: [64, 128, 256, "64_64", "128_128", "256_256"]
+      values: [64, 128, 256, 512, "64_64", "128_128", "256_256", "128_256", "256_128"]
 
   # --- Observation-space feature toggles (1=on, 0=off) ---
   features:
@@ -70,12 +73,6 @@ search_space:
     units_shipped_away:
       type: choice
       values: [1, 0]
-    stockout:
-      type: choice
-      values: [1, 0]
-    rolling_demand_mean:
-      type: choice
-      values: [1, 0]
     demand_forecast:
       type: choice
       values: [1, 0]
@@ -85,10 +82,10 @@ search_space:
     net_inventory_position:
       type: choice
       values: [1, 0]
-    demand_variability:
+    demand_history:
       type: choice
       values: [1, 0]
-    inventory_aggregate:
+    demand_variability:
       type: choice
       values: [1, 0]
     pipeline_aggregate:
