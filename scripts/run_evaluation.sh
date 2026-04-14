@@ -96,6 +96,7 @@ EVAL_CMD=(
     --mode evaluate
     --storage-dir "${STORAGE_DIR}"
     --experiment-name "${EXPERIMENT_NAME}"
+    --eval-episodes 100
     --visualize
     --root-seed 42
 )
