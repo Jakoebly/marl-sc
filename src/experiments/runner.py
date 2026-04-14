@@ -75,14 +75,6 @@ class ExperimentRunner:
             train_seed=self.train_seed,
             eval_seed=self.eval_seed,
         )
-        
-        import ray
-        print(f"[DIAG] Ray initialized: {ray.is_initialized()}")
-        print(f"[DIAG] Ray resources: {ray.available_resources()}")
-        print(f"[DIAG] obs_stats shape: {self.env.obs_stats[0].shape if self.env.obs_stats else None}")
-        print(f"[DIAG] obs_stats mean[:5]: {self.env.obs_stats[0][:5] if self.env.obs_stats else None}")
-        print(f"[DIAG] local_obs_dim: {self.env._compute_local_obs_dim()}")
-        print(f"[DIAG] features: {self.env.feature_config.model_dump()}")
 
         # Initialize WandB (if provided)
         self.wandb_config = wandb_config
