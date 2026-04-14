@@ -1,5 +1,5 @@
 algorithm:
-  name: "mappo"
+  name: "ippo"
   shared:
     num_iterations: 300
     checkpoint_freq: 100
@@ -50,7 +50,7 @@ algorithm:
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [512, 512]
+          hidden_sizes: [512]
           activation: "relu"
           output_activation: null
           # output_dim: null
