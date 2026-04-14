@@ -88,10 +88,13 @@ ray start --head \
 # Run evaluation with visualization
 ##############################
 
+STORAGE_DIR="./experiment_outputs/Tuning/IPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
+
 # Assemble evaluation command
 EVAL_CMD=(
     python src/experiments/run_experiment.py
     --mode evaluate
+    --storage-dir "${STORAGE_DIR}"
     --experiment-name "${EXPERIMENT_NAME}"
     --visualize
     --root-seed 42
