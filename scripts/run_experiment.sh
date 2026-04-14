@@ -139,13 +139,13 @@ echo "Ray started successfully"
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs"
-EXPERIMENT_NAME="IPPO_3WH2SKUS_SimplifiedEnv_TEST3"
+EXPERIMENT_NAME="IPPO_3WH5SKUS_SimplifiedEnv_CriticSize512"
 
 # Run training
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_symmetric_3WH2SKU.yaml \
-    --algorithm-config ./config_files/algorithms/ippo.yaml \
+    --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
+    --algorithm-config ./config_files/algorithms/ippo_test2.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
@@ -156,5 +156,6 @@ python src/experiments/run_experiment.py \
     --mode evaluate \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
+    --eval-episodes 100 \
     --visualize \
     --root-seed 42

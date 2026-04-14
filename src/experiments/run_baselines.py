@@ -11,6 +11,9 @@ Runs baseline policies on the InventoryEnvironment:
   5. BS-Optimized: Simulation-optimized base-stock via Bayesian optimization.
      Finds the best time-invariant base-stock levels ``S*`` by GP-based
      sequential optimisation over rollout episodes.
+  6. BS-Independent: Independently optimised base-stock via iterated best
+     response.  Each warehouse's ``S`` is optimised via BO while other
+     warehouses are held fixed, mirroring independent learning.
 
 Each baseline is evaluated over multiple rollout episodes with visualization.
 Seeds are derived from a SeedManager: ``eval_seed`` for evaluation rollouts,
@@ -57,7 +60,7 @@ def make_random_action_fn(rng: np.random.Generator) -> Callable:
             for each agent.
     """
 
-    # Define action function for random orders
+    # Define the action function
     def action_fn(env, obs):
         actions = {
             agent_id: rng.uniform(-1.0, 1.0, size=(env.n_skus,)).astype(np.float32)
@@ -98,7 +101,7 @@ def make_constant_action_fn(
         action = (2.0 * clipped[wh_idx] / max_order_quantities - 1.0).astype(np.float32)
         constant_actions[wh_idx] = action
 
-    # Define action function for constant orders
+    # Define the action function
     def action_fn(env, obs):
         actions = {
             agent_id: constant_actions[wh_idx]
@@ -176,7 +179,7 @@ def make_bs_oracle_action_fn(env_config: EnvironmentConfig, z: float) -> Callabl
     for wh in range(n_warehouses):
         print(f"    WH {wh}: {base_stock[wh].round(1)}")
 
-    # Define action function for heuristic base-stock orders
+    # Define the action function
     def action_fn(env, obs):
         inventory = env.inventory
         pipeline = env._compute_pending_matrix().astype(float)
@@ -239,12 +242,10 @@ def make_adaptive_bs_action_fn(
     demand_buffer: List[np.ndarray] = []
     prev_timestep = [-1]  # track episode resets
 
+    # Define the action function
     def action_fn(env, obs):
-        
-        # Extract the current timestep, after step() this is already incremented
+        # Extract the current timestep and detect episode reset
         t = env.timestep  
-
-        # Detect episode reset (timestep went backwards or is 0)
         if t <= prev_timestep[0] or t == 0:
             demand_buffer.clear()
         prev_timestep[0] = t
@@ -307,9 +308,11 @@ def make_bs_optimized_action_fn(
         action_fn (Callable): Action function producing ``[-1, 1]`` actions.
     """
 
+    # Copy the base-stock levels and max order quantities
     S = base_stock_levels.copy()
     max_qty = max_order_quantities.copy()
 
+    # Define the action function
     def action_fn(env, obs):
         inventory = env.inventory
         pipeline = env._compute_pending_matrix().astype(float)
@@ -328,136 +331,8 @@ def make_bs_optimized_action_fn(
 
 
 # ============================================================================
-# Generic Baseline Rollout
+# Baseline Orchestration Function
 # ============================================================================
-
-def baseline_rollout(
-    env: InventoryEnvironment,
-    action_fn: Callable,
-    num_episodes: int = 10,
-) -> List[Dict[str, np.ndarray]]:
-    """
-    Runs rollout episodes using a baseline action function (no RL policy).
-    Collects the same per-step data format as ``BaseAlgorithmWrapper.rollout()``.
-
-    Args:
-        env (InventoryEnvironment): Environment instance to evaluate on.
-        action_fn (Callable): ``action_fn(env, obs)`` returning a dict that
-            maps agent IDs to action arrays in ``[-1, 1]``.
-        num_episodes (int): Number of episodes to roll out.
-
-    Returns:
-        all_episodes (List[Dict[str, np.ndarray]]): Per-episode data dicts (same schema as
-            ``rollout()``).
-    """
-
-    # Enable per-step info collection
-    env.collect_step_info = True
-
-    # Initialize a list to store all rollout episodes
-    all_episodes = []
-
-    # Run manual rollout
-    for _ in range(num_episodes):
-        # Initialize episode data and reset environment
-        episode_data = defaultdict(list)
-        obs, _ = env.reset()
-
-        # Run manual rollout loop
-        done = False
-        while not done:
-            # Query action function for actions
-            actions = action_fn(env, obs)
-
-            # Step environment and record step info
-            obs, rewards, terms, truncs, infos = env.step(actions)
-
-            # Extract step info (shared across all agents)
-            step_info = infos[env.agents[0]]
-            for key, value in step_info.items():
-                episode_data[key].append(
-                    value.copy() if isinstance(value, np.ndarray) else value
-                )
-
-            # Record per-warehouse rewards
-            rewards_array = np.array([rewards[a] for a in env.agents])
-            episode_data["rewards"].append(rewards_array)
-
-            # Check if episode is done
-            done = all(truncs.values()) or all(terms.values())
-
-        # Convert all lists to numpy arrays and add env metadata for visualization
-        episode_data = {k: np.array(v) for k, v in episode_data.items()}
-        episode_data["n_skus"] = env.n_skus
-        episode_data["max_expected_lead_time"] = env.max_expected_lead_time
-        episode_data["feature_config"] = env.feature_config.model_dump()
-        episode_data["include_warehouse_id"] = env.include_warehouse_id
-        episode_data["rolling_window"] = env.rolling_window
-        all_episodes.append(episode_data)
-
-    # Disable step info collection after rollout
-    env.collect_step_info = False
-
-    # Return all episodes
-    return all_episodes
-
-
-# ============================================================================
-# Sweep Orchestration Functions
-# ============================================================================
-
-def run_sweep(
-    env_config: EnvironmentConfig,
-    eval_seed: int,
-    num_episodes: int,
-    sweep_values: List[Any],
-    make_action_fn: Callable[[Any], Callable],
-    label_fn: Callable[[Any], str],
-) -> Tuple[List[Dict[str, float]], int, List[Dict[str, np.ndarray]]]:
-    """
-    Runs a baseline sweep over a list of parameter values.
-
-    For each value the environment is freshly created, rollouts are executed,
-    costs are aggregated, and the result with the highest mean reward is
-    tracked.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        eval_seed (int): Seed used to initialise each environment.
-        num_episodes (int): Number of rollout episodes per sweep point.
-        sweep_values (List[Any]): Parameter values to iterate over.
-        make_action_fn (Callable[[Any], Callable]): Factory that maps a sweep
-            value to a baseline action function.
-        label_fn (Callable[[Any], str]): Maps a sweep value to a printable
-            label for ``print_sweep_row``.
-
-    Returns:
-        sweep_stats (List[Dict[str, float]]): Aggregate cost dicts per sweep value.
-        best_idx (int): Index of the best sweep value.
-        best_episodes (List[Dict[str, np.ndarray]]): Episodes corresponding to the best sweep value.
-            ``(sweep_stats, best_idx, best_episodes)`` — aggregate cost dicts,
-            index of the best sweep value, and the corresponding episodes.
-    """
-
-    # Initialize lists to store sweep stats, best index, and best episodes
-    sweep_stats: List[Dict[str, float]] = []
-    best_idx = 0
-    best_reward = -np.inf
-    best_episodes = None
-
-    # Run a baseline rollout for each sweep value
-    for idx, value in enumerate(sweep_values):
-        env = InventoryEnvironment(env_config, seed=eval_seed)
-        eps = baseline_rollout(env, make_action_fn(value), num_episodes)
-        agg = aggregate_costs(eps)
-        sweep_stats.append(agg)
-        print_sweep_row(label_fn(value), agg)
-        if agg["reward"] > best_reward:
-            best_reward = agg["reward"]
-            best_idx = idx
-            best_episodes = eps
-
-    return sweep_stats, best_idx, best_episodes
 
 def run_all_baselines(
     env_config: EnvironmentConfig,
@@ -472,9 +347,9 @@ def run_all_baselines(
 
     Executes the random baseline, a calibrated constant-order sweep,
     a BS-Oracle (analytical newsvendor) sweep, a BS-Adaptive
-    (rolling-mean) sweep, and a BS-Optimized (Bayesian-optimisation)
-    baseline.  Visualisations and sweep curves are saved under
-    ``viz_dir``.
+    (rolling-mean) sweep, a BS-Optimized (Bayesian-optimisation)
+    baseline, and a BS-Independent (iterated best response) baseline.
+    Visualisations and sweep curves are saved under ``viz_dir``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
@@ -505,7 +380,7 @@ def run_all_baselines(
     # ------------------------------------------------------------------
     # 1. Random Baseline Policy
     # ------------------------------------------------------------------
-    print("\n[1/5] Running Random baseline...")
+    print("\n[1/6] Running Random baseline...")
 
     # Create environment and run rollout
     env = InventoryEnvironment(env_config, seed=eval_seed)
@@ -518,11 +393,10 @@ def run_all_baselines(
     generate_visualizations(episodes, str(viz_dir / "random"))
     
 
-
-    # ------------------------------------------------------------------
-    # 2. Constant Order Baseline (calibrated α-sweep)
-    # ------------------------------------------------------------------
-    print("\n[2/5] Running Constant Order baseline (calibrated)...")
+    # # ------------------------------------------------------------------
+    # # 2. Constant Order Baseline (calibrated α-sweep)
+    # # ------------------------------------------------------------------
+    print("\n[2/6] Running Constant Order baseline (calibrated)...")
 
     # Extract max order quantities from environment config
     max_qty = np.array(
@@ -589,7 +463,7 @@ def run_all_baselines(
     # ------------------------------------------------------------------
     # 3. BS-Oracle: Analytical Base-Stock with True Parameters (sweep over z)
     # ------------------------------------------------------------------
-    print("\n[3/5] Running BS-Oracle baseline sweep...")
+    print("\n[3/6] Running BS-Oracle baseline sweep...")
 
     # Define sweep parameters and values
     z_values = [round(0.25 * i, 2) for i in range(25)]
@@ -633,9 +507,9 @@ def run_all_baselines(
 
 
     # ------------------------------------------------------------------
-    # 4. BS-Adaptive: Analytical Base-Stock with Observed Rolling-Mean Demand (2D sweep over z × H)
+    # 4. BS-Adaptive: Analytical Base-Stock with Observed Rolling-Mean Demand
     # ------------------------------------------------------------------
-    print("\n[4/5] Running BS-Adaptive baseline sweep (z × H)...")
+    print("\n[4/6] Running BS-Adaptive baseline sweep (z × H)...")
 
     # Define sweep grids
     adaptive_z_values = [round(0.25 * i, 2) for i in range(25)]  
@@ -711,13 +585,14 @@ def run_all_baselines(
 
 
     # ------------------------------------------------------------------
-    # 5. BS-Optimized: Simulation-Optimized Base-Stock via Bayesian Opt.
+    # 5. BS-Optimized: Simulation-Optimized Base-Stock via Bayesian Optimization
     # ------------------------------------------------------------------
-    print("\n[5/5] Running BS-Optimized (Bayesian Optimization)...")
+    print("\n[5/6] Running BS-Optimized (Bayesian Optimization)...")
 
+    # Extract max order quantities from environment config
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
-    # Run Bayesian optimization (uses calibration_seed, not eval_seed)
+    # Run Bayesian optimization
     S_star, bo_convergence = run_bs_optimization(
         env_config=env_config,
         optimization_seed=calibration_seed,
@@ -758,6 +633,72 @@ def run_all_baselines(
 
 
     # ------------------------------------------------------------------
+    # 6. BS-Independent: Independently Optimized Base-Stock with Iterated Best Response
+    # ------------------------------------------------------------------
+    print("\n[6/6] Running BS-Independent (Iterated Best Response BO)...")
+
+    # Compute initial S from calibrated demand + lead times.
+    # Uses a newsvendor-style formula with z=1.0 as a reasonable starting
+    # point (roughly the 84th-percentile service level).
+    mean_demand = calibrate_demand(env_config, calibration_seed)
+    lead_times = np.array(
+        env_config.components.lead_time_sampler.params.expected_lead_times,
+        dtype=float,
+    )
+    z_init = 1.0
+    S_init = lead_times * mean_demand + z_init * np.sqrt(lead_times * mean_demand)
+    print(f"  Initial S (newsvendor z={z_init} on calibrated demand):")
+    for wh in range(env_config.n_warehouses):
+        print(f"    WH {wh}: {S_init[wh].round(1)}")
+
+    # Run iterated best response BO
+    n_rounds = 2
+    S_indep, indep_convergence = run_bs_independent_optimization(
+        env_config=env_config,
+        optimization_seed=calibration_seed,
+        S_init=S_init,
+        n_rounds=n_rounds,
+        n_calls_per_wh=300,
+        n_random_starts_per_wh=50,
+        n_obj_episodes=50,
+        upper_bound=200.0,
+    )
+
+    # Final evaluation on held-out eval seed
+    print("  Evaluating independently-optimised S on held-out eval episodes...")
+    env_indep_eval = InventoryEnvironment(env_config, seed=eval_seed)
+    indep_action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
+    indep_episodes = baseline_rollout(env_indep_eval, indep_action_fn, num_episodes)
+    indep_agg = aggregate_costs(indep_episodes)
+
+    # Store results
+    results["baselines"]["bs_independent"] = {
+        "best_base_stock_levels": S_indep.tolist(),
+        "initial_base_stock_levels": S_init.tolist(),
+        "convergence_log": indep_convergence,
+        "n_rounds": n_rounds,
+        "n_calls_per_wh": 300,
+        "n_random_starts_per_wh": 50,
+        "n_obj_episodes": 50,
+        "best": indep_agg,
+    }
+    print_summary_block("BS-Independent (Iterated Best Response)", indep_agg)
+
+    # Generate episode visualizations
+    generate_visualizations(
+        indep_episodes, str(viz_dir / "bs_independent_best"),
+    )
+
+    # Plot per-warehouse convergence curves
+    plot_bo_independent_convergence(
+        convergence_log=indep_convergence,
+        n_warehouses=env_config.n_warehouses,
+        n_rounds=n_rounds,
+        output_path=viz_dir / "sweep_bs_independent_convergence.png",
+    )
+
+
+    # ------------------------------------------------------------------
     # Final comparison
     # ------------------------------------------------------------------
 
@@ -773,6 +714,7 @@ def run_all_baselines(
     adapt_label = f'BS-Adaptive (z={best_adapt_z}, H={best_adapt_H})'
     print(f"  {adapt_label:<40s}  {adaptive_sweep_stats[best_adapt_idx]['reward']:>12.1f}")
     print(f"  {'BS-Optimized (BO)':<40s}  {bo_agg['reward']:>12.1f}")
+    print(f"  {'BS-Independent (IBR)':<40s}  {indep_agg['reward']:>12.1f}")
     print(f"{'=' * 75}")
 
     # Store comparison results
@@ -782,9 +724,406 @@ def run_all_baselines(
         f"bs_oracle_z{best_z}": heur_sweep_stats[best_heur_idx]["reward"],
         f"bs_adaptive_z{best_adapt_z}_H{best_adapt_H}": adaptive_sweep_stats[best_adapt_idx]["reward"],
         "bs_optimized": bo_agg["reward"],
+        "bs_independent": indep_agg["reward"],
     }
 
     return results
+
+
+# ============================================================================
+# Baseline Rollout Functions
+# ============================================================================
+
+def baseline_rollout(
+    env: InventoryEnvironment,
+    action_fn: Callable,
+    num_episodes: int = 10,
+) -> List[Dict[str, np.ndarray]]:
+    """
+    Runs rollout episodes using a baseline action function (no RL policy).
+    Collects the same per-step data format as ``BaseAlgorithmWrapper.rollout()``.
+
+    Args:
+        env (InventoryEnvironment): Environment instance to evaluate on.
+        action_fn (Callable): ``action_fn(env, obs)`` returning a dict that
+            maps agent IDs to action arrays in ``[-1, 1]``.
+        num_episodes (int): Number of episodes to roll out.
+
+    Returns:
+        all_episodes (List[Dict[str, np.ndarray]]): Per-episode data dicts (same schema as
+            ``rollout()``).
+    """
+
+    # Enable per-step info collection
+    env.collect_step_info = True
+
+    # Initialize a list to store all rollout episodes
+    all_episodes = []
+
+    # Run manual rollout
+    for _ in range(num_episodes):
+        # Initialize episode data and reset environment
+        episode_data = defaultdict(list)
+        obs, _ = env.reset()
+
+        # Run manual rollout loop
+        done = False
+        while not done:
+            # Query action function for actions
+            actions = action_fn(env, obs)
+
+            # Step environment and record step info
+            obs, rewards, terms, truncs, infos = env.step(actions)
+
+            # Extract step info (shared across all agents)
+            step_info = infos[env.agents[0]]
+            for key, value in step_info.items():
+                episode_data[key].append(
+                    value.copy() if isinstance(value, np.ndarray) else value
+                )
+
+            # Record per-warehouse rewards
+            rewards_array = np.array([rewards[a] for a in env.agents])
+            episode_data["rewards"].append(rewards_array)
+
+            # Check if episode is done
+            done = all(truncs.values()) or all(terms.values())
+
+        # Convert all lists to numpy arrays and add env metadata for visualization
+        episode_data = {k: np.array(v) for k, v in episode_data.items()}
+        episode_data["n_skus"] = env.n_skus
+        episode_data["max_expected_lead_time"] = env.max_expected_lead_time
+        episode_data["feature_config"] = env.feature_config.model_dump()
+        episode_data["include_warehouse_id"] = env.include_warehouse_id
+        episode_data["rolling_window"] = env.rolling_window
+        all_episodes.append(episode_data)
+
+    # Disable step info collection after rollout
+    env.collect_step_info = False
+
+    # Return all episodes
+    return all_episodes
+
+def run_bs_optimization(
+    env_config: EnvironmentConfig,
+    optimization_seed: int,
+    n_calls: int = 300,
+    n_random_starts: int = 50,
+    n_obj_episodes: int = 50,
+    upper_bound: float = 200.0,
+) -> Tuple[np.ndarray, List[float]]:
+    """
+    Finds optimal base-stock levels ``S*`` via Bayesian optimization
+    (Gaussian-process-based sequential model optimization).
+
+    Each candidate solution is a vector of ``n_warehouses × n_skus``
+    continuous values.  The objective function evaluates a candidate by
+    running ``n_obj_episodes`` rollout episodes using the *optimization
+    seed* (NOT the eval seed) and returning the *negative* mean episode
+    reward (since ``gp_minimize`` minimises).
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        optimization_seed (int): Base seed for optimization rollouts,
+            independent of the evaluation seed.
+        n_calls (int): Total number of BO evaluations (including
+            ``n_random_starts`` initial random points).
+        n_random_starts (int): Number of initial random evaluations
+            before the GP surrogate takes over.
+        n_obj_episodes (int): Number of episodes per objective evaluation
+            (averaged to reduce stochastic noise).
+        upper_bound (float): Upper bound for each base-stock level
+            parameter.
+
+    Returns:
+        S_star (np.ndarray): Optimised base-stock levels, shape
+            ``(n_warehouses, n_skus)``.
+        convergence (List[float]): Best *negative* objective found after
+            each evaluation (length ``n_calls``).  Negate to get reward.
+    """
+
+    from skopt import gp_minimize
+
+    # Extract number of warehouses, SKUs, and max order quantities
+    n_warehouses = env_config.n_warehouses
+    n_skus = env_config.n_skus
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Set the number of parameters and initialize call counter
+    n_params = n_warehouses * n_skus
+    call_count = [0]
+
+    # Define the objective function for Bayesian optimization
+    def objective(S_flat: List[float]) -> float:
+        # Reshape base-stock levels and create action function
+        S = np.array(S_flat).reshape(n_warehouses, n_skus)
+        action_fn = make_bs_optimized_action_fn(S, max_qty)
+
+        # Run the objective function rollout
+        total_rewards = []
+        for ep_idx in range(n_obj_episodes):
+            env = InventoryEnvironment(env_config, seed=optimization_seed + ep_idx)
+            env.collect_step_info = False
+            obs, _ = env.reset()
+            ep_reward = 0.0
+            done = False
+            while not done:
+                actions = action_fn(env, obs)
+                obs, rewards, terms, truncs, _ = env.step(actions)
+                ep_reward += sum(rewards.values())
+                done = all(truncs.values()) or all(terms.values())
+            total_rewards.append(ep_reward)
+
+        # Calculate the mean reward and update the call counter
+        mean_reward = float(np.mean(total_rewards))
+        call_count[0] += 1
+
+        # Print progress every 25 calls or the first 5 calls
+        if call_count[0] % 25 == 0 or call_count[0] <= 5:
+            print(f"    BO call {call_count[0]:4d}/{n_calls} — "
+                  f"reward = {mean_reward:10.1f}  "
+                  f"S range = [{min(S_flat):.1f}, {max(S_flat):.1f}]")
+
+        # Return the negative mean reward (gp_minimize minimizes)
+        return -mean_reward  
+
+    # Define the dimensions of the search space
+    dimensions = [(0.0, upper_bound)] * n_params
+
+    # Run the Bayesian optimization
+    print(f"  Starting Bayesian optimization ({n_params} params, "
+          f"{n_calls} calls, {n_obj_episodes} episodes/call)...")
+    result = gp_minimize(
+        objective,
+        dimensions=dimensions,
+        n_calls=n_calls,
+        n_random_starts=n_random_starts,
+        random_state=optimization_seed,
+        verbose=False,
+    )
+
+    # Reshape the best solution found into a 2D array of base-stock levels
+    S_star = np.array(result.x).reshape(n_warehouses, n_skus)
+
+    # Build convergence curve
+    best_so_far = np.minimum.accumulate(result.func_vals)
+    convergence = best_so_far.tolist()
+
+    # Print the final best reward and the optimized base-stock levels
+    print(f"  BO complete. Best reward = {-result.fun:.1f}")
+    print(f"  Optimised base-stock levels (per WH × SKU):")
+    for wh in range(n_warehouses):
+        print(f"    WH {wh}: {S_star[wh].round(1)}")
+
+    return S_star, convergence
+
+def run_sweep(
+    env_config: EnvironmentConfig,
+    eval_seed: int,
+    num_episodes: int,
+    sweep_values: List[Any],
+    make_action_fn: Callable[[Any], Callable],
+    label_fn: Callable[[Any], str],
+) -> Tuple[List[Dict[str, float]], int, List[Dict[str, np.ndarray]]]:
+    """
+    Runs a baseline sweep over a list of parameter values.
+
+    For each value the environment is freshly created, rollouts are executed,
+    costs are aggregated, and the result with the highest mean reward is
+    tracked.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        eval_seed (int): Seed used to initialise each environment.
+        num_episodes (int): Number of rollout episodes per sweep point.
+        sweep_values (List[Any]): Parameter values to iterate over.
+        make_action_fn (Callable[[Any], Callable]): Factory that maps a sweep
+            value to a baseline action function.
+        label_fn (Callable[[Any], str]): Maps a sweep value to a printable
+            label for ``print_sweep_row``.
+
+    Returns:
+        sweep_stats (List[Dict[str, float]]): Aggregate cost dicts per sweep value.
+        best_idx (int): Index of the best sweep value.
+        best_episodes (List[Dict[str, np.ndarray]]): Episodes corresponding to the best sweep value.
+            ``(sweep_stats, best_idx, best_episodes)`` — aggregate cost dicts,
+            index of the best sweep value, and the corresponding episodes.
+    """
+
+    # Initialize lists to store sweep stats, best index, and best episodes
+    sweep_stats: List[Dict[str, float]] = []
+    best_idx = 0
+    best_reward = -np.inf
+    best_episodes = None
+
+    # Run a baseline rollout for each sweep value
+    for idx, value in enumerate(sweep_values):
+        env = InventoryEnvironment(env_config, seed=eval_seed)
+        eps = baseline_rollout(env, make_action_fn(value), num_episodes)
+        agg = aggregate_costs(eps)
+        sweep_stats.append(agg)
+        print_sweep_row(label_fn(value), agg)
+        if agg["reward"] > best_reward:
+            best_reward = agg["reward"]
+            best_idx = idx
+            best_episodes = eps
+
+    return sweep_stats, best_idx, best_episodes
+
+def run_bs_independent_optimization(
+    env_config: EnvironmentConfig,
+    optimization_seed: int,
+    S_init: np.ndarray,
+    n_rounds: int = 2,
+    n_calls_per_wh: int = 300,
+    n_random_starts_per_wh: int = 50,
+    n_obj_episodes: int = 50,
+    upper_bound: float = 200.0,
+) -> Tuple[np.ndarray, Dict[str, List[float]]]:
+    """
+    Finds base-stock levels ``S*`` via **iterated best response**, where
+    each warehouse's parameters are optimised independently while the other
+    warehouses' policies are held fixed.
+
+    Since the environment uses ``scope: "agent"``, each warehouse's BO
+    objective minimises *that warehouse's own* negative reward, matching
+    the incentive structure faced by an independent RL agent.
+
+    Procedure (per round):
+        1. For warehouse 0: fix all others at their current ``S`` values,
+           run BO over ``S[0, :]`` (``n_skus`` parameters).
+        2. For warehouse 1: fix WH 0 at its newly optimised values and
+           WH 2+ at their current values, optimise ``S[1, :]``.
+        3. Continue for all warehouses.
+        4. Repeat for ``n_rounds`` rounds.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        optimization_seed (int): Base seed for optimization rollouts.
+        S_init (np.ndarray): Initial base-stock levels, shape
+            ``(n_warehouses, n_skus)``.  Typically derived from the best
+            BS-Adaptive or BS-Oracle policy.
+        n_rounds (int): Number of iterated-best-response rounds.
+        n_calls_per_wh (int): BO evaluations per warehouse per round.
+        n_random_starts_per_wh (int): Initial random evaluations per
+            warehouse per round.
+        n_obj_episodes (int): Episodes per objective evaluation.
+        upper_bound (float): Upper bound for each base-stock parameter.
+
+    Returns:
+        S_star (np.ndarray): Independently-optimised base-stock levels,
+            shape ``(n_warehouses, n_skus)``.
+        convergence_log (Dict[str, List[float]]): Convergence curves keyed
+            by ``"round{r}_wh{w}"`` — best negative objective per BO step.
+    """
+
+    from skopt import gp_minimize
+
+    # Extract the number of warehouses, SKUs, and max order quantities
+    n_warehouses = env_config.n_warehouses
+    n_skus = env_config.n_skus
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Initialize the current base-stock levels and convergence log
+    S_current = S_init.copy()
+    convergence_log: Dict[str, List[float]] = {}
+
+    # Run the iterated best response optimization
+    for rnd in range(n_rounds):
+        print(f"\n  === Independent BO — Round {rnd + 1}/{n_rounds} ===")
+
+        # Optimize each warehouse independently
+        for wh_target in range(n_warehouses):
+            print(f"    Optimising WH {wh_target} ({n_skus} params, "
+                  f"{n_calls_per_wh} calls)...")
+
+            def make_objective(target_wh: int, S_fixed: np.ndarray,
+                               n_calls_total: int):
+                """Factory to avoid late-binding closure issues."""
+                # Create a snapshot of the base-stock levels and initialize  call count
+                S_snapshot = S_fixed.copy()
+                call_count = [0]
+
+                # Define the objective function for Bayesian Optimization
+                def objective(s_wh_flat: List[float]) -> float:
+                    # Replace the target warehouse's base-stock level with the candidate
+                    S_candidate = S_snapshot.copy()
+                    S_candidate[target_wh] = np.array(s_wh_flat)
+
+                    # Create the action function
+                    action_fn = make_bs_optimized_action_fn(S_candidate, max_qty)
+
+                    # Run the objective function rollout
+                    wh_rewards = []
+                    for ep_idx in range(n_obj_episodes):
+                        env = InventoryEnvironment(
+                            env_config, seed=optimization_seed + ep_idx,
+                        )
+                        env.collect_step_info = False
+                        obs, _ = env.reset()
+                        ep_wh_reward = 0.0
+                        done = False
+                        while not done:
+                            actions = action_fn(env, obs)
+                            obs, rewards, terms, truncs, _ = env.step(actions)
+                            agent_id = env.agents[target_wh]
+                            ep_wh_reward += rewards[agent_id]
+                            done = all(truncs.values()) or all(terms.values())
+                        wh_rewards.append(ep_wh_reward)
+
+                    # Calculate the mean reward and update the call counter
+                    mean_reward = float(np.mean(wh_rewards))
+                    call_count[0] += 1
+
+                    # Print progress every 25 calls or the first 5 calls
+                    if call_count[0] % 25 == 0 or call_count[0] <= 3:
+                        print(
+                            f"      BO WH{target_wh} call "
+                            f"{call_count[0]:4d}/{n_calls_total} — "
+                            f"wh_reward = {mean_reward:10.1f}  "
+                            f"S = [{min(s_wh_flat):.1f}, {max(s_wh_flat):.1f}]"
+                        )
+                    
+                    # Return the negative mean reward (gp_minimize minimizes)
+                    return -mean_reward
+                return objective
+
+            objective_fn = make_objective(wh_target, S_current, n_calls_per_wh)
+            dimensions = [(0.0, upper_bound)] * n_skus
+
+            # Use a deterministic but distinct random_state per (round, wh)
+            rs = optimization_seed + rnd * 1000 + wh_target * 100
+
+            # Run the Bayesian optimization
+            result = gp_minimize(
+                objective_fn,
+                dimensions=dimensions,
+                n_calls=n_calls_per_wh,
+                n_random_starts=n_random_starts_per_wh,
+                random_state=rs,
+                verbose=False,
+            )
+
+            # Update the current base-stock levels with the best solution found
+            S_current[wh_target] = np.array(result.x)
+
+            # Build convergence curve
+            key = f"round{rnd + 1}_wh{wh_target}"
+            convergence_log[key] = np.minimum.accumulate(
+                result.func_vals
+            ).tolist()
+
+            # Print progress
+            print(f"      WH {wh_target} done. "
+                  f"Best wh_reward = {-result.fun:.1f}, "
+                  f"S = {S_current[wh_target].round(1)}")
+
+    # Print final base-stock levels
+    print(f"\n  Independent BO complete. Final S (per WH × SKU):")
+    for wh in range(n_warehouses):
+        print(f"    WH {wh}: {S_current[wh].round(1)}")
+
+    return S_current, convergence_log
 
 
 # ============================================================================
@@ -843,144 +1182,6 @@ def calibrate_demand(
     mean_demand = demand_matrix.mean(axis=0)
 
     return mean_demand
-
-
-def run_bs_optimization(
-    env_config: EnvironmentConfig,
-    optimization_seed: int,
-    n_calls: int = 300,
-    n_random_starts: int = 50,
-    n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
-) -> Tuple[np.ndarray, List[float]]:
-    """
-    Finds optimal base-stock levels ``S*`` via Bayesian optimization
-    (Gaussian-process-based sequential model optimization).
-
-    Each candidate solution is a vector of ``n_warehouses × n_skus``
-    continuous values.  The objective function evaluates a candidate by
-    running ``n_obj_episodes`` rollout episodes using the *optimization
-    seed* (NOT the eval seed) and returning the *negative* mean episode
-    reward (since ``gp_minimize`` minimises).
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        optimization_seed (int): Base seed for optimization rollouts,
-            independent of the evaluation seed.
-        n_calls (int): Total number of BO evaluations (including
-            ``n_random_starts`` initial random points).
-        n_random_starts (int): Number of initial random evaluations
-            before the GP surrogate takes over.
-        n_obj_episodes (int): Number of episodes per objective evaluation
-            (averaged to reduce stochastic noise).
-        upper_bound (float): Upper bound for each base-stock level
-            parameter.
-
-    Returns:
-        S_star (np.ndarray): Optimised base-stock levels, shape
-            ``(n_warehouses, n_skus)``.
-        convergence (List[float]): Best *negative* objective found after
-            each evaluation (length ``n_calls``).  Negate to get reward.
-    """
-
-    from skopt import gp_minimize
-
-    n_warehouses = env_config.n_warehouses
-    n_skus = env_config.n_skus
-    n_params = n_warehouses * n_skus
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
-    call_count = [0]
-
-    def objective(S_flat: List[float]) -> float:
-        S = np.array(S_flat).reshape(n_warehouses, n_skus)
-        action_fn = make_bs_optimized_action_fn(S, max_qty)
-
-        total_rewards = []
-        for ep_idx in range(n_obj_episodes):
-            env = InventoryEnvironment(env_config, seed=optimization_seed + ep_idx)
-            env.collect_step_info = False
-            obs, _ = env.reset()
-            ep_reward = 0.0
-            done = False
-            while not done:
-                actions = action_fn(env, obs)
-                obs, rewards, terms, truncs, _ = env.step(actions)
-                ep_reward += sum(rewards.values())
-                done = all(truncs.values()) or all(terms.values())
-            total_rewards.append(ep_reward)
-
-        mean_reward = float(np.mean(total_rewards))
-        call_count[0] += 1
-        if call_count[0] % 25 == 0 or call_count[0] <= 5:
-            print(f"    BO call {call_count[0]:4d}/{n_calls} — "
-                  f"reward = {mean_reward:10.1f}  "
-                  f"S range = [{min(S_flat):.1f}, {max(S_flat):.1f}]")
-
-        return -mean_reward  # gp_minimize minimises
-
-    dimensions = [(0.0, upper_bound)] * n_params
-
-    print(f"  Starting Bayesian optimization ({n_params} params, "
-          f"{n_calls} calls, {n_obj_episodes} episodes/call)...")
-    result = gp_minimize(
-        objective,
-        dimensions=dimensions,
-        n_calls=n_calls,
-        n_random_starts=n_random_starts,
-        random_state=optimization_seed,
-        verbose=False,
-    )
-
-    S_star = np.array(result.x).reshape(n_warehouses, n_skus)
-
-    # Build convergence curve: best objective found so far at each step
-    best_so_far = np.minimum.accumulate(result.func_vals)
-    convergence = best_so_far.tolist()
-
-    print(f"  BO complete. Best reward = {-result.fun:.1f}")
-    print(f"  Optimised base-stock levels (per WH × SKU):")
-    for wh in range(n_warehouses):
-        print(f"    WH {wh}: {S_star[wh].round(1)}")
-
-    return S_star, convergence
-
-
-def plot_bo_convergence(
-    convergence: List[float],
-    output_path: Path,
-):
-    """
-    Plots the Bayesian-optimization convergence curve.
-
-    Shows the best objective (reward, not negated) found as a function
-    of the number of BO evaluations.
-
-    Args:
-        convergence (List[float]): Best *negative* objective at each
-            evaluation (from :func:`run_bs_optimization`).
-        output_path (Path): Path to save the plot.
-    """
-
-    iters = np.arange(1, len(convergence) + 1)
-    best_reward = -np.array(convergence)  # negate back to reward
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(iters, best_reward, "-", color="#4c72b0", linewidth=1.5)
-    ax.set_xlabel("BO Evaluation")
-    ax.set_ylabel("Best Mean Episode Reward")
-    ax.set_title("BS-Optimized — Bayesian Optimization Convergence")
-    ax.grid(True, alpha=0.3)
-
-    # Mark the final best
-    ax.axhline(best_reward[-1], color="#dd8452", linestyle="--", alpha=0.7,
-               label=f"Final best = {best_reward[-1]:.1f}")
-    ax.legend(fontsize=9)
-
-    plt.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 # ============================================================================
@@ -1169,14 +1370,18 @@ def plot_adaptive_bs_sweep(
         output_path (Path): Path to save the plot.
     """
 
+    # Convert z and H values to numpy arrays
     n_z = len(z_values)
     z_arr = np.array(z_values)
 
+    # Define the color map and colors for the lines
     cmap = plt.cm.viridis
     colors = [cmap(i / max(len(H_values) - 1, 1)) for i in range(len(H_values))]
 
+    # Create figure and axes
     fig, ax = plt.subplots(figsize=(10, 5))
 
+    # Plot the reward curve for each rolling-window width
     for h_idx, H_val in enumerate(H_values):
         start = h_idx * n_z
         rewards = np.array([s["reward"] for s in sweep_stats[start:start + n_z]])
@@ -1187,19 +1392,115 @@ def plot_adaptive_bs_sweep(
     # Mark the overall best
     ax.plot(best_z, sweep_stats[
         H_values.index(best_H) * n_z + z_values.index(best_z)
-    ]["reward"], "D", color="#dd8452", markersize=10, zorder=5,
+    ]["reward"], "D", color="#dd8452", markersize=5, zorder=5,
             label=f"Best (z={best_z}, H={best_H})")
 
+    # Set labels and title
     ax.set_xlabel("Safety Factor z")
     ax.set_ylabel("Mean Episode Reward")
     ax.set_title("BS-Adaptive — Sweep over Safety Factor z and Window H")
     ax.legend(fontsize=8, loc="best", ncol=2)
     ax.grid(True, alpha=0.3)
 
+    # Set layout and save figure
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+def plot_bo_convergence(
+    convergence: List[float],
+    output_path: Path,
+):
+    """
+    Plots the Bayesian-optimization convergence curve.
+
+    Shows the best objective (reward, not negated) found as a function
+    of the number of BO evaluations.
+
+    Args:
+        convergence (List[float]): Best *negative* objective at each
+            evaluation (from :func:`run_bs_optimization`).
+        output_path (Path): Path to save the plot.
+    """
+
+    # Convert convergence list to numpy array and negate back to reward
+    iters = np.arange(1, len(convergence) + 1)
+    best_reward = -np.array(convergence) 
+
+    # Create figure and axes
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # Plot the best reward curve
+    ax.plot(iters, best_reward, "-", color="#4c72b0", linewidth=1.5)
+    ax.set_xlabel("BO Evaluation")
+    ax.set_ylabel("Best Mean Episode Reward")
+    ax.set_title("BS-Optimized — Bayesian Optimization Convergence")
+    ax.grid(True, alpha=0.3)
+
+    # Mark the final best
+    ax.axhline(best_reward[-1], color="#dd8452", linestyle="--", alpha=0.7,
+               label=f"Final best = {best_reward[-1]:.1f}")
+    ax.legend(fontsize=9)
+
+    # Set layout and save figure
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_bo_independent_convergence(
+    convergence_log: Dict[str, List[float]],
+    n_warehouses: int,
+    n_rounds: int,
+    output_path: Path,
+):
+    """
+    Plots per-warehouse BO convergence curves for BS-Independent.
+
+    Creates a subplot per round, with one line per warehouse showing
+    the best own-reward found as a function of BO evaluations.
+
+    Args:
+        convergence_log (Dict[str, List[float]]): Keyed by
+            ``"round{r}_wh{w}"``, values are best negative objective
+            per step.
+        n_warehouses (int): Number of warehouses.
+        n_rounds (int): Number of iterated-best-response rounds.
+        output_path (Path): Path to save the plot.
+    """
+
+    fig, axes = plt.subplots(
+        1, n_rounds, figsize=(6 * n_rounds, 5), squeeze=False,
+    )
+
+    cmap = plt.cm.tab10
+    colors = [cmap(i) for i in range(n_warehouses)]
+
+    for rnd in range(n_rounds):
+        ax = axes[0, rnd]
+        for wh in range(n_warehouses):
+            key = f"round{rnd + 1}_wh{wh}"
+            if key not in convergence_log:
+                continue
+            curve = -np.array(convergence_log[key])
+            iters = np.arange(1, len(curve) + 1)
+            ax.plot(iters, curve, "-", color=colors[wh], linewidth=1.3,
+                    label=f"WH {wh}")
+        ax.set_xlabel("BO Evaluation")
+        ax.set_ylabel("Best WH Reward")
+        ax.set_title(f"Round {rnd + 1}")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("BS-Independent — Per-Warehouse BO Convergence",
+                 fontsize=12, y=1.02)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
 
 def save_results_json(results: Dict[str, Any], experiment_dir: Path):
     """
