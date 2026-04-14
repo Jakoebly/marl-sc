@@ -848,53 +848,57 @@ def run_bs_optimization(
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
-    # Set the number of parameters and initialize call counter
     n_params = n_warehouses * n_skus
-    call_count = [0]
 
-    # Define the objective function for Bayesian optimization
-    def objective(S_flat: List[float]) -> float:
-        # Reshape base-stock levels and create action function
-        S = np.array(S_flat).reshape(n_warehouses, n_skus)
-        action_fn = make_bs_optimized_action_fn(S, max_qty)
+    def make_objective(n_calls_total: int):
+        """Factory that creates the BO objective with its own call counter."""
+        call_count = [0]
 
-        # Run the objective function rollout
-        total_rewards = []
-        for ep_idx in range(n_obj_episodes):
-            env = InventoryEnvironment(env_config, seed=optimization_seed + ep_idx)
-            env.collect_step_info = False
-            obs, _ = env.reset()
-            ep_reward = 0.0
-            done = False
-            while not done:
-                actions = action_fn(env, obs)
-                obs, rewards, terms, truncs, _ = env.step(actions)
-                ep_reward += sum(rewards.values())
-                done = all(truncs.values()) or all(terms.values())
-            total_rewards.append(ep_reward)
+        # Define the objective function for Bayesian optimization
+        def objective(S_flat: List[float]) -> float:
+            # Reshape base-stock levels and create action function
+            S = np.array(S_flat).reshape(n_warehouses, n_skus)
+            action_fn = make_bs_optimized_action_fn(S, max_qty)
 
-        # Calculate the mean reward and update the call counter
-        mean_reward = float(np.mean(total_rewards))
-        call_count[0] += 1
+            # Run the objective function rollout
+            total_rewards = []
+            for ep_idx in range(n_obj_episodes):
+                env = InventoryEnvironment(env_config, seed=optimization_seed + ep_idx)
+                env.collect_step_info = False
+                obs, _ = env.reset()
+                ep_reward = 0.0
+                done = False
+                while not done:
+                    actions = action_fn(env, obs)
+                    obs, rewards, terms, truncs, _ = env.step(actions)
+                    ep_reward += sum(rewards.values())
+                    done = all(truncs.values()) or all(terms.values())
+                total_rewards.append(ep_reward)
 
-        # Print progress every 25 calls or the first 5 calls
-        if call_count[0] % 25 == 0 or call_count[0] <= 5:
-            print(f"    BO call {call_count[0]:4d}/{n_calls} — "
-                  f"reward = {mean_reward:10.1f}  "
-                  f"S range = [{min(S_flat):.1f}, {max(S_flat):.1f}]")
+            # Calculate the mean reward and update the call counter
+            mean_reward = float(np.mean(total_rewards))
+            call_count[0] += 1
 
-        # Return the negative mean reward (gp_minimize minimizes)
-        return -mean_reward  
+            # Print progress every 25 calls or the first 5 calls
+            if call_count[0] % 25 == 0 or call_count[0] <= 5:
+                print(f"    BO call {call_count[0]:4d}/{n_calls} — "
+                    f"reward = {mean_reward:10.1f}  "
+                    f"S range = [{min(S_flat):.1f}, {max(S_flat):.1f}]")
 
-    # Define the dimensions of the search space
+            # Return the negative mean reward (gp_minimize minimizes)
+            return -mean_reward  
+
+        return objective
+
+    # Build objective and search space
+    objective_fn = make_objective(n_calls)
     dimensions = [(0.0, upper_bound)] * n_params
 
     # Run the Bayesian optimization
     print(f"  Starting Bayesian optimization ({n_params} params, "
           f"{n_calls} calls, {n_obj_episodes} episodes/call)...")
     result = gp_minimize(
-        objective,
+        objective_fn,
         dimensions=dimensions,
         n_calls=n_calls,
         n_random_starts=n_random_starts,
@@ -1066,7 +1070,6 @@ def run_bs_independent_optimization(
                         while not done:
                             actions = action_fn(env, obs)
                             obs, rewards, terms, truncs, _ = env.step(actions)
-                            agent_id = env.agents[target_wh]
                             ep_wh_reward += sum(rewards.values())
                             done = all(truncs.values()) or all(terms.values())
                         wh_rewards.append(ep_wh_reward)
