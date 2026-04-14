@@ -4,7 +4,7 @@ Runs baseline policies on the InventoryEnvironment:
   2. Constant Order (calibrated): Per-(warehouse, SKU) constant quantities
      derived from observed demand in pilot episodes, swept over a shared
      multiplier ``alpha``.
-  3. BS-Oracle: Analytical newsvendor base-stock using *true* demand
+  3. BS-Newsvendor: Analytical newsvendor base-stock using *true* demand
      parameters, swept over safety factor ``z``.
   4. BS-Adaptive: Rolling-mean base-stock using *observed* demand history,
      swept over safety factor ``z`` and window width ``H``.
@@ -111,10 +111,10 @@ def make_constant_action_fn(
 
     return action_fn
 
-def make_bs_oracle_action_fn(env_config: EnvironmentConfig, z: float) -> Callable:
+def make_bs_newsvendor_action_fn(env_config: EnvironmentConfig, z: float) -> Callable:
     """
     Returns an action function implementing an oracle base-stock 
-    heuristic (BS-Oracle) that uses true (not observed)
+    heuristic (BS-Newsvendor) that uses true (not observed)
     demand statistics.
 
     The base-stock levels are calculated as follows:
@@ -295,7 +295,7 @@ def make_bs_optimized_action_fn(
     At each step the policy orders:
         ``order[w,k] = max(0, S[w,k] - inventory[w,k] - pipeline[w,k])``
 
-    This is the same decision rule used by :func:`make_bs_oracle_action_fn`,
+    This is the same decision rule used by :func:`make_bs_newsvendor_action_fn`,
     but the levels ``S`` are provided directly (e.g. found by Bayesian
     optimization) rather than computed analytically.
 
@@ -346,7 +346,7 @@ def run_all_baselines(
     Runs all baseline policies and returns a combined results dict.
 
     Executes the random baseline, a calibrated constant-order sweep,
-    a BS-Oracle (analytical newsvendor) sweep, a BS-Adaptive
+    a BS-Newsvendor (analytical newsvendor) sweep, a BS-Adaptive
     (rolling-mean) sweep, a BS-Optimized (Bayesian-optimisation)
     baseline, and a BS-Independent (iterated best response) baseline.
     Visualisations and sweep curves are saved under ``viz_dir``.
@@ -461,9 +461,9 @@ def run_all_baselines(
 
 
     # ------------------------------------------------------------------
-    # 3. BS-Oracle: Analytical Base-Stock with True Parameters (sweep over z)
+    # 3. BS-Newsvendor: Analytical Base-Stock with True Parameters (sweep over z)
     # ------------------------------------------------------------------
-    print("\n[3/6] Running BS-Oracle baseline sweep...")
+    print("\n[3/6] Running BS-Newsvendor baseline sweep...")
 
     # Define sweep parameters and values
     z_values = [round(0.25 * i, 2) for i in range(25)]
@@ -474,25 +474,25 @@ def run_all_baselines(
         eval_seed=eval_seed,
         num_episodes=num_episodes,
         sweep_values=z_values,
-        make_action_fn=lambda z: make_bs_oracle_action_fn(env_config, z=z),
+        make_action_fn=lambda z: make_bs_newsvendor_action_fn(env_config, z=z),
         label_fn=lambda z: f"z={z:5.2f}",
     )
 
     # Store results and print summary
     best_z = z_values[best_heur_idx]
-    results["baselines"]["bs_oracle"] = {
+    results["baselines"]["bs_newsvendor"] = {
         "sweep": {str(z): s for z, s in zip(z_values, heur_sweep_stats)},
         "best_z": best_z,
         "best": heur_sweep_stats[best_heur_idx],
     }
     print_summary_block(
-        f"Best BS-Oracle Baseline (z={best_z})",
+        f"Best BS-Newsvendor Baseline (z={best_z})",
         heur_sweep_stats[best_heur_idx],
     )
 
     # Generate visualizations for the best z-value
     generate_visualizations(
-        best_heur_episodes, str(viz_dir / f"bs_oracle_best_z{best_z}"),
+        best_heur_episodes, str(viz_dir / f"bs_newsvendor_best_z{best_z}"),
     )
 
     # Plot the sweep results on a curve
@@ -500,8 +500,8 @@ def run_all_baselines(
         x_values=z_values,
         sweep_stats=heur_sweep_stats,
         x_label="Safety Factor z",
-        title="BS-Oracle — Sweep over Safety Factor z",
-        output_path=viz_dir / "sweep_bs_oracle.png",
+        title="BS-Newsvendor — Sweep over Safety Factor z",
+        output_path=viz_dir / "sweep_bs_newsvendor.png",
         best_idx=best_heur_idx,
     )
 
@@ -710,7 +710,7 @@ def run_all_baselines(
     print(f"  {'-' * 40}  {'-' * 12}")
     print(f"  {'Random':<40s}  {random_agg['reward']:>12.1f}")
     print(f"  {f'Constant (α={best_alpha})':<40s}  {const_sweep_stats[best_const_idx]['reward']:>12.1f}")
-    print(f"  {f'BS-Oracle (z={best_z})':<40s}  {heur_sweep_stats[best_heur_idx]['reward']:>12.1f}")
+    print(f"  {f'BS-Newsvendor (z={best_z})':<40s}  {heur_sweep_stats[best_heur_idx]['reward']:>12.1f}")
     adapt_label = f'BS-Adaptive (z={best_adapt_z}, H={best_adapt_H})'
     print(f"  {adapt_label:<40s}  {adaptive_sweep_stats[best_adapt_idx]['reward']:>12.1f}")
     print(f"  {'BS-Optimized (BO)':<40s}  {bo_agg['reward']:>12.1f}")
@@ -721,7 +721,7 @@ def run_all_baselines(
     results["comparison"] = {
         "random": random_agg["reward"],
         f"constant_a{best_alpha}": const_sweep_stats[best_const_idx]["reward"],
-        f"bs_oracle_z{best_z}": heur_sweep_stats[best_heur_idx]["reward"],
+        f"bs_newsvendor_z{best_z}": heur_sweep_stats[best_heur_idx]["reward"],
         f"bs_adaptive_z{best_adapt_z}_H{best_adapt_H}": adaptive_sweep_stats[best_adapt_idx]["reward"],
         "bs_optimized": bo_agg["reward"],
         "bs_independent": indep_agg["reward"],
@@ -1006,7 +1006,7 @@ def run_bs_independent_optimization(
         optimization_seed (int): Base seed for optimization rollouts.
         S_init (np.ndarray): Initial base-stock levels, shape
             ``(n_warehouses, n_skus)``.  Typically derived from the best
-            BS-Adaptive or BS-Oracle policy.
+            BS-Adaptive or BS-Newsvendor policy.
         n_rounds (int): Number of iterated-best-response rounds.
         n_calls_per_wh (int): BO evaluations per warehouse per round.
         n_random_starts_per_wh (int): Initial random evaluations per
