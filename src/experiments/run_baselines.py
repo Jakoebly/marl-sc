@@ -393,9 +393,9 @@ def run_all_baselines(
     generate_visualizations(episodes, str(viz_dir / "random"))
     
 
-    # # ------------------------------------------------------------------
-    # # 2. Constant Order Baseline (calibrated α-sweep)
-    # # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 2. Constant Order Baseline (calibrated α-sweep)
+    # ------------------------------------------------------------------
     print("\n[2/6] Running Constant Order baseline (calibrated)...")
 
     # Extract max order quantities from environment config
@@ -1067,7 +1067,7 @@ def run_bs_independent_optimization(
                             actions = action_fn(env, obs)
                             obs, rewards, terms, truncs, _ = env.step(actions)
                             agent_id = env.agents[target_wh]
-                            ep_wh_reward += rewards[agent_id]
+                            ep_wh_reward += sum(rewards.values())
                             done = all(truncs.values()) or all(terms.values())
                         wh_rewards.append(ep_wh_reward)
 
