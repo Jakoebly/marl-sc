@@ -3,9 +3,9 @@ algorithm:
   shared:
     num_iterations: 300
     checkpoint_freq: 100
-    batch_size: 4000
-    num_epochs: 3
-    num_minibatches: 4
+    batch_size: 8000
+    num_epochs: 20
+    num_minibatches: 10
     learning_rate: 0.0007598648793612028
     num_env_runners: 2
     num_envs_per_env_runner: 10
@@ -19,10 +19,10 @@ algorithm:
     lam: 0.95
     gamma: 0.99
     use_kl_loss: true
-    grad_clip: 20
+    grad_clip: 5.0
     entropy_coeff: 0.005422636942319648
     vf_loss_coeff: 0.836257527392694
-    clip_param: 0.3
+    clip_param: 0.2
     vf_clip_param: 2046.8403482088547
     logstd_init: -1.4184384587167504
     logstd_floor: -3.51636237623627
