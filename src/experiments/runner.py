@@ -44,14 +44,6 @@ class ExperimentRunner:
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
-        import ray
-        print(f"[DIAG] Ray initialized: {ray.is_initialized()}")
-        print(f"[DIAG] Ray resources: {ray.available_resources()}")
-        print(f"[DIAG] obs_stats shape: {self.env.obs_stats[0].shape if self.env.obs_stats else None}")
-        print(f"[DIAG] obs_stats mean[:5]: {self.env.obs_stats[0][:5] if self.env.obs_stats else None}")
-        print(f"[DIAG] local_obs_dim: {self.env._compute_local_obs_dim()}")
-        print(f"[DIAG] features: {self.env.feature_config.model_dump()}")
-
         # Derive train / eval / obs_stats seeds from the SeedManager
         self.seed_manager = seed_manager
         self.train_seed = seed_manager.get_seed_int('train') if seed_manager else None
@@ -84,6 +76,14 @@ class ExperimentRunner:
             eval_seed=self.eval_seed,
         )
         
+        import ray
+        print(f"[DIAG] Ray initialized: {ray.is_initialized()}")
+        print(f"[DIAG] Ray resources: {ray.available_resources()}")
+        print(f"[DIAG] obs_stats shape: {self.env.obs_stats[0].shape if self.env.obs_stats else None}")
+        print(f"[DIAG] obs_stats mean[:5]: {self.env.obs_stats[0][:5] if self.env.obs_stats else None}")
+        print(f"[DIAG] local_obs_dim: {self.env._compute_local_obs_dim()}")
+        print(f"[DIAG] features: {self.env.feature_config.model_dump()}")
+
         # Initialize WandB (if provided)
         self.wandb_config = wandb_config
         if wandb_config:
