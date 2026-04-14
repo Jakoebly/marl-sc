@@ -1,0 +1,57 @@
+algorithm:
+  name: "ippo"
+  shared:
+    num_iterations: 300
+    checkpoint_freq: 100
+    batch_size: 8000
+    num_epochs: 15
+    num_minibatches: 10
+    learning_rate: 0.0025915409241688745
+    num_env_runners: 2
+    num_envs_per_env_runner: 10
+    num_cpus_per_env_runner: 1
+    eval_interval: 5
+    num_eval_episodes: 5  
+    evaluation_parallel_to_training: false
+
+  algorithm_specific:
+    use_gae: true
+    lam: 0.9
+    gamma: 0.95
+    use_kl_loss: true
+    grad_clip: 100000.0
+    entropy_coeff: 0.003532930814346262
+    vf_loss_coeff: 0.420095977918617
+    clip_param: 0.3
+    vf_clip_param: 21.834811626755663
+    logstd_init: -1.4707584716640627
+    logstd_floor: -3.878815948111535
+    obs_normalization: "meanstd_custom"
+    parameter_sharing: true
+    actor_obs_type: "local"
+    critic_obs_type: "local"
+    networks:
+      shared_layers: null
+        #type: "gru"
+        #config:
+        #  num_layers: 2
+        #  hidden_size: 128
+        #  bidirectional: false
+        #  output_dim: 128
+        #  max_seq_len: 20
+      use_mu_sigma_head: false
+      actor:
+        type: "mlp"
+        config:        
+          hidden_sizes: [256, 256]
+          activation: "relu"
+          output_activation: null
+          # output_dim: null
+      critic:
+        type: "mlp"
+        config:
+          hidden_sizes: [512, 512]
+          activation: "relu"
+          output_activation: null
+          # output_dim: null
+
