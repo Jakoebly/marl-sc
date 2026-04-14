@@ -87,7 +87,9 @@ def run_single_experiment(
     Returns:
         Dict[str, Any]: Training result dictionary.
     """
-
+    import ray
+    ray.init(ignore_reinit_error=True)
+    
     # When resuming, resolve configs and root_seed from the experiment directory
     if resume_from:
         experiment_dir = find_experiment_dir_from_checkpoint(resume_from)
