@@ -377,259 +377,259 @@ def run_all_baselines(
     results: Dict[str, Any] = {"baselines": {}, "comparison": {}}
 
 
-    # # ------------------------------------------------------------------
-    # # 1. Random Baseline Policy
-    # # ------------------------------------------------------------------
-    # print("\n[1/6] Running Random baseline...")
+    # ------------------------------------------------------------------
+    # 1. Random Baseline Policy
+    # ------------------------------------------------------------------
+    print("\n[1/6] Running Random baseline...")
 
-    # # Create environment and run rollout
-    # env = InventoryEnvironment(env_config, seed=eval_seed)
-    # episodes = baseline_rollout(env, make_random_action_fn(rng), num_episodes)
+    # Create environment and run rollout
+    env = InventoryEnvironment(env_config, seed=eval_seed)
+    episodes = baseline_rollout(env, make_random_action_fn(rng), num_episodes)
 
-    # # Store results and print summary
-    # random_agg = aggregate_costs(episodes)
-    # results["baselines"]["random"] = random_agg
-    # print_summary_block("Random Baseline", random_agg)
-    # generate_visualizations(episodes, str(viz_dir / "random"))
+    # Store results and print summary
+    random_agg = aggregate_costs(episodes)
+    results["baselines"]["random"] = random_agg
+    print_summary_block("Random Baseline", random_agg)
+    generate_visualizations(episodes, str(viz_dir / "random"))
     
 
-    # # ------------------------------------------------------------------
-    # # 2. Constant Order Baseline (calibrated α-sweep)
-    # # ------------------------------------------------------------------
-    # print("\n[2/6] Running Constant Order baseline (calibrated)...")
+    # ------------------------------------------------------------------
+    # 2. Constant Order Baseline (calibrated α-sweep)
+    # ------------------------------------------------------------------
+    print("\n[2/6] Running Constant Order baseline (calibrated)...")
 
-    # # Extract max order quantities from environment config
-    # max_qty = np.array(
-    #     env_config.action_space.params.max_order_quantities, dtype=float,
-    # )
+    # Extract max order quantities from environment config
+    max_qty = np.array(
+        env_config.action_space.params.max_order_quantities, dtype=float,
+    )
 
-    # # Calibrate per-(warehouse, SKU) mean demand from pilot episodes
-    # print("  Calibrating demand from pilot episodes...")
-    # mean_demand = calibrate_demand(env_config, calibration_seed)
-    # print(f"  Calibrated mean demand per timestep (per WH × SKU):")
-    # for wh in range(env_config.n_warehouses):
-    #     print(f"    WH {wh}: {mean_demand[wh].round(2)}")
+    # Calibrate per-(warehouse, SKU) mean demand from pilot episodes
+    print("  Calibrating demand from pilot episodes...")
+    mean_demand = calibrate_demand(env_config, calibration_seed)
+    print(f"  Calibrated mean demand per timestep (per WH × SKU):")
+    for wh in range(env_config.n_warehouses):
+        print(f"    WH {wh}: {mean_demand[wh].round(2)}")
 
-    # # Define the range for α to sweep over
-    # alpha_values = [round(0.05 * i, 2) for i in range(1, 41)]  
+    # Define the range for α to sweep over
+    alpha_values = [round(0.05 * i, 2) for i in range(1, 41)]  
 
-    # # Run rollout for each alpha value
-    # const_sweep_stats, best_const_idx, best_const_episodes = run_sweep(
-    #     env_config=env_config,
-    #     eval_seed=eval_seed,
-    #     num_episodes=num_episodes,
-    #     sweep_values=alpha_values,
-    #     make_action_fn=lambda alpha: make_constant_action_fn(
-    #         np.round(alpha * mean_demand),
-    #         max_qty,
-    #     ),
-    #     label_fn=lambda alpha: f"α={alpha:.2f}",
-    # )
+    # Run rollout for each alpha value
+    const_sweep_stats, best_const_idx, best_const_episodes = run_sweep(
+        env_config=env_config,
+        eval_seed=eval_seed,
+        num_episodes=num_episodes,
+        sweep_values=alpha_values,
+        make_action_fn=lambda alpha: make_constant_action_fn(
+            np.round(alpha * mean_demand),
+            max_qty,
+        ),
+        label_fn=lambda alpha: f"α={alpha:.2f}",
+    )
 
-    # # Store results and print summary
-    # best_alpha = alpha_values[best_const_idx]
-    # best_quantities = np.round(best_alpha * mean_demand)
-    # results["baselines"]["constant"] = {
-    #     "sweep": {str(a): s for a, s in zip(alpha_values, const_sweep_stats)},
-    #     "best_alpha": best_alpha,
-    #     "calibrated_mean_demand": mean_demand.tolist(),
-    #     "best_quantities": best_quantities.tolist(),
-    #     "best": const_sweep_stats[best_const_idx],
-    # }
-    # print(f"  Best α={best_alpha:.2f} → per-(WH, SKU) quantities:")
-    # for wh in range(env_config.n_warehouses):
-    #     print(f"    WH {wh}: {best_quantities[wh].astype(int)}")
-    # print_summary_block(
-    #     f"Best Constant Baseline (α={best_alpha})",
-    #     const_sweep_stats[best_const_idx],
-    # )
+    # Store results and print summary
+    best_alpha = alpha_values[best_const_idx]
+    best_quantities = np.round(best_alpha * mean_demand)
+    results["baselines"]["constant"] = {
+        "sweep": {str(a): s for a, s in zip(alpha_values, const_sweep_stats)},
+        "best_alpha": best_alpha,
+        "calibrated_mean_demand": mean_demand.tolist(),
+        "best_quantities": best_quantities.tolist(),
+        "best": const_sweep_stats[best_const_idx],
+    }
+    print(f"  Best α={best_alpha:.2f} → per-(WH, SKU) quantities:")
+    for wh in range(env_config.n_warehouses):
+        print(f"    WH {wh}: {best_quantities[wh].astype(int)}")
+    print_summary_block(
+        f"Best Constant Baseline (α={best_alpha})",
+        const_sweep_stats[best_const_idx],
+    )
 
-    # # Generate visualizations for the best alpha value
-    # generate_visualizations(
-    #     best_const_episodes, str(viz_dir / f"constant_best_a{best_alpha}"),
-    # )
+    # Generate visualizations for the best alpha value
+    generate_visualizations(
+        best_const_episodes, str(viz_dir / f"constant_best_a{best_alpha}"),
+    )
 
-    # # Plot the sweep results on a curve
-    # plot_sweep_curve(
-    #     x_values=alpha_values,
-    #     sweep_stats=const_sweep_stats,
-    #     x_label="Demand Multiplier α",
-    #     title="Constant Order Baseline — Sweep over α (calibrated from observed demand)",
-    #     output_path=viz_dir / "sweep_constant.png",
-    #     best_idx=best_const_idx,
-    # )
-
-
-    # # ------------------------------------------------------------------
-    # # 3. BS-Oracle: Analytical Base-Stock with True Parameters (sweep over z)
-    # # ------------------------------------------------------------------
-    # print("\n[3/6] Running BS-Oracle baseline sweep...")
-
-    # # Define sweep parameters and values
-    # z_values = [round(0.25 * i, 2) for i in range(25)]
-
-    # # Run rollout for each z-value
-    # heur_sweep_stats, best_heur_idx, best_heur_episodes = run_sweep(
-    #     env_config=env_config,
-    #     eval_seed=eval_seed,
-    #     num_episodes=num_episodes,
-    #     sweep_values=z_values,
-    #     make_action_fn=lambda z: make_bs_oracle_action_fn(env_config, z=z),
-    #     label_fn=lambda z: f"z={z:5.2f}",
-    # )
-
-    # # Store results and print summary
-    # best_z = z_values[best_heur_idx]
-    # results["baselines"]["bs_oracle"] = {
-    #     "sweep": {str(z): s for z, s in zip(z_values, heur_sweep_stats)},
-    #     "best_z": best_z,
-    #     "best": heur_sweep_stats[best_heur_idx],
-    # }
-    # print_summary_block(
-    #     f"Best BS-Oracle Baseline (z={best_z})",
-    #     heur_sweep_stats[best_heur_idx],
-    # )
-
-    # # Generate visualizations for the best z-value
-    # generate_visualizations(
-    #     best_heur_episodes, str(viz_dir / f"bs_oracle_best_z{best_z}"),
-    # )
-
-    # # Plot the sweep results on a curve
-    # plot_sweep_curve(
-    #     x_values=z_values,
-    #     sweep_stats=heur_sweep_stats,
-    #     x_label="Safety Factor z",
-    #     title="BS-Oracle — Sweep over Safety Factor z",
-    #     output_path=viz_dir / "sweep_bs_oracle.png",
-    #     best_idx=best_heur_idx,
-    # )
+    # Plot the sweep results on a curve
+    plot_sweep_curve(
+        x_values=alpha_values,
+        sweep_stats=const_sweep_stats,
+        x_label="Demand Multiplier α",
+        title="Constant Order Baseline — Sweep over α (calibrated from observed demand)",
+        output_path=viz_dir / "sweep_constant.png",
+        best_idx=best_const_idx,
+    )
 
 
-    # # ------------------------------------------------------------------
-    # # 4. BS-Adaptive: Analytical Base-Stock with Observed Rolling-Mean Demand
-    # # ------------------------------------------------------------------
-    # print("\n[4/6] Running BS-Adaptive baseline sweep (z × H)...")
+    # ------------------------------------------------------------------
+    # 3. BS-Oracle: Analytical Base-Stock with True Parameters (sweep over z)
+    # ------------------------------------------------------------------
+    print("\n[3/6] Running BS-Oracle baseline sweep...")
 
-    # # Define sweep grids
-    # adaptive_z_values = [round(0.25 * i, 2) for i in range(25)]  
-    # adaptive_H_values = [5, 10, 20, 30, 40, 50, 100]
+    # Define sweep parameters and values
+    z_values = [round(0.25 * i, 2) for i in range(25)]
 
-    # # Flatten into (z, H) tuples
-    # adaptive_sweep_params = [
-    #     (z_val, H_val)
-    #     for H_val in adaptive_H_values
-    #     for z_val in adaptive_z_values
-    # ]
+    # Run rollout for each z-value
+    heur_sweep_stats, best_heur_idx, best_heur_episodes = run_sweep(
+        env_config=env_config,
+        eval_seed=eval_seed,
+        num_episodes=num_episodes,
+        sweep_values=z_values,
+        make_action_fn=lambda z: make_bs_oracle_action_fn(env_config, z=z),
+        label_fn=lambda z: f"z={z:5.2f}",
+    )
 
-    # # Run 2D sweep
-    # adaptive_sweep_stats, best_adapt_idx, best_adapt_episodes = run_sweep(
-    #     env_config=env_config,
-    #     eval_seed=eval_seed,
-    #     num_episodes=num_episodes,
-    #     sweep_values=adaptive_sweep_params,
-    #     make_action_fn=lambda params: make_adaptive_bs_action_fn(
-    #         env_config, z=params[0], H=params[1],
-    #     ),
-    #     label_fn=lambda params: f"z={params[0]:5.2f}, H={params[1]:3d}",
-    # )
+    # Store results and print summary
+    best_z = z_values[best_heur_idx]
+    results["baselines"]["bs_oracle"] = {
+        "sweep": {str(z): s for z, s in zip(z_values, heur_sweep_stats)},
+        "best_z": best_z,
+        "best": heur_sweep_stats[best_heur_idx],
+    }
+    print_summary_block(
+        f"Best BS-Oracle Baseline (z={best_z})",
+        heur_sweep_stats[best_heur_idx],
+    )
 
-    # # Identify best (z, H) pair
-    # best_adapt_z, best_adapt_H = adaptive_sweep_params[best_adapt_idx]
+    # Generate visualizations for the best z-value
+    generate_visualizations(
+        best_heur_episodes, str(viz_dir / f"bs_oracle_best_z{best_z}"),
+    )
 
-    # # Store results
-    # results["baselines"]["adaptive_bs"] = {
-    #     "sweep": {
-    #         f"z={z_val}_H={H_val}": s
-    #         for (z_val, H_val), s in zip(adaptive_sweep_params, adaptive_sweep_stats)
-    #     },
-    #     "best_z": best_adapt_z,
-    #     "best_H": best_adapt_H,
-    #     "best": adaptive_sweep_stats[best_adapt_idx],
-    # }
-    # print_summary_block(
-    #     f"Best BS-Adaptive (z={best_adapt_z}, H={best_adapt_H})",
-    #     adaptive_sweep_stats[best_adapt_idx],
-    # )
-
-    # # Generate visualizations for the best (z, H) configuration
-    # generate_visualizations(
-    #     best_adapt_episodes,
-    #     str(viz_dir / f"adaptive_bs_best_z{best_adapt_z}_H{best_adapt_H}"),
-    # )
-
-    # # Plot multi-line sweep: one line per H, reward vs z
-    # plot_adaptive_bs_sweep(
-    #     z_values=adaptive_z_values,
-    #     H_values=adaptive_H_values,
-    #     sweep_stats=adaptive_sweep_stats,
-    #     best_z=best_adapt_z,
-    #     best_H=best_adapt_H,
-    #     output_path=viz_dir / "sweep_adaptive_bs.png",
-    # )
-
-    # # Also plot a single-line sweep curve for the best H (reward vs z)
-    # best_H_slice_stats = [
-    #     s for (z_val, H_val), s in zip(adaptive_sweep_params, adaptive_sweep_stats)
-    #     if H_val == best_adapt_H
-    # ]
-    # best_in_slice = adaptive_z_values.index(best_adapt_z)
-    # plot_sweep_curve(
-    #     x_values=adaptive_z_values,
-    #     sweep_stats=best_H_slice_stats,
-    #     x_label="Safety Factor z",
-    #     title=f"BS-Adaptive (H={best_adapt_H}) — Sweep over Safety Factor z",
-    #     output_path=viz_dir / f"sweep_adaptive_bs_H{best_adapt_H}.png",
-    #     best_idx=best_in_slice,
-    # )
+    # Plot the sweep results on a curve
+    plot_sweep_curve(
+        x_values=z_values,
+        sweep_stats=heur_sweep_stats,
+        x_label="Safety Factor z",
+        title="BS-Oracle — Sweep over Safety Factor z",
+        output_path=viz_dir / "sweep_bs_oracle.png",
+        best_idx=best_heur_idx,
+    )
 
 
-    # # ------------------------------------------------------------------
-    # # 5. BS-Optimized: Simulation-Optimized Base-Stock via Bayesian Optimization
-    # # ------------------------------------------------------------------
-    # print("\n[5/6] Running BS-Optimized (Bayesian Optimization)...")
+    # ------------------------------------------------------------------
+    # 4. BS-Adaptive: Analytical Base-Stock with Observed Rolling-Mean Demand
+    # ------------------------------------------------------------------
+    print("\n[4/6] Running BS-Adaptive baseline sweep (z × H)...")
 
-    # # Extract max order quantities from environment config
-    # max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+    # Define sweep grids
+    adaptive_z_values = [round(0.25 * i, 2) for i in range(25)]  
+    adaptive_H_values = [5, 10, 20, 30, 40, 50, 100]
 
-    # # Run Bayesian optimization
-    # S_star, bo_convergence = run_bs_optimization(
-    #     env_config=env_config,
-    #     optimization_seed=calibration_seed,
-    #     n_calls=300,
-    #     n_random_starts=50,
-    #     n_obj_episodes=50,
-    #     upper_bound=200.0,
-    # )
+    # Flatten into (z, H) tuples
+    adaptive_sweep_params = [
+        (z_val, H_val)
+        for H_val in adaptive_H_values
+        for z_val in adaptive_z_values
+    ]
 
-    # # Final evaluation on held-out eval seed
-    # print("  Evaluating optimised S* on held-out eval episodes...")
-    # env_bo_eval = InventoryEnvironment(env_config, seed=eval_seed)
-    # bo_action_fn = make_bs_optimized_action_fn(S_star, max_qty)
-    # bo_episodes = baseline_rollout(env_bo_eval, bo_action_fn, num_episodes)
-    # bo_agg = aggregate_costs(bo_episodes)
+    # Run 2D sweep
+    adaptive_sweep_stats, best_adapt_idx, best_adapt_episodes = run_sweep(
+        env_config=env_config,
+        eval_seed=eval_seed,
+        num_episodes=num_episodes,
+        sweep_values=adaptive_sweep_params,
+        make_action_fn=lambda params: make_adaptive_bs_action_fn(
+            env_config, z=params[0], H=params[1],
+        ),
+        label_fn=lambda params: f"z={params[0]:5.2f}, H={params[1]:3d}",
+    )
 
-    # # Store results
-    # results["baselines"]["bs_optimized"] = {
-    #     "best_base_stock_levels": S_star.tolist(),
-    #     "bo_convergence": bo_convergence,
-    #     "bo_n_calls": 300,
-    #     "bo_n_random_starts": 50,
-    #     "bo_n_obj_episodes": 50,
-    #     "best": bo_agg,
-    # }
-    # print_summary_block("BS-Optimized (Bayesian Opt.)", bo_agg)
+    # Identify best (z, H) pair
+    best_adapt_z, best_adapt_H = adaptive_sweep_params[best_adapt_idx]
 
-    # # Generate episode visualizations for S*
-    # generate_visualizations(
-    #     bo_episodes, str(viz_dir / "bs_optimized_best"),
-    # )
+    # Store results
+    results["baselines"]["adaptive_bs"] = {
+        "sweep": {
+            f"z={z_val}_H={H_val}": s
+            for (z_val, H_val), s in zip(adaptive_sweep_params, adaptive_sweep_stats)
+        },
+        "best_z": best_adapt_z,
+        "best_H": best_adapt_H,
+        "best": adaptive_sweep_stats[best_adapt_idx],
+    }
+    print_summary_block(
+        f"Best BS-Adaptive (z={best_adapt_z}, H={best_adapt_H})",
+        adaptive_sweep_stats[best_adapt_idx],
+    )
 
-    # # Plot BO convergence curve
-    # plot_bo_convergence(
-    #     convergence=bo_convergence,
-    #     output_path=viz_dir / "sweep_bs_optimized_convergence.png",
-    # )
+    # Generate visualizations for the best (z, H) configuration
+    generate_visualizations(
+        best_adapt_episodes,
+        str(viz_dir / f"adaptive_bs_best_z{best_adapt_z}_H{best_adapt_H}"),
+    )
+
+    # Plot multi-line sweep: one line per H, reward vs z
+    plot_adaptive_bs_sweep(
+        z_values=adaptive_z_values,
+        H_values=adaptive_H_values,
+        sweep_stats=adaptive_sweep_stats,
+        best_z=best_adapt_z,
+        best_H=best_adapt_H,
+        output_path=viz_dir / "sweep_adaptive_bs.png",
+    )
+
+    # Also plot a single-line sweep curve for the best H (reward vs z)
+    best_H_slice_stats = [
+        s for (z_val, H_val), s in zip(adaptive_sweep_params, adaptive_sweep_stats)
+        if H_val == best_adapt_H
+    ]
+    best_in_slice = adaptive_z_values.index(best_adapt_z)
+    plot_sweep_curve(
+        x_values=adaptive_z_values,
+        sweep_stats=best_H_slice_stats,
+        x_label="Safety Factor z",
+        title=f"BS-Adaptive (H={best_adapt_H}) — Sweep over Safety Factor z",
+        output_path=viz_dir / f"sweep_adaptive_bs_H{best_adapt_H}.png",
+        best_idx=best_in_slice,
+    )
+
+
+    # ------------------------------------------------------------------
+    # 5. BS-Optimized: Simulation-Optimized Base-Stock via Bayesian Optimization
+    # ------------------------------------------------------------------
+    print("\n[5/6] Running BS-Optimized (Bayesian Optimization)...")
+
+    # Extract max order quantities from environment config
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Run Bayesian optimization
+    S_star, bo_convergence = run_bs_optimization(
+        env_config=env_config,
+        optimization_seed=calibration_seed,
+        n_calls=300,
+        n_random_starts=50,
+        n_obj_episodes=50,
+        upper_bound=200.0,
+    )
+
+    # Final evaluation on held-out eval seed
+    print("  Evaluating optimised S* on held-out eval episodes...")
+    env_bo_eval = InventoryEnvironment(env_config, seed=eval_seed)
+    bo_action_fn = make_bs_optimized_action_fn(S_star, max_qty)
+    bo_episodes = baseline_rollout(env_bo_eval, bo_action_fn, num_episodes)
+    bo_agg = aggregate_costs(bo_episodes)
+
+    # Store results
+    results["baselines"]["bs_optimized"] = {
+        "best_base_stock_levels": S_star.tolist(),
+        "bo_convergence": bo_convergence,
+        "bo_n_calls": 300,
+        "bo_n_random_starts": 50,
+        "bo_n_obj_episodes": 50,
+        "best": bo_agg,
+    }
+    print_summary_block("BS-Optimized (Bayesian Opt.)", bo_agg)
+
+    # Generate episode visualizations for S*
+    generate_visualizations(
+        bo_episodes, str(viz_dir / "bs_optimized_best"),
+    )
+
+    # Plot BO convergence curve
+    plot_bo_convergence(
+        convergence=bo_convergence,
+        output_path=viz_dir / "sweep_bs_optimized_convergence.png",
+    )
 
 
     # ------------------------------------------------------------------
@@ -652,13 +652,13 @@ def run_all_baselines(
         print(f"    WH {wh}: {S_init[wh].round(1)}")
 
     # Run iterated best response BO
-    n_rounds = 2
+    n_rounds = 1
     S_indep, indep_convergence = run_bs_independent_optimization(
         env_config=env_config,
         optimization_seed=calibration_seed,
         S_init=S_init,
         n_rounds=n_rounds,
-        n_calls_per_wh=300,
+        n_calls_per_wh=100,
         n_random_starts_per_wh=50,
         n_obj_episodes=50,
         upper_bound=200.0,
