@@ -50,7 +50,7 @@ algorithm:
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [512]
+          hidden_sizes: [1024]
           activation: "relu"
           output_activation: null
           # output_dim: null
