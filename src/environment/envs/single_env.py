@@ -61,29 +61,37 @@ class CentralizedEnvWrapper(gymnasium.Env):
         """
         super().__init__()
 
+        # Create InventoryEnvironment instance
         self.env = InventoryEnvironment(env_config, seed=seed, env_meta=env_meta)
 
+        # Store environment configuration
         self.env_config = env_config
+
+        # Store general environment parameters
         self.n_warehouses = self.env.n_warehouses
         self.n_skus = self.env.n_skus
 
+        # Compute local and global observation dimensions
         local_obs_dim = self.env._compute_local_obs_dim()
         self._local_obs_dim = local_obs_dim
         self._global_obs_dim = self.n_warehouses * local_obs_dim
 
+        # Create observation space
         self.observation_space = Box(
-            low=-np.inf,
+            low=-np.inf, 
             high=np.inf,
             shape=(self._global_obs_dim,),
             dtype=np.float32,
         )
 
+        # Create action space
         self.action_space = Box(
             low=-1.0,
             high=1.0,
             shape=(self.n_warehouses * self.n_skus,),
             dtype=np.float32,
         )
+
 
     # ------------------------------------------------------------------
     # Gymnasium API
@@ -95,24 +103,55 @@ class CentralizedEnvWrapper(gymnasium.Env):
         seed: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Resets the inner environment and returns the global observation."""
+        """
+        Resets the inner environment and returns the global observation.
+
+        Args:
+            seed (Optional[int]): Random seed. If None, stochastic components are reset without explicit seeds.
+            options (Optional[Dict]): Optional dictionary of reset options (unused).
+            
+        Returns:
+            Tuple containing:
+                - global_obs (np.ndarray): Global observation. Shape: (global_obs_dim,).
+                - info (Dict[str, Any]): Dictionary containing any additional information 
+                    (unused for now).
+        """
+
+        # Reset the inner environment
         obs_dict, info_dict = self.env.reset(seed=seed, options=options)
+
+        # Extract the global observation and any additional information
         global_obs = self._extract_global_obs(obs_dict)
         info = info_dict.get(self.env.agents[0], {})
+
         return global_obs, info
 
     def step(
         self, action: np.ndarray
     ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Splits the joint action, steps the inner environment, and
-        aggregates observations / rewards into single-agent format."""
+        """
+        Splits the joint action, steps the inner environment, and
+        aggregates observations / rewards into single-agent format.
+        
+        Args:
+            action (np.ndarray): Joint action vector. Shape: (n_warehouses * n_skus,).
+            
+        Returns:
+            Tuple containing:
+                - global_obs (np.ndarray): Global observation. Shape: (global_obs_dim,).
+                - total_reward (float): Total reward.
+                - terminated (bool): True if all warehouses are terminated.
+        """
 
+        # Split the joint action into per-warehouse actions
         per_wh_actions = self._split_action(action)
 
+        # Step the inner environment
         obs_dict, rewards, terminations, truncations, info_dict = self.env.step(
             per_wh_actions
         )
 
+        # Extract the global observation and any additional information
         global_obs = self._extract_global_obs(obs_dict)
         total_reward = sum(rewards.values())
         terminated = all(terminations.values())
@@ -126,6 +165,7 @@ class CentralizedEnvWrapper(gymnasium.Env):
 
     def close(self):
         pass
+
 
     # ------------------------------------------------------------------
     # Properties forwarded from the inner environment
@@ -141,7 +181,6 @@ class CentralizedEnvWrapper(gymnasium.Env):
 
     @property
     def agents(self):
-        """Warehouse agent IDs from the inner environment (for rollout code)."""
         return self.env.agents
 
     @property
@@ -180,6 +219,7 @@ class CentralizedEnvWrapper(gymnasium.Env):
     def obs_stats(self, value):
         self.env.obs_stats = value
 
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -190,15 +230,38 @@ class CentralizedEnvWrapper(gymnasium.Env):
         Each agent's observation is ``concat(local_i, global)`` where
         ``global = concat(local_0, local_1, …)``.  The global portion is
         identical across agents, so we extract it from the first agent.
+        
+        Args:
+            obs_dict (Dict[str, np.ndarray]): Dictionary mapping agent_id to observation.
+                Shape: {agent_id: (local_obs_dim + global_obs_dim,)}.
+            
+        Returns:
+            global_obs (np.ndarray): Global observation. Shape: (global_obs_dim,).
         """
+
+        # Extract the global observation from the first agent's observation
         first_obs = obs_dict[self.env.agents[0]]
         global_obs = first_obs[self._local_obs_dim:]
+
         return global_obs
 
     def _split_action(self, action: np.ndarray) -> Dict[str, np.ndarray]:
-        """Splits a flat ``(W*K,)`` action into per-warehouse sub-actions."""
-        K = self.n_skus
-        return {
-            agent_id: action[i * K : (i + 1) * K]
+        """
+        Splits a flat ``(W*K,)`` action into per-warehouse sub-actions.
+        
+        Args:
+            action (np.ndarray): Joint action vector. Shape: (n_warehouses * n_skus,).
+            
+        Returns:
+            per_wh_actions (Dict[str, np.ndarray]): Dictionary mapping agent_id to action.
+                Shape: {agent_id: (n_skus,)}.
+        """
+
+        # Split the joint action into per-warehouse actions
+        n_skus = self.n_skus
+        per_wh_actions = {
+            agent_id: action[i * n_skus : (i + 1) * n_skus]
             for i, agent_id in enumerate(self.env.agents)
         }
+
+        return per_wh_actions
