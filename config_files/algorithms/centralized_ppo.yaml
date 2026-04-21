@@ -1,0 +1,44 @@
+algorithm:
+  name: "centralized_ppo"
+  shared:
+    num_iterations: 300
+    checkpoint_freq: 100
+    batch_size: 8000
+    num_epochs: 20
+    num_minibatches: 10
+    learning_rate: 0.0003
+    num_env_runners: 2
+    num_envs_per_env_runner: 10
+    num_cpus_per_env_runner: 1
+    eval_interval: 5
+    num_eval_episodes: 5
+    evaluation_parallel_to_training: false
+
+  algorithm_specific:
+    use_gae: true
+    lam: 0.95
+    gamma: 0.99
+    use_kl_loss: false
+    grad_clip: 5.0
+    entropy_coeff: 0.01
+    vf_loss_coeff: 1.0
+    clip_param: 0.2
+    vf_clip_param: 10.0
+    logstd_init: 0
+    logstd_floor: -2.0
+    obs_normalization: "off"
+    networks:
+      shared_layers: null
+      use_mu_sigma_head: false
+      actor:
+        type: "mlp"
+        config:
+          hidden_sizes: [256]
+          activation: "relu"
+          output_activation: null
+      critic:
+        type: "mlp"
+        config:
+          hidden_sizes: [256]
+          activation: "relu"
+          output_activation: null

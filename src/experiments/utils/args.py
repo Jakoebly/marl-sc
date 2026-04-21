@@ -16,9 +16,10 @@ def parse_args():
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["single", "tune", "evaluate"],
+        choices=["single", "tune", "evaluate", "seed-eval"],
         required=True,
-        help="Experiment mode: 'single' for training, 'tune' for hyperparameter search, 'evaluate' for evaluation"
+        help="Experiment mode: 'single' for training, 'tune' for hyperparameter search, "
+             "'evaluate' for evaluation, 'seed-eval' for multi-seed evaluation"
     )
 
     # ----- Config paths args -----
@@ -131,9 +132,39 @@ def parse_args():
         help="Generate visualization plots from manual rollout (evaluate mode only)"
     )
 
+    # ----- Seed evaluation args -----
+    parser.add_argument(
+        "--n-seeds",
+        type=int,
+        default=5,
+        help="Number of seeds for seed evaluation (default: 5)"
+    )
+    parser.add_argument(
+        "--tune-name",
+        type=str,
+        help="Name of a completed tune experiment for seed evaluation from tune results"
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=10,
+        help="Number of top trials to save (tune mode) or evaluate (seed-eval mode). Default: 10"
+    )
+    parser.add_argument(
+        "--eval-seed",
+        type=int,
+        default=42,
+        help="Fixed root seed for final evaluation in seed-eval mode (default: 42)"
+    )
+    parser.add_argument(
+        "--num-iterations",
+        type=int,
+        default=None,
+        help="Override number of training iterations (seed-eval mode)"
+    )
+
     # Parse arguments
     args = parser.parse_args()
-  
 
     return validate_args(args)
 
@@ -186,6 +217,25 @@ def validate_args(args: Namespace):
             raise ValueError(
                 "--checkpoint-number can only be used with --experiment-name, "
                 "not with --checkpoint-dir (which already points to a specific checkpoint)."
+            )
+
+    # Mode 'seed-eval' requires either tune-name or (env-config + algorithm-config)
+    elif args.mode == "seed-eval":
+        has_tune = args.tune_name is not None
+        has_explicit = args.env_config is not None and args.algorithm_config is not None
+        if not has_tune and not has_explicit:
+            raise ValueError(
+                "For seed-eval mode, provide either --tune-name (tune mode) or "
+                "--env-config + --algorithm-config (single mode)"
+            )
+        if has_tune and has_explicit:
+            raise ValueError(
+                "Cannot specify both --tune-name and explicit configs. "
+                "Use one or the other."
+            )
+        if has_explicit and not args.experiment_name:
+            raise ValueError(
+                "--experiment-name is required for single-mode seed evaluation"
             )
 
     return args

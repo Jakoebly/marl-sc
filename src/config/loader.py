@@ -7,7 +7,8 @@ from pydantic import BaseModel, ValidationError, TypeAdapter
 
 from .schema import (
     EnvironmentConfig, FeatureConfig, IPPOConfig, MAPPOConfig,
-    AlgorithmConfig, TuneConfig, TUNE_SEARCH_SPACE_SECTIONS,
+    CentralizedPPOConfig, AlgorithmConfig, TuneConfig,
+    TUNE_SEARCH_SPACE_SECTIONS,
 )
 
 if TYPE_CHECKING:
@@ -219,7 +220,7 @@ def _apply_synthetic_data(config_dict: Dict[str, Any], seed_manager: Optional['S
     return config_dict
 
 
-def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig]:
+def load_algorithm_config(path: str) -> Union[IPPOConfig, MAPPOConfig, CentralizedPPOConfig]:
     """
     Loads and validates algorithm configuration from a YAML file.
     

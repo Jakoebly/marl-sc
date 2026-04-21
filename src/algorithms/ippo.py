@@ -24,17 +24,21 @@ class IPPOWrapper(BaseAlgorithmWrapper):
     Supports parameter sharing option.
     """
     
-    def __init__(self, env, ippo_config, train_seed: Optional[int] = None, eval_seed: Optional[int] = None):
+    def __init__(
+        self, 
+        env: InventoryEnvironment, 
+        ippo_config, 
+        train_seed: Optional[int] = None, 
+        eval_seed: Optional[int] = None
+    ):
         """
         Initializes the IPPO wrapper.
         
         Args:
             env (InventoryEnvironment): InventoryEnvironment instance (PettingZoo ParallelEnv)
             ippo_config (AlgorithmConfig): AlgorithmConfig instance
-            train_seed (Optional[int]): Seed for training environments and RLlib framework seeding
-                (`.debugging(seed=...)` and training `env_config["seed"]`). Defaults to None.
-            eval_seed (Optional[int]): Seed for evaluation environments 
-                (`evaluation_config["env_config"]["seed"]`). Defaults to None.
+            train_seed (Optional[int]): Seed for training environments and RLlib framework. Defaults to None.
+            eval_seed (Optional[int]): Seed for evaluation environments. Defaults to None.
         """
 
         # Store environment and config
@@ -75,7 +79,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.local_obs_dim = self.obs_space.shape[0] // (1 + env.n_warehouses)
         self.global_obs_dim = self.obs_space.shape[0] - self.local_obs_dim
 
-        # Create model config
+        # Create the model config
         model_config = {
             "networks": networks_params,
             "observation_space": self.obs_space,
@@ -167,7 +171,9 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             "num_envs_per_env_runner": self.num_envs_per_env_runner,
         }
         if self.obs_normalization == "meanstd":
-            env_runners_kwargs["env_to_module_connector"] = lambda env, spaces, device: MeanStdFilter(multi_agent=True)
+            env_runners_kwargs["env_to_module_connector"] = (
+                lambda env, spaces, device: MeanStdFilter(multi_agent=True)
+            )
 
         # Create PPO config with multi-agent setup included in chain
         ppo_config = (
@@ -225,14 +231,8 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         # Load warm-start weights from a previous training run if curriculum learning is enabled
         if ippo_params.warmstart_weights_path is not None:
             from src.utils.weight_transfer import load_module_weights
-
-            # Get policy ID for the warm-start weights
             policy_id = "shared_policy" if self.parameter_sharing else list(module_specs.keys())[0]
-
-            # Load warm-start weights
             load_module_weights(self.trainer, policy_id, ippo_params.warmstart_weights_path)
-
-            # Sync learner weights to the env runner
             weights = self.trainer.learner_group.get_weights()
             self.trainer.env_runner.set_weights(weights)
 

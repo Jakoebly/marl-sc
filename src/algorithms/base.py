@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
 import tempfile
 import numpy as np
 import torch
-import yaml
 import os
+from ray.rllib.core.columns import Columns
 
 if TYPE_CHECKING:
     from src.environment.envs.multi_env import InventoryEnvironment
@@ -94,11 +94,8 @@ class BaseAlgorithmWrapper(ABC):
                 maps metric names to numpy arrays with shape (T, ...) where T is episode length.
         """
 
-        from ray.rllib.core.columns import Columns
-
         # Enable detailed step info collection
         env.collect_step_info = True
-        all_episodes = []
 
         # Get RLModule
         sample_policy_id = self.policy_mapping_fn(env.agents[0])
@@ -111,7 +108,7 @@ class BaseAlgorithmWrapper(ABC):
         # Get action distribution class for deterministic action sampling
         dist_cls = sample_module.get_inference_action_dist_cls()
 
-        # Determine normalization mode (stored by the wrapper constructor)
+        # Determine the normalization mode
         obs_norm_mode = getattr(self, "obs_normalization", "off")
 
         # For "meanstd" mode, extract observation filters to replicate the
@@ -121,10 +118,11 @@ class BaseAlgorithmWrapper(ABC):
             obs_filters = self._get_obs_filters()
 
         # Run manual rollout
-        for ep in range(num_episodes):
+        all_episodes = []
+        for _ in range(num_episodes):
             # Initialize episode data and reset environment
             episode_data = defaultdict(list)
-            obs, info = env.reset()
+            obs_dict, info = env.reset()
 
             # Reset hidden states for recurrent policies
             if is_recurrent:
@@ -151,7 +149,7 @@ class BaseAlgorithmWrapper(ABC):
 
                     with torch.no_grad():
                         # Store raw observation before normalization
-                        agent_obs_raw = np.array(obs[agent_id], dtype=np.float32)
+                        agent_obs_raw = np.array(obs_dict[agent_id], dtype=np.float32)
                         obs_raw_per_agent[agent_id] = agent_obs_raw.copy()
 
                         # Normalize observations using training filter stats
@@ -200,25 +198,26 @@ class BaseAlgorithmWrapper(ABC):
 
                     actions[agent_id] = action
 
+                # Reshape flat joint arrays to (n_warehouses, n_skus) for viz
                 # Record raw actions as (n_warehouses, n_skus) array
                 actions_array = np.array([actions[a] for a in env.agents])
-                episode_data["actions_raw"].append(actions_array)
+                
 
-                # Record mu and sigma from actor output
+                # Reshape flat joint arrays to per-agent (n_warehouses, n_skus) for visualization
+                actions_array = np.array([actions[a] for a in env.agents])
                 mu_array = np.array([mu_sigma_per_agent[a]["mu"] for a in env.agents])
                 sigma_array = np.array([mu_sigma_per_agent[a]["sigma"] for a in env.agents])
-                episode_data["actor_mu"].append(mu_array)
-                episode_data["actor_sigma"].append(sigma_array)
-
-                # Record raw and normalized observations per agent
                 obs_raw_array = np.array([obs_raw_per_agent[a] for a in env.agents])
                 obs_norm_array = np.array([obs_norm_per_agent[a] for a in env.agents])
+
+                episode_data["actions_raw"].append(actions_array)
+                episode_data["actor_mu"].append(mu_array)
+                episode_data["actor_sigma"].append(sigma_array)
                 episode_data["obs_raw"].append(obs_raw_array)
                 episode_data["obs_normalized"].append(obs_norm_array)
 
                 # Step environment and record step info 
-                # Infos contain detailed step data when collect_step_info=True
-                obs, rewards, terms, truncs, infos = env.step(actions)
+                obs_dict, rewards, terms, truncs, infos = env.step(actions)
 
                 # Extract step info (shared across all agents)
                 step_info = infos[env.agents[0]]
@@ -280,16 +279,8 @@ class BaseAlgorithmWrapper(ABC):
 
         # Save algorithm config if provided
         if algorithm_config is not None:
-            algo_config_path = experiment_dir / "algorithm_config.yaml"
-            if not algo_config_path.exists():
-                with open(algo_config_path, "w", encoding="utf-8") as f:
-                    yaml.dump(
-                        {"algorithm": algorithm_config.model_dump()},
-                        f,
-                        default_flow_style=False,
-                        sort_keys=False,
-                    )
-                print(f"[INFO] Saved algorithm config to: {algo_config_path}")
+            from src.experiments.utils.experiment_utils import save_algorithm_config
+            save_algorithm_config(algorithm_config, experiment_dir)
 
     def load_checkpoint(self, path: str):
         """
@@ -334,10 +325,10 @@ class BaseAlgorithmWrapper(ABC):
         )
 
         try:
-            # MultiAgentEnvRunner stores the pipeline as a private attribute
+            # Get the env-to-module pipeline, which contains the MeanStdFilter connector
             pipeline = self.trainer.env_runner._env_to_module
-            connectors_found = [type(c).__name__ for c in pipeline]
 
+            # Iterate over the connectors to find the MeanStdFilter connector
             for connector in pipeline:
                 if isinstance(connector, MeanStdFilterConnector):
                     if connector._filters is None:
