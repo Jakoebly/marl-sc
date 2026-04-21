@@ -9,13 +9,10 @@ saved config files.
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import numpy as np
-from scipy import stats as scipy_stats
 import yaml
 
 from src.config.loader import (
@@ -24,7 +21,7 @@ from src.config.loader import (
 )
 
 if TYPE_CHECKING:
-    from src.config.schema import EnvironmentConfig
+    from src.config.schema import AlgorithmConfig, EnvironmentConfig
     from src.experiments.runner import ExperimentRunner
 
 
@@ -378,182 +375,6 @@ def save_run_metadata(
 
     print(f"[INFO] Saved run metadata to: {meta_path}")
 
-def compute_seed_statistics(
-    name: str,
-    seed_values: list[tuple[int, float]],
-    confidence: float = 0.95,
-) -> dict:
-    """
-    Computes mean, std, and confidence interval for a set of seed evaluation results.
-
-    Args:
-        name (str): Config / group name.
-        seed_values (list[tuple[int, float]]): ``(seed_number, metric_value)`` pairs.
-        confidence (float): Confidence level for the CI (default 0.95).
-
-    Returns:
-        stats (dict): Dictionary with keys ``name``, ``mean``, ``std``,
-            ``ci_95``, ``n_seeds``, and ``per_seed``.
-    """
-
-    # Sort the seed values by seed number and get the mean and std values
-    seed_values_sorted = sorted(seed_values, key=lambda x: x[0])
-    values = np.array([v for _, v in seed_values_sorted])
-    n = len(values)
-    mean = float(values.mean())
-    std = float(values.std(ddof=1)) if n > 1 else 0.0
-
-    # Compute the confidence interval if there are multiple seeds
-    if n > 1:
-        se = std / np.sqrt(n)
-        alpha = 1.0 - confidence
-        t_crit = float(scipy_stats.t.ppf(1.0 - alpha / 2, df=n - 1))
-        ci_low = float(mean - t_crit * se)
-        ci_high = float(mean + t_crit * se)
-    else:
-        ci_low = ci_high = float(mean)
-
-    # Create the stats dictionary (plain float/int so yaml.safe_dump stays readable)
-    stats = {
-        "name": name,
-        "mean": float(round(mean, 4)),
-        "std": float(round(std, 4)),
-        "ci_95": [float(round(ci_low, 4)), float(round(ci_high, 4))],
-        "n_seeds": n,
-        "per_seed": [
-            {"seed": s, "value": float(round(float(v), 4))}
-            for s, v in seed_values_sorted
-        ],
-    }
-
-    return stats
-
-def print_seed_evaluation_table(
-    configs: list[dict],
-    summary_path: Optional[Path] = None,
-) -> None:
-    """
-    Prints a ranked summary table of seed evaluation results.
-
-    Args:
-        configs (list[dict]): Config statistics dicts as returned by
-            :func:`compute_seed_statistics`, sorted best-first.
-        summary_path (Optional[Path]): If given, prints the save location.
-    """
-
-    # Print results
-    print(f"\n{'=' * 70}")
-    print(f"Seed Evaluation Summary ({len(configs)} config(s))")
-    print(f"{'=' * 70}")
-    print(
-        f"{'Rank':<6}{'Name':<35}{'Mean':>10}{'Std':>10}"
-        f"{'95% CI':>20}{'N':>5}"
-    )
-    print(f"{'-' * 86}")
-    for i, c in enumerate(configs):
-        ci_str = f"[{c['ci_95'][0]:.2f}, {c['ci_95'][1]:.2f}]"
-        print(
-            f"{i + 1:<6}{c['name']:<35}{c['mean']:>10.4f}"
-            f"{c['std']:>10.4f}{ci_str:>20}{c['n_seeds']:>5}"
-        )
-    print(f"{'=' * 86}")
-    print(f"Best config: {configs[0]['name']} (mean={configs[0]['mean']:.4f})")
-    if summary_path:
-        print(f"Summary saved to: {summary_path}")
-
-
-def aggregate_seed_evaluation(seed_eval_dir: str | Path) -> dict:
-    """
-    Scans a ``seed_evaluation/`` directory, groups runs by config name,
-    and computes per-config statistics (mean, std, 95% CI).
-
-    Expects subdirectory names matching ``{name}_seed{N}``.  Each
-    subdirectory must contain an ``eval_results_*.yaml`` with an
-    ``episode_return_mean`` key.
-
-    Writes ``seed_evaluation_summary.yaml`` into ``seed_eval_dir`` and
-    returns the summary as a dict.
-
-    Args:
-        seed_eval_dir (str | Path): Path to the ``seed_evaluation/`` directory.
-
-    Returns:
-        summary (dict): Aggregated results with per-config statistics.
-    """
-
-    # Get the seed evaluation directory and check if it exists
-    seed_eval_dir = Path(seed_eval_dir)
-    if not seed_eval_dir.exists():
-        raise FileNotFoundError(
-            f"Seed evaluation directory not found: {seed_eval_dir}"
-        )
-
-    # Compile regex pattern and initialize groups
-    pattern = re.compile(r"^(.+)_seed(\d+)$")
-    groups: dict[str, list[tuple[int, float]]] = {}
-
-    # Iterate over the subdirectories in the seed evaluation directory
-    for subdir in sorted(seed_eval_dir.iterdir()):
-        # Check if the subdirectory is a directory
-        if not subdir.is_dir():
-            continue
-        # Check if the subdirectory name matches the pattern and skip if not
-        match = pattern.match(subdir.name)
-        if not match:
-            continue
-        
-        # Extract the config name and seed number from the subdirectory name
-        config_name = match.group(1)
-        seed_number = int(match.group(2))
-
-        # Get the evaluation results file and check if it exists
-        eval_file = subdir / "eval_results_best.yaml"
-        if not eval_file.exists():
-            print(f"[WARN] No eval_results_best.yaml in {subdir.name}, skipping")
-            continue
-        with open(eval_file, encoding="utf-8") as f:
-            eval_data = yaml.safe_load(f)
-
-        reward = eval_data.get("episode_return_mean")
-        if reward is None:
-            print(
-                f"[WARN] No episode_return_mean in {eval_file.name} "
-                f"({subdir.name}), skipping"
-            )
-            continue
-        
-        # Add the reward to its corresponding config group
-        groups.setdefault(config_name, []).append((seed_number, float(reward)))
-
-    # Check if any valid seed evaluation results were found
-    if not groups:
-        raise ValueError(
-            f"No valid seed evaluation results found in {seed_eval_dir}"
-        )
-
-    configs = [
-        compute_seed_statistics(name, seeds)
-        for name, seeds in sorted(groups.items())
-    ]
-    configs.sort(key=lambda c: c["mean"], reverse=True)
-
-    summary = {
-        "configs": configs,
-        "best_config": {
-            "name": configs[0]["name"],
-            "mean": float(configs[0]["mean"]),
-        },
-    }
-
-    summary_path = seed_eval_dir / "seed_evaluation_summary.yaml"
-    with open(summary_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(summary, f, default_flow_style=False, sort_keys=False)
-
-    print_seed_evaluation_table(configs, summary_path)
-
-    return summary
-
-
 def save_env_config(env_config: EnvironmentConfig, experiment_dir: Path) -> None:
     """
     Saves an ``EnvironmentConfig`` to ``env_config.yaml`` in
@@ -577,3 +398,29 @@ def save_env_config(env_config: EnvironmentConfig, experiment_dir: Path) -> None
                 sort_keys=False,
             )
         print(f"[INFO] Saved environment config to: {env_config_path}")
+
+def save_algorithm_config(
+    algorithm_config: "AlgorithmConfig", experiment_dir: Path
+) -> None:
+    """
+    Saves an ``AlgorithmConfig`` to ``algorithm_config.yaml`` in
+    ``experiment_dir``. Skips writing if the file already exists.
+
+    Args:
+        algorithm_config (AlgorithmConfig): Algorithm configuration.
+        experiment_dir (Path): Experiment output directory.
+    """
+
+    # Set the filename for the algorithm config file
+    algo_config_path = experiment_dir / "algorithm_config.yaml"
+
+    # Save the algorithm config if the file does not exist
+    if not algo_config_path.exists():
+        with open(algo_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(
+                {"algorithm": algorithm_config.model_dump()},
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+        print(f"[INFO] Saved algorithm config to: {algo_config_path}")

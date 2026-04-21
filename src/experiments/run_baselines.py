@@ -39,7 +39,7 @@ from src.experiments.utils.experiment_utils import (
     generate_baseline_experiment_name,
     save_env_config,
 )
-from src.experiments.visualization import generate_visualizations
+from src.experiments.utils.visualization import generate_visualizations
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
 

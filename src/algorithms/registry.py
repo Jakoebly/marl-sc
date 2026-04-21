@@ -55,8 +55,10 @@ def get_algorithm(
 from src.algorithms import models
 from src.algorithms.ippo import IPPOWrapper
 from src.algorithms.mappo import MAPPOWrapper
+from src.algorithms.centralized_ppo import CentralizedPPOWrapper
 
 register_algorithm("ippo", IPPOWrapper)
 register_algorithm("mappo", MAPPOWrapper)
+register_algorithm("centralized_ppo", CentralizedPPOWrapper)
 
 

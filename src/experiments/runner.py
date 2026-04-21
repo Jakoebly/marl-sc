@@ -95,6 +95,10 @@ class ExperimentRunner:
         and metrics are reported without checkpoint tracking. Periodic checkpoints,
         ``checkpoint_final``, and ``module_weights.pt`` are skipped to minimize disk I/O.
 
+        Per-iteration train/eval returns are always collected and saved to
+        ``training_metrics.yaml`` in the checkpoint directory for downstream
+        seed-evaluation aggregation.
+
         Args:
             tune_callback (Optional[Callable]): Callback for reporting metrics
                 to Ray Tune each iteration.
@@ -106,6 +110,9 @@ class ExperimentRunner:
         # Get number of iterations and checkpoint frequency
         num_iterations = self.algorithm_config.shared.num_iterations
         checkpoint_freq = self.algorithm_config.shared.checkpoint_freq
+
+        # Create internal metrics log (always populated, saved to disk at the end)
+        _internal_metrics: list = []
 
         # Track best metric for checkpoint_best
         best_metric_value = float('-inf')
@@ -119,6 +126,20 @@ class ExperimentRunner:
             # Log metrics to WandB (if WandB config is provided)
             if self.wandb_config:
                 log_wandb_metrics(result, iteration)
+
+            # Collect per-iteration metrics for seed-evaluation support
+            train_return = result.get("env_runners", {}).get("episode_return_mean")
+            eval_return = (
+                result.get("evaluation", {})
+                .get("env_runners", {})
+                .get("episode_return_mean")
+            )
+            _metric_entry = {
+                "iteration": iteration,
+                "train_return": train_return,
+                "eval_return": eval_return,
+            }
+            _internal_metrics.append(_metric_entry)
 
             # Save checkpoint_best if current metric is a new best
             current_metric = result.get("env_runners", {}).get("episode_return_mean")
@@ -186,12 +207,18 @@ class ExperimentRunner:
                 algorithm_config=self.algorithm_config,
             )
 
-            # Export module weights
+            # Export module weights using the algorithm's policy mapping to
+            # derive the correct module ID (handles IPPO, MAPPO, centralized PPO)
             from src.utils.weight_transfer import export_module_weights
-            ps = self.algorithm_config.algorithm_specific.parameter_sharing
-            policy_id = "shared_policy" if ps else f"policy_{self.env.agents[0]}"
+            policy_id = self.algorithm.policy_mapping_fn(self.env.agents[0])
             weights_file = str(self.checkpoint_dir / "module_weights.pt")
             export_module_weights(self.algorithm.trainer, policy_id, weights_file)
+
+        # Save training metrics to disk for seed-evaluation aggregation
+        if self.checkpoint_dir and _internal_metrics:
+            metrics_path = self.checkpoint_dir / "training_metrics.yaml"
+            with open(metrics_path, "w", encoding="utf-8") as f:
+                yaml.dump(_internal_metrics, f, default_flow_style=False, sort_keys=False)
 
         # Finish WandB run (if WandB config is provided)
         if self.wandb_config:
@@ -299,7 +326,7 @@ class EvaluationRunner:
                 "obs_normalization": self.algorithm_config.algorithm_specific.obs_normalization,
                 "obs_stats": getattr(self.algorithm, "obs_stats", None),
             }
-            if self.algorithm_config.algorithm_specific.parameter_sharing:
+            if getattr(self.algorithm_config.algorithm_specific, "parameter_sharing", False):
                 rollout_env_meta["include_warehouse_id"] = True
 
             # Create a new evaluation environment with the eval_seed and environment metadata
@@ -318,7 +345,7 @@ class EvaluationRunner:
             visualization_dir = self.experiment_dir / "visualizations" / viz_subfolder
 
             # Generate and save visualizations
-            from src.experiments.visualization import generate_visualizations
+            from src.experiments.utils.visualization import generate_visualizations
             generate_visualizations(episodes_data, str(visualization_dir))
 
             # Build a lightweight result dict from rollout data

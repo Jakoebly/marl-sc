@@ -1206,8 +1206,34 @@ class MAPPOConfig(BaseModel):
     algorithm_specific: MAPPOSpecificConfig
     model_config = ConfigDict(extra="forbid")
 
+# Centralized-PPO-specific parameters
+class CentralizedPPOSpecificConfig(PPOConfig):
+    """Configuration for algorithm-specific parameters."""
+
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
+    warmstart_weights_path: Optional[str] = None
+    networks: ActorCriticConfig
+    model_config = ConfigDict(extra="forbid")
+
+# Centralized PPO algorithm configuration
+class CentralizedPPOConfig(BaseModel):
+    """Configuration for Centralized PPO algorithm."""
+
+    name: Literal["centralized_ppo"]
+    shared: SharedAlgorithmConfig
+    algorithm_specific: CentralizedPPOSpecificConfig
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _validate_gru_constraints(self):
+        """Validate GRU-specific constraints."""
+        # Extract all GRU configs from the entire algorithm_specific structure
+        gru_configs = extract_gru_configs_from_model(self.algorithm_specific)
+        validate_gru_constraints(self.shared.batch_size, self.shared.num_minibatches, gru_configs)
+        return self
+
 # Union of algorithm configurations
-AlgorithmConfig = Annotated[Union[IPPOConfig, MAPPOConfig], Field(discriminator="name")]
+AlgorithmConfig = Annotated[Union[IPPOConfig, MAPPOConfig, CentralizedPPOConfig], Field(discriminator="name")]
 
 
 # ============================================================================
