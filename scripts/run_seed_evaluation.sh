@@ -226,7 +226,6 @@ except (FileNotFoundError, ValueError) as e:
   CONFIG_PATH="${EXPERIMENT_PATH}"
   CONFIG_NAME="${NAME}"
   STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation"
-fi
 
 # ---------- Tune mode ----------
 elif [ "$MODE" = "tune" ]; then
@@ -261,8 +260,9 @@ print(f'{trial_path} {config_name}')
   fi
   read -r CONFIG_PATH CONFIG_NAME <<< "$PYTHON_OUTPUT"
 
-# Set the storage directory to the seed evaluation directory with the config name
+  # Set the storage directory to the seed evaluation directory with the config name
   STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation/${CONFIG_NAME}"
+fi
 
 # Set the experiment name for both single and tune modes as the config name plus the root seed
 EXPERIMENT_NAME="${CONFIG_NAME}_Seed${ROOT_SEED}"
