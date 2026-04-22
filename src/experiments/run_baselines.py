@@ -652,7 +652,7 @@ def run_all_baselines(
         print(f"    WH {wh}: {S_init[wh].round(1)}")
 
     # Run iterated best response BO
-    n_rounds = 1
+    n_rounds = 3
     S_indep, indep_convergence = run_bs_independent_optimization(
         env_config=env_config,
         optimization_seed=calibration_seed,
