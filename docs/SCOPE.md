@@ -1,35 +1,45 @@
 # Thesis Scope and Experiment Roadmap
 
-## Working Title
+## Working Title Options
 
 *"Architectural Interventions for Multi-Agent Reinforcement Learning in Heterogeneous Supply Chain Inventory Management"*
 
+*"Beyond Symmetry: Diagnosing and Addressing MARL Fragility in Heterogeneous Distribution Networks"*
+
 ---
 
-## Research Question
+## Research Question Options
 
-When warehouses differ in demand volume, SKU portfolios, and cost structures, vanilla MARL algorithms with parameter sharing learn pathological policies (e.g., abandoning entire product categories). What architectural modifications to the observation space, network structure, and reward signal enable effective policy learning under heterogeneity?
+1. When warehouses differ in demand volume, SKU portfolios, and cost structures, vanilla MARL algorithms with parameter sharing learn pathological policies (e.g., abandoning entire product categories). What architectural modifications to the observation space, network structure, and reward signal enable effective policy learning under heterogeneity?
 
-## Core Thesis
-
-Standard MARL algorithms (IPPO/MAPPO with parameter sharing) degrade significantly when supply chain environments exhibit realistic heterogeneity in demand, SKU weights, and cost/geographic asymmetry. Targeted architectural interventions can recover and surpass performance. The paper frames the contribution as studying **policy generalization across heterogeneous agents** — a shared policy must adapt to heterogeneous local conditions through observation alone.
-
-## Target Venue
-
-EJOR or similar operations research journal.
+2. Standard MARL approaches (IPPO/MAPPO) that achieve near-optimal performance in symmetric multi-warehouse inventory settings exhibit systematic failure modes when real-world heterogeneity is introduced. What breaks, why, and what targeted architectural interventions can restore performance?
 
 ---
 
 ## Core Contributions
 
+### Options 1:
 1. **Diagnostic:** Systematic characterization of how three types of heterogeneity (SKU weight, demand volume, cost/geographic asymmetry) cause specific failure modes in MAPPO with parameter sharing. Includes the 2×2 information sharing analysis (IPPO/MAPPO × PS/no-PS) showing how centralized training and parameter sharing interact with heterogeneity.
 2. **Interventions:** A set of targeted architectural modifications — per-agent normalization, cost-aware observations, SKU attention, entity embeddings, reward component balancing — that address these failure modes. The **per-SKU attention architecture** is the main architectural contribution.
 3. **Empirical evaluation:** Comprehensive experiments on 5-SKU instances with 4 heterogeneity configurations, including ablation studies, information sharing analysis, and scalability tests. Culminates in a practitioner-oriented **guidelines matrix** showing which intervention helps which heterogeneity type and by how much.
 
-## Key Takeaway
+### Options 2:
+1. **Fills gap in literature:** The MARL-for-supply-chain literature overwhelmingly tests on symmetric or simplistic settings. Papers like IMARL (2025) propose new algorithms but test on synthetic topologies without systematically studying what makes the problem hard. No paper I am aware of provides a diagnostic framework that maps heterogeneity types to failure modes to interventions.
+2. **Useful for practitioners:** A supply chain manager reading your paper can say: "My network has demand heterogeneity and SKU weight variation — the paper says I should use interventions X and Y." This prescriptive value is rare in the MARL literature.
+3. **Methodological novelty without a fundamentally new algorithm:** You are not proposing "yet another MARL algorithm" — you are proposing a diagnostic-prescriptive framework backed by systematic experiments
+
+### Options 3:
+1. **A diagnostic framework** that systematically identifies how three key heterogeneity dimensions — demand, SKU characteristics, and cost structure — individually and jointly degrade MARL performance in inventory management, and characterizes the failure modes (reward dominance, feature scale mismatch, credit assignment breakdown).
+2. **A modular toolkit** of four architectural interventions (entity embeddings, SKU attention, cost-aware observations with reward balancing, and curriculum transfer) that target specific failure modes, along with evidence for which intervention addresses which heterogeneity type.
+3. **Empirical evidence** that targeted intervention combinations can restore MARL performance to within the heuristic baseline range even in highly heterogeneous settings, whereas untargeted approaches (e.g., just increasing network size) fail.
+4. **A prescriptive guideline for practitioners** on which interventions to apply given the characteristics of their supply chain network.
+
+
+## Key Takeaways
 
 > *"In multi-agent supply chain management with parameter sharing, heterogeneity in SKU characteristics creates specific, diagnosable failure modes — most notably, agents learn to abandon high-cost product categories entirely. Standard remedies (hyperparameter re-tuning, reward rebalancing) are insufficient. We show that a combination of per-agent observation normalization, cost-aware features, and SKU-level attention enables MAPPO to learn effective differentiated policies across heterogeneous products and warehouses, closing the gap to per-SKU-tuned heuristic baselines by X%."*
 
+> *Heterogeneity does not uniformly degrade MARL — different types of heterogeneity break different aspects of learning, and the intervention that fixes one failure mode can be irrelevant or harmful for another. For example, SKU-level attention dramatically helps when SKUs have different weights/demand scales but provides negligible benefit when the only asymmetry is geographic. Conversely, reward component balancing is critical for SKU heterogeneity but unnecessary for pure demand heterogeneity. This means practitioners cannot rely on a single "robust" architecture — they need to diagnose their network's heterogeneity profile and apply matched interventions.*
 ---
 
 ## Environment Setup
