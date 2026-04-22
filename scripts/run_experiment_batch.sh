@@ -14,7 +14,7 @@
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-2%3                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --array=0-29%30                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
 
 
 # ============================================================================
@@ -62,7 +62,7 @@ export PYTHONHASHSEED=0
 # ============================================================================
 
 # Set the number of runs per config
-N_RUNS=3
+N_RUNS=30
 
 # Use the ID of the current task to compute the config index and run number
 ID=${SLURM_ARRAY_TASK_ID}
