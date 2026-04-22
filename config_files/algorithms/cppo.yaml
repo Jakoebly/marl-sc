@@ -1,5 +1,5 @@
 algorithm:
-  name: "centralized_ppo"
+  name: "cppo"
   shared:
     num_iterations: 300
     checkpoint_freq: 100

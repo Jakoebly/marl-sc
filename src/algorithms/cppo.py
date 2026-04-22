@@ -31,9 +31,9 @@ from src.environment.envs.multi_env import InventoryEnvironment
 from src.environment.envs.single_env import CentralizedEnvWrapper
 
 
-class CentralizedPPOWrapper(BaseAlgorithmWrapper):
+class CPPOWrapper(BaseAlgorithmWrapper):
     """
-    Initializes the CentralizedPPOWrapper for centralized (single-agent) PPO.
+    Initializes the CPPOWrapper for centralized (single-agent) PPO.
 
     A single policy receives the full global observation and outputs a joint
     action vector covering all warehouses.  Internally, the environment is
@@ -49,7 +49,7 @@ class CentralizedPPOWrapper(BaseAlgorithmWrapper):
         eval_seed: Optional[int] = None,
     ):
         """
-        Initializes the CentralizedPPOWrapper for centralized (single-agent) PPO.
+        Initializes the CPPOWrapper for centralized (single-agent) PPO.
 
         Args:
             env (InventoryEnvironment): Template ``InventoryEnvironment`` (used to query spaces).

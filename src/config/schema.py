@@ -1206,8 +1206,8 @@ class MAPPOConfig(BaseModel):
     algorithm_specific: MAPPOSpecificConfig
     model_config = ConfigDict(extra="forbid")
 
-# Centralized-PPO-specific parameters
-class CentralizedPPOSpecificConfig(PPOConfig):
+# CPPO-specific parameters
+class CPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
     obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
@@ -1215,13 +1215,13 @@ class CentralizedPPOSpecificConfig(PPOConfig):
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")
 
-# Centralized PPO algorithm configuration
-class CentralizedPPOConfig(BaseModel):
-    """Configuration for Centralized PPO algorithm."""
+# CPPO algorithm configuration
+class CPPOConfig(BaseModel):
+    """Configuration for CPPO algorithm."""
 
-    name: Literal["centralized_ppo"]
+    name: Literal["cppo"]
     shared: SharedAlgorithmConfig
-    algorithm_specific: CentralizedPPOSpecificConfig
+    algorithm_specific: CPPOSpecificConfig
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
@@ -1233,7 +1233,7 @@ class CentralizedPPOConfig(BaseModel):
         return self
 
 # Union of algorithm configurations
-AlgorithmConfig = Annotated[Union[IPPOConfig, MAPPOConfig, CentralizedPPOConfig], Field(discriminator="name")]
+AlgorithmConfig = Annotated[Union[IPPOConfig, MAPPOConfig, CPPOConfig], Field(discriminator="name")]
 
 
 # ============================================================================
