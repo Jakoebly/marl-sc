@@ -130,7 +130,7 @@ source scripts/lib/start_ray.sh
 if [ -n "$FOLDER_NAME" ]; then
   STORAGE_DIR="./experiment_outputs/Runs/${FOLDER_NAME}"
 else
-  STORAGE_DIR="./experiment_outputs/Runs/Pilot"
+  STORAGE_DIR="./experiment_outputs/Runs"
 fi
 EXPERIMENT_NAME="MAPPO_3WH2SKU_${CONFIG_NAME}_Seed${RUN_NUMBER}"
 ROOT_SEED=$(( RUN_NUMBER * 100 ))
