@@ -71,7 +71,7 @@ RUN_NUMBER=$(( ID % N_RUNS + 1 ))
 
 # Map the config index to run configs
 case $CONFIG_IDX in
-    0) ENV_CONFIG="env_pilot_sku_hetero_balanced" ; CONFIG_NAME="SKUHeteroBalanced" ;;
+    0) ENV_CONFIG="env_symmetric_3WH5SKU" ; CONFIG_NAME="SymmetricEnv" ;;
     *) echo "ERROR: Unknown CONFIG_IDX=$CONFIG_IDX"; exit 1 ;;
 esac
 echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
@@ -83,7 +83,7 @@ echo "Task $ID -> Config #${CONFIG_IDX}, Run #${RUN_NUMBER}"
 
 # Set environment and algorithm name
 ENV_NAME=$ENV_CONFIG
-ALGO_NAME="mappo_best_3WH2SKU"
+ALGO_NAME="mappo"
 
 # Create temporary config files 
 TEMP_ENV_CONFIG=$(mktemp --suffix=.yaml)
