@@ -111,7 +111,8 @@ except FileNotFoundError:
 
   # Determine the array size and the maximum concurrent tasks
   ARRAY_SIZE=$(( N_CONFIGS * N_SEEDS - 1 ))
-  MAX_CONCURRENT=$(( N_SEEDS < 10 ? N_SEEDS : 10 ))
+  TOTAL_TASKS=$(( ARRAY_SIZE + 1 ))
+  MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
   FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES}"
