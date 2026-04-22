@@ -146,6 +146,14 @@ export PYTHONWARNINGS="ignore::DeprecationWarning"
 export RAY_raylet_start_wait_time_s=300
 sleep $(( RANDOM % 45 ))
 
+# Kill any leftover Ray process bound to the same GCS port from a previous
+# failed run. Only targets the specific port, not other tasks on the node.
+if lsof -ti :${RAY_GCS_PORT} >/dev/null 2>&1; then
+  echo "[WARN] Port ${RAY_GCS_PORT} in use — killing leftover process"
+  lsof -ti :${RAY_GCS_PORT} | xargs kill -9 2>/dev/null || true
+  sleep 2
+fi
+
 # Start Ray explicitly with ports, CPUs, and memory
 ray start --head \
   --port="${RAY_GCS_PORT}" \
