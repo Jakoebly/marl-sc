@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import stats as scipy_stats
@@ -623,6 +623,102 @@ def _collect_seed_evaluation_groups(
         groups.setdefault(config_name, []).append((seed_number, float(reward)))
 
     return groups
+
+def find_missing_seed_evaluation_tasks(
+    mode: str,
+    name: str,
+    n_seeds: int,
+    top_k: int = 10,
+    tuning_base: str = "experiment_outputs/Tuning",
+    runs_base: str = "experiment_outputs/Runs",
+) -> List[int]:
+    """
+    Returns the SLURM array task IDs whose ``eval_results_best.yaml`` is
+    missing or unreadable, so the parallel aggregate phase can self-heal by
+    re-submitting only the failed/unfinished (config, seed) pairs.
+
+    The array mapping matches :file:`scripts/run_seed_evaluation.sh`::
+
+        TASK_ID    = config_idx * n_seeds + (seed_idx - 1)
+        CONFIG_IDX = TASK_ID // n_seeds
+        SEED_IDX   = TASK_ID % n_seeds + 1
+        ROOT_SEED  = SEED_IDX * 100
+
+    A task is considered complete when its expected run directory contains
+    an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
+
+    Args:
+        mode (str): ``"tune"`` or ``"single"``.
+        name (str): Tune experiment name (tune mode) or single-run name.
+        n_seeds (int): Number of seeds per config.
+        top_k (int): Number of top trials expected (tune mode only).
+        tuning_base (str): Base directory for tuning experiments.
+        runs_base (str): Base directory for single-run experiments.
+
+    Returns:
+        missing_task_ids (List[int]): Sorted SLURM array indices still pending.
+    """
+    from src.experiments.utils.experiment_utils import find_experiment_dir
+
+    # Build the list of (config_idx, config_name, config_storage_dir) triples
+    # in the same order that the shell launcher walks them.
+    configs: List[Tuple[int, str, Path]] = []
+
+    # If in tune mode, build the config list by using the top-k 
+    # trials from the best_trial_results.yaml file
+    if mode == "tune":
+        tune_dir = Path(tuning_base) / name
+        if not tune_dir.exists():
+            raise FileNotFoundError(f"Tune directory not found: {tune_dir}")
+        results_path = tune_dir / "best_trial_results.yaml"
+        if not results_path.exists():
+            raise FileNotFoundError(
+                f"best_trial_results.yaml not found in {tune_dir}"
+            )
+        with open(results_path, encoding="utf-8") as f:
+            results_data = yaml.safe_load(f)
+        trials = results_data.get("top_k_trials", [])[:top_k]
+        seed_eval_base = tune_dir / "seed_evaluation"
+        for config_idx, trial in enumerate(trials):
+            rank = trial["rank"]
+            short_id = trial["short_id"]
+            config_name = f"{rank:02d}_{short_id}"
+            config_storage = seed_eval_base / config_name
+            configs.append((config_idx, config_name, config_storage))
+
+    # If in single mode, build the config list by using the experiment directory
+    elif mode == "single":
+        experiment_dir = find_experiment_dir(runs_base, name)
+        config_storage = experiment_dir / "seed_evaluation"
+        configs.append((0, name, config_storage))
+
+    # If mode is not tune or single, raise an error
+    else:
+        raise ValueError(
+            f"Unknown seed-eval mode: {mode!r} (expected 'tune' or 'single')"
+        )
+
+    # Walk every expected (config_idx, seed_idx) and check for completed output
+    missing: List[int] = []
+    for config_idx, config_name, config_storage in configs:
+        for seed_idx in range(1, n_seeds + 1):
+            root_seed = seed_idx * 100
+            seed_dir = config_storage / f"{config_name}_Seed{root_seed}"
+            eval_file = seed_dir / "eval_results_best.yaml"
+            task_id = config_idx * n_seeds + (seed_idx - 1)
+            if not eval_file.exists():
+                missing.append(task_id)
+                continue
+            try:
+                with open(eval_file, encoding="utf-8") as f:
+                    eval_data = yaml.safe_load(f) or {}
+            except (OSError, yaml.YAMLError):
+                missing.append(task_id)
+                continue
+            if not isinstance(eval_data.get("episode_return_mean"), (int, float)):
+                missing.append(task_id)
+
+    return sorted(missing)
 
 
 # ============================================================================
