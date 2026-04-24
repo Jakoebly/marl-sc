@@ -25,7 +25,7 @@
 #       sbatch scripts/run_seed_evaluation_sequential.sh \
 #           --mode tune \
 #           --tune-name "IPPO_Tune_3WH5SKU_Optuna" \
-#           [--n-seeds 5] [--top-k 10] [--eval-episodes 100]
+#           [--n-seeds 5] [--top-k 10] [--eval-episodes 100] [--wandb]
 #
 #   	Tune mode:
 #       sbatch scripts/run_seed_evaluation_sequential.sh \
@@ -33,8 +33,11 @@
 #         --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
 #         --algorithm-config ./config_files/algorithms/ippo.yaml \
 #         --experiment-name "IPPO_3WH5SKU_Final" \
-#         [--n-seeds 5] [--eval-episodes 100] [--num-iterations N]
-
+#         [--n-seeds 5] [--eval-episodes 100] [--num-iterations N] [--wandb]
+#
+# Options:
+#   --wandb   Enable WandB logging with project "marl-sc"
+#             (default: off; no wandb args passed to Python)
 
 SEED_EVAL_MODE=""
 ENV_CONFIG=""
@@ -44,10 +47,12 @@ TUNE_NAME=""
 N_SEEDS=5
 TOP_K=10
 EVAL_EPISODES=100
-EVAL_SEED=42
 NUM_ITERATIONS=""
+USE_WANDB=false
+
+WANDB_PROJECT_NAME="marl-sc"
 STORAGE_DIR="./experiment_outputs/Runs"
-WANDB_PROJECT=""
+EVAL_SEED=42
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,18 +80,11 @@ while [[ $# -gt 0 ]]; do
     --eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
       EVAL_EPISODES="$2"; shift 2 ;;
-    --eval-seed)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-seed requires a value" >&2; exit 1; }
-      EVAL_SEED="$2"; shift 2 ;;
     --num-iterations)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
       NUM_ITERATIONS="$2"; shift 2 ;;
-    --storage-dir)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --storage-dir requires a value" >&2; exit 1; }
-      STORAGE_DIR="$2"; shift 2 ;;
-    --wandb-project)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --wandb-project requires a value" >&2; exit 1; }
-      WANDB_PROJECT="$2"; shift 2 ;;
+    --wandb)
+      USE_WANDB=true; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -100,7 +98,6 @@ echo "SEED_EVAL_MODE=${SEED_EVAL_MODE}"
 echo "N_SEEDS=${N_SEEDS}"
 echo "EVAL_EPISODES=${EVAL_EPISODES}"
 echo "EVAL_SEED=${EVAL_SEED}"
-
 
 # ============================================================================
 # Load modules + env
@@ -152,8 +149,8 @@ fi
 if [ -n "$NUM_ITERATIONS" ]; then
   CMD+=(--num-iterations "$NUM_ITERATIONS")
 fi
-if [ -n "$WANDB_PROJECT" ]; then
-  CMD+=(--wandb-project "$WANDB_PROJECT")
+if [ "$USE_WANDB" = true ]; then
+  CMD+=(--wandb-project "$WANDB_PROJECT_NAME")
 fi
 
 # Print the command and run it

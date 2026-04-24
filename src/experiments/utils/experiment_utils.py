@@ -9,9 +9,10 @@ saved config files.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -251,6 +252,82 @@ def checkpoint_suffix(checkpoint_dir: str) -> str:
         return suffix
     return checkpoint_name
 
+def parse_checkpoint_iteration(checkpoint_dir: str) -> Optional[int]:
+    """
+    Extracts the iteration number from a ``checkpoint_<N>`` directory name.
+
+    Returns ``None`` for named checkpoints like ``checkpoint_best`` /
+    ``checkpoint_final`` where the training iteration cannot be inferred
+    from the directory name alone.
+
+    Args:
+        checkpoint_dir (str): Path to a checkpoint directory.
+
+    Returns:
+        Optional[int]: Parsed iteration number or ``None``.
+    """
+
+    # Derive the checkpoint iteration regex
+    checkpoint_iter_re = re.compile(r"^checkpoint_(\d+)$")
+
+    # Get the checkpoint name and match it against the regex
+    name = Path(checkpoint_dir).name
+    match = checkpoint_iter_re.match(name)
+
+    # If no match is found, return None
+    if not match:
+        return None
+
+    return int(match.group(1))
+
+def load_and_truncate_training_metrics(
+    checkpoint_dir: Path | str,
+    completed_iteration: int,
+) -> Tuple[List[Dict[str, Any]], float, Optional[int]]:
+    """
+    Loads ``training_metrics.yaml`` and truncates it to ``completed_iteration``.
+
+    Entries with ``iteration > completed_iteration`` are discarded so the
+    metrics log stays monotone across a resume. Best-so-far bookkeeping
+    (``best_metric_value``, ``best_iteration``) is re-derived from the
+    surviving entries' ``train_return`` values.
+
+    Args:
+        checkpoint_dir (Path | str): Directory containing ``training_metrics.yaml``.
+        completed_iteration (int): Last completed iteration to retain.
+
+    Returns:
+        metrics (List[Dict[str, Any]]): Truncated metrics log.
+        best_metric_value (float): Best train return among retained entries
+            (``-inf`` if no entries have a numeric ``train_return``).
+        best_iteration (Optional[int]): Iteration of the best entry, or ``None``.
+    """
+
+    # Load existing metrics log (if any)
+    metrics: List[Dict[str, Any]] = []
+    metrics_path = Path(checkpoint_dir) / "training_metrics.yaml"
+    if metrics_path.exists():
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or []
+        if isinstance(existing, list):
+            metrics = [
+                m for m in existing
+                if isinstance(m, dict)
+                and isinstance(m.get("iteration"), int)
+                and m["iteration"] <= completed_iteration
+            ]
+
+    # Restore best-so-far bookkeeping from the surviving metrics
+    best_metric_value = float("-inf")
+    best_iteration: Optional[int] = None
+    for m in metrics:
+        v = m.get("train_return")
+        if v is not None and v > best_metric_value:
+            best_metric_value = v
+            best_iteration = m["iteration"]
+
+    return metrics, best_metric_value, best_iteration
+
 
 # ============================================================================
 # Experiment Name Helpers
@@ -331,6 +408,28 @@ def generate_baseline_experiment_name(env_config: "EnvironmentConfig") -> str:
 # ============================================================================
 # Output Helpers
 # ============================================================================
+
+def save_training_metrics(
+    checkpoint_dir: Path | str,
+    metrics: List[Dict[str, Any]],
+) -> None:
+    """
+    Writes ``training_metrics.yaml`` in the checkpoint directory.
+
+    Kept as a list-of-dicts for backwards compatibility with
+    :func:`src.experiments.utils.seed_evaluation.load_training_metrics_from_disk`;
+    ``last_iteration`` is derivable as ``max(m['iteration'] for m in metrics)``
+    without needing a schema change.
+
+    Args:
+        checkpoint_dir (Path | str): Directory to write ``training_metrics.yaml`` into.
+        metrics (List[Dict[str, Any]]): Per-iteration metrics list.
+    """
+
+    # Write the metrics to the checkpoint directory
+    metrics_path = Path(checkpoint_dir) / "training_metrics.yaml"
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        yaml.dump(metrics, f, default_flow_style=False, sort_keys=False)
 
 def save_run_metadata(
     output_dir: str,

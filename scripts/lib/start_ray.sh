@@ -17,6 +17,12 @@
 #   RAY_MEMORY_RESERVE_MB      MB held back for OS/overhead when computing
 #                              --memory from SLURM_MEM_PER_NODE (2048)
 #   RAY_FALLBACK_MEM_MB        Fallback for SLURM_MEM_PER_NODE if unset (16384)
+#   RAY_OBJECT_STORE_FRACTION  Fraction of --memory used for plasma object
+#                              store. Ray's default is 0.3 of total node RAM,
+#                              which routinely exceeds SLURM cgroup limits
+#                              and triggers OOM. (0.25)
+#   RAY_MAX_PORT_RETRIES       Number of retries with shifted ports if
+#                              `ray start` fails due to collisions (5)
 #   RAY_EXTRA_CLEANUP_PATHS    Space-separated paths passed to `rm -rf` on
 #                              EXIT in addition to the per-task Ray temp
 #                              dir (empty)
@@ -28,6 +34,11 @@
 #   RAY_MIN_WORKER_PORT, RAY_MAX_WORKER_PORT,
 #   RAY_METRICS_EXPORT_PORT, RAY_DASHBOARD_AGENT_GRPC_PORT,
 #   RAY_DASHBOARD_AGENT_HTTP_PORT, RAY_RUNTIME_ENV_AGENT_PORT
+# ============================================================================
+
+
+# ============================================================================
+# Parse and defaults
 # ============================================================================
 
 # Guard: if this file was executed instead of sourced, bail out with a hint.
@@ -45,7 +56,14 @@ fi
 : "${RAY_MAX_PORT:=65535}"
 : "${RAY_MEMORY_RESERVE_MB:=2048}"
 : "${RAY_FALLBACK_MEM_MB:=16384}"
+: "${RAY_OBJECT_STORE_FRACTION:=0.25}"
+: "${RAY_MAX_PORT_RETRIES:=5}"
 : "${RAY_EXTRA_CLEANUP_PATHS:=}"
+
+
+# ============================================================================
+# Compute port allocation parameters
+# ============================================================================
 
 # Make Ray not accidentally attach somewhere else
 unset RAY_ADDRESS
@@ -53,8 +71,19 @@ unset RAY_ADDRESS
 # Get the number of CPUs from Slurm
 CPUS=${SLURM_CPUS_PER_TASK:-1}
 
-# Get the memory from Slurm
-RAY_MEMORY_BYTES=$(( (${SLURM_MEM_PER_NODE:-$RAY_FALLBACK_MEM_MB} - RAY_MEMORY_RESERVE_MB) * 1024 * 1024 ))
+# Compute --memory from SLURM_MEM_PER_NODE (minus reserve) so Ray's logical
+# memory accounting matches what the cgroup actually allows.
+RAY_MEM_MB_TOTAL=${SLURM_MEM_PER_NODE:-$RAY_FALLBACK_MEM_MB}
+RAY_MEMORY_BYTES=$(( (RAY_MEM_MB_TOTAL - RAY_MEMORY_RESERVE_MB) * 1024 * 1024 ))
+
+# Explicitly size the plasma object store as a fraction of --memory.
+# Ray's default (DEFAULT_OBJECT_STORE_MEMORY_PROPORTION=0.3 of total node RAM)
+# is computed from /proc/meminfo (or the root cgroup), not the SLURM cgroup,
+# and routinely exceeds the per-task cgroup limit.
+RAY_OBJECT_STORE_MEMORY_BYTES=$(
+  awk -v m="$RAY_MEMORY_BYTES" -v f="$RAY_OBJECT_STORE_FRACTION" \
+    'BEGIN { printf "%d", m * f }'
+)
 
 # Define the port range
 AVAILABLE=$((RAY_MAX_PORT - RAY_BASE_PORT + 1))
@@ -83,7 +112,7 @@ fi
 
 # Define the job width (i.e., number of ports per job)
 ARRAY_WIDTH=$((N_TASKS * BLOCK_SIZE)) # total number of ports for all jobs in the array
-ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH)) # number of arrays with the same size as the current array that can fit in the available port range
+ARRAY_SLOTS=$((AVAILABLE / ARRAY_WIDTH)) # number of arrays that can fit in the port range
 
 # Sanity check if the number of array slots is at least 1
 if [ $ARRAY_SLOTS -lt 1 ]; then
@@ -91,32 +120,21 @@ if [ $ARRAY_SLOTS -lt 1 ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-# Get the array slot for the current job
-ARRAY_SLOT=$((SLURM_JOB_ID % ARRAY_SLOTS))
+# Derive the array slot from SLURM_ARRAY_JOB_ID 
+SEED_JOB_ID=${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-0}}
+ARRAY_SLOT=$((SEED_JOB_ID % ARRAY_SLOTS))
 
-# Compute the first port for the current task
+
+# ============================================================================
+# Set Ray temp directory and cleanup function
+# ============================================================================
+
+# Create per-task Ray temp dir by prefering node-local $SLURM_TMPDIR when 
+# available so plasma's shared-memory-backed files don't count against the 
+# cgroup RAM limit via /dev/shm. Falls back to /tmp otherwise.
+RAY_TMPDIR_BASE="${SLURM_TMPDIR:-/tmp}"
 TASK_ID=${SLURM_ARRAY_TASK_ID:-0}
-P=$((RAY_BASE_PORT + ARRAY_SLOT * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
-
-# Set the ports for the Ray components of the current task
-export RAY_GCS_PORT=$((P + 0))
-export RAY_NODE_MANAGER_PORT=$((P + 1))
-export RAY_OBJECT_MANAGER_PORT=$((P + 2))
-export RAY_METRICS_EXPORT_PORT=$((P + 3))
-export RAY_DASHBOARD_AGENT_GRPC_PORT=$((P + 4))
-export RAY_DASHBOARD_AGENT_HTTP_PORT=$((P + 5))
-export RAY_RUNTIME_ENV_AGENT_PORT=$((P + 6))
-export RAY_MIN_WORKER_PORT=$((P + RAY_RESERVED_WITHIN_BLOCK))
-export RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
-
-# Sanity check if the maximum worker port is within the available port range
-if [ $RAY_MAX_WORKER_PORT -gt $RAY_MAX_PORT ]; then
-  echo "ERROR: Port calculation overflowed: ${RAY_MAX_WORKER_PORT} > ${RAY_MAX_PORT}"
-  return 1 2>/dev/null || exit 1
-fi
-
-# Per-task Ray temp dir to avoid session/state collisions on shared nodes
-export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}_${TASK_ID}"
+export RAY_TMPDIR="${RAY_TMPDIR_BASE}/ray_${SEED_JOB_ID}_${TASK_ID}"
 mkdir -p "$RAY_TMPDIR"
 
 # Cleanup function for Ray temp dir and any caller-supplied extra paths.
@@ -134,41 +152,184 @@ _start_ray_cleanup() {
 }
 trap _start_ray_cleanup EXIT
 
-# Force the current task's driver to connect to the current task's head
-export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
+
+# ============================================================================
+# Set Ray environment variables to avoid OOM issues
+# ============================================================================
 
 # Disable Ray's application-level OOM killer to prevent the kill-restart
-# death spiral; rely on SLURM's cgroup memory enforcement instead
+# death spiral (source: ray's memory_monitor.cc — refresh_ms=0 disables it);
+# rely on SLURM's cgroup memory enforcement instead.
 export RAY_memory_monitor_refresh_ms=0
 export PYTHONWARNINGS="ignore::DeprecationWarning"
 
 # Give Ray more time to start up to avoid premature termination due to heavy loads
 export RAY_raylet_start_wait_time_s=300
+
+# Small random jitter to de-correlate simultaneous array-task starts on the
+# same node (reduces probe/port-bind races).
 sleep $(( RANDOM % 45 ))
 
-# Kill any leftover Ray process bound to the same GCS port from a previous
-# failed run. Only targets the specific port, not other tasks on the node.
-if lsof -ti :${RAY_GCS_PORT} >/dev/null 2>&1; then
-  echo "[WARN] Port ${RAY_GCS_PORT} in use — killing leftover process"
-  lsof -ti :${RAY_GCS_PORT} | xargs kill -9 2>/dev/null || true
-  sleep 2
-fi
 
-# Start Ray explicitly with ports, CPUs, and memory
-ray start --head \
-  --port="${RAY_GCS_PORT}" \
-  --node-manager-port="${RAY_NODE_MANAGER_PORT}" \
-  --object-manager-port="${RAY_OBJECT_MANAGER_PORT}" \
-  --min-worker-port="${RAY_MIN_WORKER_PORT}" \
-  --max-worker-port="${RAY_MAX_WORKER_PORT}" \
-  --num-cpus="${CPUS}" \
-  --memory="${RAY_MEMORY_BYTES}" \
-  --temp-dir="${RAY_TMPDIR}" \
-  --include-dashboard=false \
-  --disable-usage-stats \
-  --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
-  --dashboard-agent-grpc-port="${RAY_DASHBOARD_AGENT_GRPC_PORT}" \
-  --dashboard-agent-listen-port="${RAY_DASHBOARD_AGENT_HTTP_PORT}" \
-  --runtime-env-agent-port="${RAY_RUNTIME_ENV_AGENT_PORT}" \
-  || { echo "ERROR: ray start failed"; return 1 2>/dev/null || exit 1; }
-echo "Ray started successfully (GCS port ${RAY_GCS_PORT}, worker ports ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT})"
+# ============================================================================
+# Port allocation helper functions
+# ============================================================================
+
+# Probe all Ray service ports and kill leftovers from prior
+# failed runs. If any probed port cannot be freed, shift the whole task
+# block by ARRAY_WIDTH onto the next array slot and retry up to
+# RAY_MAX_PORT_RETRIES times.
+_probe_and_kill_port() {
+  local port=$1
+  if lsof -ti ":${port}" >/dev/null 2>&1; then
+    local pids
+    pids=$(lsof -ti ":${port}" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      local cmd
+      cmd=$(ps -o comm= -p $pids 2>/dev/null | tr '\n' ' ')
+      if echo "$cmd" | grep -qiE 'ray|raylet|gcs_server|plasma|python'; then
+        echo "[WARN] Port ${port} in use by leftover ${cmd}; killing pids ${pids}"
+        echo "$pids" | xargs -r kill -9 2>/dev/null || true
+        sleep 1
+      else
+        echo "[WARN] Port ${port} in use by non-ray process (${cmd}); will try port shift"
+        return 1
+      fi
+    fi
+  fi
+  return 0
+}
+
+
+# Assign ports for a given slot. If the port range overflows 
+# (RAY_MAX_WORKER_PORT > RAY_MAX_PORT), returns 2 to indicate failure.
+_assign_ports_for_slot() {
+  local slot=$1
+  local P=$((RAY_BASE_PORT + slot * ARRAY_WIDTH + TASK_ID * BLOCK_SIZE))
+  export RAY_GCS_PORT=$((P + 0))
+  export RAY_NODE_MANAGER_PORT=$((P + 1))
+  export RAY_OBJECT_MANAGER_PORT=$((P + 2))
+  export RAY_METRICS_EXPORT_PORT=$((P + 3))
+  export RAY_DASHBOARD_AGENT_GRPC_PORT=$((P + 4))
+  export RAY_DASHBOARD_AGENT_HTTP_PORT=$((P + 5))
+  export RAY_RUNTIME_ENV_AGENT_PORT=$((P + 6))
+  export RAY_MIN_WORKER_PORT=$((P + RAY_RESERVED_WITHIN_BLOCK))
+  export RAY_MAX_WORKER_PORT=$((P + BLOCK_SIZE - 1))
+  if [ $RAY_MAX_WORKER_PORT -gt $RAY_MAX_PORT ]; then
+    return 2
+  fi
+  return 0
+}
+
+
+
+# ============================================================================
+# Allocate ports
+# ============================================================================
+
+# Probe all fixed service ports. Worker ports are bound lazily by Ray, so
+# probing the whole worker range is unnecessary (and noisy on shared nodes).
+_probe_all_assigned_ports() {
+  local port
+  for port in \
+    "$RAY_GCS_PORT" \
+    "$RAY_NODE_MANAGER_PORT" \
+    "$RAY_OBJECT_MANAGER_PORT" \
+    "$RAY_METRICS_EXPORT_PORT" \
+    "$RAY_DASHBOARD_AGENT_GRPC_PORT" \
+    "$RAY_DASHBOARD_AGENT_HTTP_PORT" \
+    "$RAY_RUNTIME_ENV_AGENT_PORT"
+  do
+    _probe_and_kill_port "$port" || return 1
+  done
+  return 0
+}
+
+
+# ============================================================================
+# Start Ray with retries on failure
+# ============================================================================
+
+# Try to start Ray with the assigned ports
+_try_start_ray() {
+  ray start --head \
+    --port="${RAY_GCS_PORT}" \
+    --node-manager-port="${RAY_NODE_MANAGER_PORT}" \
+    --object-manager-port="${RAY_OBJECT_MANAGER_PORT}" \
+    --min-worker-port="${RAY_MIN_WORKER_PORT}" \
+    --max-worker-port="${RAY_MAX_WORKER_PORT}" \
+    --num-cpus="${CPUS}" \
+    --memory="${RAY_MEMORY_BYTES}" \
+    --object-store-memory="${RAY_OBJECT_STORE_MEMORY_BYTES}" \
+    --plasma-directory="${RAY_TMPDIR}" \
+    --temp-dir="${RAY_TMPDIR}" \
+    --include-dashboard=false \
+    --disable-usage-stats \
+    --metrics-export-port="${RAY_METRICS_EXPORT_PORT}" \
+    --dashboard-agent-grpc-port="${RAY_DASHBOARD_AGENT_GRPC_PORT}" \
+    --dashboard-agent-listen-port="${RAY_DASHBOARD_AGENT_HTTP_PORT}" \
+    --runtime-env-agent-port="${RAY_RUNTIME_ENV_AGENT_PORT}"
+}
+
+
+# Loop over RAY_MAX_PORT_RETRIES attempts and try to start Ray
+RAY_STARTED=0
+for _attempt in $(seq 0 $RAY_MAX_PORT_RETRIES); do
+  # Shift slot on each retry so we don't keep banging the same port set
+  CUR_SLOT=$(( (ARRAY_SLOT + _attempt) % ARRAY_SLOTS ))
+  
+  # Assign ports for the current slot
+  if ! _assign_ports_for_slot "$CUR_SLOT"; then
+    echo "[WARN] Slot ${CUR_SLOT} overflows RAY_MAX_PORT, trying next slot"
+    continue
+  fi
+
+  # Probe all assigned ports to ensure they are not in use by other processes
+  if ! _probe_all_assigned_ports; then
+    echo "[WARN] Attempt $((_attempt + 1)): port probe found unowned process on slot ${CUR_SLOT}, shifting slot"
+    continue
+  fi
+
+  # Force the current task's driver to connect to the current task's head
+  export RAY_ADDRESS="127.0.0.1:${RAY_GCS_PORT}"
+
+  # Try to start Ray with the assigned (and freed) ports
+  if _try_start_ray; then
+    RAY_STARTED=1
+    echo "Ray started successfully on attempt $((_attempt + 1)) (slot ${CUR_SLOT}, GCS ${RAY_GCS_PORT}, workers ${RAY_MIN_WORKER_PORT}-${RAY_MAX_WORKER_PORT})"
+    echo "  --memory=${RAY_MEMORY_BYTES} (${RAY_MEM_MB_TOTAL} MiB - ${RAY_MEMORY_RESERVE_MB} MiB reserve)"
+    echo "  --object-store-memory=${RAY_OBJECT_STORE_MEMORY_BYTES} (${RAY_OBJECT_STORE_FRACTION} of --memory)"
+    echo "  --plasma-directory=${RAY_TMPDIR}"
+    break
+  fi
+
+  echo "[WARN] Attempt $((_attempt + 1)): ray start failed on slot ${CUR_SLOT}, cleaning up and retrying"
+
+  # Clean up only the half-started ray processes squatting on OUR assigned
+  # ports. `ray stop --force` would kill every ray-like process the user
+  # owns on this node, including any sibling array task co-packed onto the
+  # same node. Killing by port is strictly narrower since anything bound to our
+  # ports now must be our own failed ray attempt.
+  for _cleanup_port in \
+    "$RAY_GCS_PORT" \
+    "$RAY_NODE_MANAGER_PORT" \
+    "$RAY_OBJECT_MANAGER_PORT" \
+    "$RAY_METRICS_EXPORT_PORT" \
+    "$RAY_DASHBOARD_AGENT_GRPC_PORT" \
+    "$RAY_DASHBOARD_AGENT_HTTP_PORT" \
+    "$RAY_RUNTIME_ENV_AGENT_PORT"
+  do
+    _cleanup_pids=$(lsof -ti ":${_cleanup_port}" 2>/dev/null || true)
+    if [ -n "$_cleanup_pids" ]; then
+      echo "$_cleanup_pids" | xargs -r kill -9 2>/dev/null || true
+    fi
+  done
+
+  sleep $(( 2 + RANDOM % 5 ))
+done
+
+# If Ray failed to start after all retries, exit with an error
+if [ $RAY_STARTED -ne 1 ]; then
+  echo "ERROR: ray start failed after $((RAY_MAX_PORT_RETRIES + 1)) attempts"
+  return 1 2>/dev/null || exit 1
+fi

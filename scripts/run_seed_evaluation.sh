@@ -10,10 +10,11 @@
 #SBATCH --ntasks-per-node=1                     # Number of tasks per node
 #SBATCH --cpus-per-task=3                       # CPU cores per task
 #SBATCH --mem=32G                               # Memory allocation
-#SBATCH --time=12:00:00                         # Maximum walltime (hh:mm:ss)
+#SBATCH --time=06:00:00                         # Max walltime per worker (resume-on-restart)
 #SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
+#SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705
 
 
 # ============================================================================
@@ -30,11 +31,25 @@
 #   --top-k <K>             Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>    Override training iterations
 #   --eval-episodes <N>     Final eval episodes (default: 100)
+#   --checkpoint-freq <N>   Override algorithm.shared.checkpoint_freq per
+#                           worker so resume granularity is fine enough for
+#                           the 6h walltime cap (default: 25)
+#   --wandb                 Enable WandB logging with project "marl-sc"
+#                           (default: off; no wandb args passed to Python)
 #   --phase <worker|aggregate>  Internal, set automatically by the launcher
+#   --heal-round <N>        Internal, self-heal recursion depth (default: 0)
+#   --max-heal-rounds <N>   Stop self-healing after N rounds (default: 2)
 #
 # When --phase is omitted the script acts as a launcher. It computes the
 # SLURM array size and submits a worker array job + a dependent aggregate job,
 # both pointing back at this same script with the appropriate --phase.
+#
+# The aggregate phase is self-healing: if some (config, seed) pairs are
+# still missing eval_results_best.yaml, it re-submits only those array
+# indices and chains a new aggregate behind them. Workers auto-resume from
+# the latest periodic checkpoint when one is present.
+
+WANDB_PROJECT_NAME="marl-sc"
 
 MODE=""
 NAME=""
@@ -42,7 +57,11 @@ N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
 EVAL_EPISODES=100
+CHECKPOINT_FREQ=25
 PHASE=""
+HEAL_ROUND=0
+MAX_HEAL_ROUNDS=2
+USE_WANDB=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,9 +83,20 @@ while [[ $# -gt 0 ]]; do
     --eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
       EVAL_EPISODES="$2"; shift 2 ;;
+    --checkpoint-freq)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --checkpoint-freq requires a value" >&2; exit 1; }
+      CHECKPOINT_FREQ="$2"; shift 2 ;;
     --phase)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --phase requires a value" >&2; exit 1; }
       PHASE="$2"; shift 2 ;;
+    --heal-round)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --heal-round requires a value" >&2; exit 1; }
+      HEAL_ROUND="$2"; shift 2 ;;
+    --max-heal-rounds)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --max-heal-rounds requires a value" >&2; exit 1; }
+      MAX_HEAL_ROUNDS="$2"; shift 2 ;;
+    --wandb)
+      USE_WANDB=true; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -115,9 +145,12 @@ except FileNotFoundError:
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES}"
+  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
   if [ -n "$NUM_ITERATIONS" ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --num-iterations ${NUM_ITERATIONS}"
+  fi
+  if [ "$USE_WANDB" = true ]; then
+    FORWARD_ARGS="${FORWARD_ARGS} --wandb"
   fi
   echo "Launching seed evaluation: mode=${MODE}, name=${NAME}, seeds=${N_SEEDS}, configs=${N_CONFIGS}"
   echo "Total tasks: $(( ARRAY_SIZE + 1 )) (${N_CONFIGS} configs x ${N_SEEDS} seeds)"
@@ -128,11 +161,13 @@ except FileNotFoundError:
     "$0" --phase worker ${FORWARD_ARGS})
   echo "Workers submitted: job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
 
-  # Submit aggregate job (depends on ALL worker tasks completing)
+  # Aggregate depends on 'afterany' (not 'afterok') so that if any worker
+  # fails (walltime/OOM/crash), the aggregate phase still runs and triggers
+  # the self-healing re-submission instead of leaving the pipeline stalled.
   AGG_JOB=$(sbatch --parsable \
-    --dependency=afterok:${WORKER_JOB} \
+    --dependency=afterany:${WORKER_JOB} \
     --cpus-per-task=1 --mem=4G --time=00:30:00 \
-    "$0" --phase aggregate ${FORWARD_ARGS})
+    "$0" --phase aggregate ${FORWARD_ARGS} --heal-round 0)
   echo "Aggregate submitted: job ${AGG_JOB} (runs after ${WORKER_JOB})"
 
   exit 0
@@ -154,14 +189,93 @@ export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
+# Pin thread pools to the cores SLURM actually granted us.
+# Default Python/PyTorch detects *physical* cores on the whole node and
+# oversubscribes with other tasks sharing the node, potentially
+# resulting in slow runs.
+CPUS_THREAD_PIN=${SLURM_CPUS_PER_TASK:-1}
+export OMP_NUM_THREADS="${CPUS_THREAD_PIN}"
+export MKL_NUM_THREADS="${CPUS_THREAD_PIN}"
+export OPENBLAS_NUM_THREADS="${CPUS_THREAD_PIN}"
+export NUMEXPR_NUM_THREADS="${CPUS_THREAD_PIN}"
+export TORCH_NUM_THREADS="${CPUS_THREAD_PIN}"
+export RAY_DEFAULT_OMP_NUM_THREADS="${CPUS_THREAD_PIN}"
+
 
 # ============================================================================
-# AGGREGATE PHASE: aggregate the results from all workers
+# AGGREGATE PHASE: aggregate the results (self-healing)
 # ============================================================================
 
 if [ "$PHASE" = "aggregate" ]; then
-  echo "Running seed evaluation aggregation for: ${NAME} (mode=${MODE})"
+  echo "Running seed evaluation aggregation for: ${NAME} (mode=${MODE}, heal_round=${HEAL_ROUND})"
 
+  # ---------- Step 1 ----------
+  # Detect any (config, seed) pairs whose eval_results_best.yaml is
+  # missing or malformed. These are the tasks we need to re-submit.
+  # Use a sentinel prefix so we can safely strip any import-time noise that
+  # leaks to stdout from Ray/PyTorch/etc.
+  MISSING_RAW=$(python -c "
+from src.experiments.utils.seed_evaluation import find_missing_seed_evaluation_tasks
+missing = find_missing_seed_evaluation_tasks(
+    mode='${MODE}', name='${NAME}', n_seeds=${N_SEEDS}, top_k=${TOP_K},
+)
+print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
+")
+  MISSING_RC=$?
+  if [ $MISSING_RC -ne 0 ]; then
+    echo "ERROR: Could not scan for missing seed-eval tasks (exit ${MISSING_RC})"
+    echo "python output was:"
+    echo "$MISSING_RAW"
+    exit $MISSING_RC
+  fi
+  MISSING_STR=$(echo "$MISSING_RAW" | grep '^__MISSING_TASKS__:' | tail -n1 | sed 's/^__MISSING_TASKS__://')
+
+  # ---------- Step 2 ----------
+  # If work is still pending and we haven't exhausted the heal
+  # budget, re-submit JUST the missing array indices and chain a new
+  # aggregate behind them.
+  if [ -n "$MISSING_STR" ]; then
+    # Count the number of missing tasks
+    MISSING_COUNT=$(echo "$MISSING_STR" | awk -F, '{print NF}')
+    if [ "$HEAL_ROUND" -lt "$MAX_HEAL_ROUNDS" ]; then
+      NEXT_ROUND=$(( HEAL_ROUND + 1 ))
+      MAX_CONCURRENT=$(( MISSING_COUNT < 17 ? MISSING_COUNT : 17 ))
+      echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
+
+      # Build the forward arguments for the worker and aggregate jobs
+      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+      if [ -n "$NUM_ITERATIONS" ]; then
+        HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
+      fi
+      if [ "$USE_WANDB" = true ]; then
+        HEAL_FORWARD="${HEAL_FORWARD} --wandb"
+      fi
+
+      # Submit the missing worker jobs
+      HEAL_WORKER_JOB=$(sbatch --parsable \
+        --array=${MISSING_STR}%${MAX_CONCURRENT} \
+        "$0" --phase worker ${HEAL_FORWARD})
+      echo "[HEAL] Re-submitted workers: job ${HEAL_WORKER_JOB}"
+
+      # Submit a new aggregate job
+      HEAL_AGG_JOB=$(sbatch --parsable \
+        --dependency=afterany:${HEAL_WORKER_JOB} \
+        --cpus-per-task=1 --mem=4G --time=00:30:00 \
+        "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
+      echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
+
+      # Deliberately exit 0 since the next aggregate job will do the final plotting.
+      exit 0
+    
+    # If we have exhausted the heal budget, proceed to the final aggregation
+    else
+      echo "[HEAL] Exhausted ${MAX_HEAL_ROUNDS} heal rounds but ${MISSING_COUNT} task(s) still missing: ${MISSING_STR}"
+      echo "[HEAL] Proceeding to aggregate with incomplete results."
+    fi
+  fi
+
+  # ---------- Step 3 ----------
+  # Final aggregation + plots
   python -c "
 from src.experiments.utils.seed_evaluation import aggregate_and_plot_seed_evaluation
 aggregate_and_plot_seed_evaluation(mode='${MODE}', name='${NAME}')
@@ -191,7 +305,6 @@ SEED_IDX=$(( ID % N_SEEDS + 1 ))
 
 # Set the root seed as the seed index multiplied by 100 to ensure spaced out seeds
 ROOT_SEED=$(( SEED_IDX * 100 ))
-
 
 # --------------------------------------------------
 # Resolve paths and directories
@@ -274,6 +387,27 @@ echo "  Experiment:   ${EXPERIMENT_NAME}"
 
 
 # --------------------------------------------------
+# Detect resumable checkpoint
+# --------------------------------------------------
+
+# If a prior (killed) run for this (config, seed) left a periodic checkpoint_<N> behind, 
+# resume from the largest N instead of starting from iteration 1.
+RESUME_FROM=""
+RUN_DIR="${STORAGE_DIR}/${EXPERIMENT_NAME}"
+if [ -d "$RUN_DIR" ]; then
+  LATEST_CHKPT=$(ls -d "${RUN_DIR}"/checkpoint_[0-9]* 2>/dev/null \
+    | awk -F'checkpoint_' '{print $2"|"$0}' \
+    | sort -n \
+    | tail -n1 \
+    | cut -d'|' -f2-)
+  if [ -n "$LATEST_CHKPT" ] && [ -d "$LATEST_CHKPT" ]; then
+    RESUME_FROM="$LATEST_CHKPT"
+    echo "[RESUME] Found existing periodic checkpoint: ${RESUME_FROM}"
+  fi
+fi
+
+
+# --------------------------------------------------
 # Create temporary configs with overrides
 # --------------------------------------------------
 
@@ -315,6 +449,11 @@ num_iterations = "${NUM_ITERATIONS}".strip()
 if num_iterations:
     algo_cfg["algorithm"]["shared"]["num_iterations"] = int(num_iterations)
 
+# Override the checkpoint frequency if provided
+checkpoint_freq = int("${CHECKPOINT_FREQ}")
+if checkpoint_freq > 0:
+    algo_cfg["algorithm"]["shared"]["checkpoint_freq"] = checkpoint_freq
+
 # Set the number of env runners and envs per env runner to 0 and 1 respectively	
 algo_cfg["algorithm"]["shared"]["num_env_runners"] = 0
 algo_cfg["algorithm"]["shared"]["num_envs_per_env_runner"] = 1
@@ -346,14 +485,23 @@ source scripts/lib/start_ray.sh
 # Run training + evaluation
 # ============================================================================
 
+# Build training command
+TRAIN_CMD=(python src/experiments/run_experiment.py
+    --mode single
+    --env-config "$TEMP_ENV_CONFIG"
+    --algorithm-config "$TEMP_ALGO_CONFIG"
+    --storage-dir "${STORAGE_DIR}"
+    --experiment-name "${EXPERIMENT_NAME}"
+    --root-seed ${ROOT_SEED})
+if [ -n "$RESUME_FROM" ]; then
+  TRAIN_CMD+=(--resume-from "$RESUME_FROM")
+fi
+if [ "$USE_WANDB" = true ]; then
+  TRAIN_CMD+=(--wandb-project "$WANDB_PROJECT_NAME" --wandb-name "$EXPERIMENT_NAME")
+fi
+
 # Run training
-python src/experiments/run_experiment.py \
-    --mode single \
-    --env-config "$TEMP_ENV_CONFIG" \
-    --algorithm-config "$TEMP_ALGO_CONFIG" \
-    --storage-dir "${STORAGE_DIR}" \
-    --experiment-name "${EXPERIMENT_NAME}" \
-    --root-seed ${ROOT_SEED}
+"${TRAIN_CMD[@]}"
 TRAIN_EXIT=$?
 
 if [ $TRAIN_EXIT -ne 0 ]; then

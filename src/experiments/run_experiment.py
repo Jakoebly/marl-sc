@@ -153,12 +153,8 @@ def run_single_experiment(
         root_seed=root_seed,
     )
 
-    # Resume from checkpoint if specified
-    if resume_from:
-        runner.algorithm.load_checkpoint(resume_from)
-
     # Run the experiment and return the result
-    result = runner.run()
+    result = runner.run(resume_from=resume_from)
 
     return result
 
