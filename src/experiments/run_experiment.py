@@ -38,6 +38,7 @@ from src.experiments.utils.ray_tune import (
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 from src.experiments.utils.experiment_utils import (
     save_run_metadata,
+    save_tune_config_to_experiment_dir,
     load_root_seed_from_metadata,
     resolve_saved_config,
     find_experiment_dir,
@@ -343,6 +344,13 @@ def run_tune_experiment(
         ),
     )
 
+    # Save the original tune config into the experiment directory for traceability
+    save_tune_config_to_experiment_dir(
+        tune_config_path=tune_config_path,
+        storage_dir=storage_dir,
+        experiment_name=experiment_name,
+    )
+
     # Run the tuner
     analysis = tuner.fit()
 
@@ -563,19 +571,19 @@ def _run_post_tune_analysis(
         eval_root_seed=eval_seed,
     )
 
-    # Get the best checkpoint and trial directory
-    best_checkpoint = best_info.get("best_trial_best_checkpoint")
+    # Get the final checkpoint and trial directory
+    final_checkpoint = best_info.get("best_trial_final_checkpoint")
     best_trial_dir = best_info.get("best_trial_path")
 
     # Run evaluation and update best trial results
-    if best_checkpoint:
+    if final_checkpoint:
         print("\n" + "=" * 80)
-        print("EVALUATING BEST TRIAL")
+        print("EVALUATING BEST TRIAL (final checkpoint)")
         print("=" * 80)
 
-        # Run evaluation on the best checkpoint
+        # Run evaluation on the final checkpoint
         eval_result = run_evaluation(
-            checkpoint_dir=best_checkpoint,
+            checkpoint_dir=final_checkpoint,
             experiment_dir=best_trial_dir,
             eval_episodes=100,
             root_seed=eval_seed,

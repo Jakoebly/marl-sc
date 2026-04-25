@@ -117,9 +117,10 @@ class ExperimentRunner:
         """
         Runs the full training loop.
 
-        When ``tune_callback`` is provided (tune mode), only ``checkpoint_best`` is saved
-        and metrics are reported without checkpoint tracking. Periodic checkpoints,
-        ``checkpoint_final``, and ``module_weights.pt`` are skipped to minimize disk I/O.
+        When ``tune_callback`` is provided (tune mode), ``checkpoint_best`` and
+        ``checkpoint_final`` are both saved and metrics are reported without
+        checkpoint tracking. Periodic checkpoints and ``module_weights.pt`` are
+        skipped to minimize disk I/O.
 
         Per-iteration train/eval returns are always collected and saved to
         ``training_metrics.yaml`` in the checkpoint directory after every
@@ -208,10 +209,13 @@ class ExperimentRunner:
                 f"[INFO] Best checkpoint: iteration {best_iteration} with reward: {best_metric_value:.4f}"
             )
 
-        # If not in tune mode and checkpoint directory exists, save final checkpoint
-        # and export module weights
+        # Save final checkpoint
+        if self.checkpoint_dir:
+            self._save_final_checkpoint()
+
+        # Emodule weights only when not in tune mode to save disk space
         if not tune_callback and self.checkpoint_dir:
-            self._save_final_checkpoint_and_weights()
+            self._export_module_weights()
 
         # Ensure the final metrics snapshot is on disk even if the loop did
         # not execute (e.g. resumed run already past num_iterations).
@@ -354,12 +358,12 @@ class ExperimentRunner:
         if self.wandb_config:
             wandb.log({"checkpoint_iteration": iteration})
 
-    def _save_final_checkpoint_and_weights(self) -> None:
+    def _save_final_checkpoint(self) -> None:
         """
-        Saves ``checkpoint_final`` and exports ``module_weights.pt``.
+        Saves ``checkpoint_final`` to the checkpoint directory.
 
-        The module ID is derived via the algorithm's ``policy_mapping_fn`` so
-        this works for IPPO, MAPPO and centralized PPO without a special case.
+        Always called at the end of training (both single and tune modes) so
+        downstream evaluation can score the final-state policy,.
         """
 
         # Save final checkpoint
@@ -371,6 +375,16 @@ class ExperimentRunner:
             env_config=self.env_config,
             algorithm_config=self.algorithm_config,
         )
+
+    def _export_module_weights(self) -> None:
+        """
+        Exports ``module_weights.pt`` for downstream weight transfer.
+
+        Skipped in tune mode (one ``.pt`` per trial would be wasteful when
+        only the winning trial is consumed downstream). The module ID is
+        derived via the algorithm's ``policy_mapping_fn`` so this works
+        for IPPO, MAPPO and CPPO without a special case.
+        """
 
         # Export module weights using the algorithm's policy mapping to
         # derive the correct module ID (handles IPPO, MAPPO, centralized PPO)
