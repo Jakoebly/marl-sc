@@ -20,7 +20,7 @@ from src.environment.envs.multi_env import InventoryEnvironment
 from src.algorithms.registry import get_algorithm
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.utils.wandb import log_wandb_metrics
-from src.utils.seed_manager import SeedManager
+from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 from src.utils.obs_stats import compute_obs_statistics
 from src.experiments.utils.experiment_utils import (
     checkpoint_suffix,
@@ -40,6 +40,7 @@ class ExperimentRunner:
         seed_manager: Optional[SeedManager] = None,
         checkpoint_dir: Optional[str] = None,
         wandb_config: Optional[Dict[str, Any]] = None,
+        eval_seed_override: Optional[int] = None,
     ):
         """
         Args:
@@ -48,13 +49,28 @@ class ExperimentRunner:
             seed_manager (Optional[SeedManager]): Experiment-level seed manager.
             checkpoint_dir (Optional[str]): Directory for saving checkpoints.
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
+            eval_seed_override (Optional[int]): Fixed eval root seed  that, when
+                provided, replaces the per-run ``eval`` slot derived from 
+                ``seed_manager``.
         """
 
-        # Derive train / eval / obs_stats seeds from the SeedManager
+        # Derive train seed from the SeedManager.
         self.seed_manager = seed_manager
         self.train_seed = seed_manager.get_seed_int('train') if seed_manager else None
-        self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
-        self.obs_stats_seed = seed_manager.get_seed_int('obs_stats') if seed_manager else None
+
+        # When an override is provided, derive the eval seed through the same 
+        # SeedManager('eval') derivation that ``EvaluationRunner`` applies to 
+        # its own ``root_seed`` argument so the intra-training eval env sees 
+        # the same int as the post-training benchmark
+        if eval_seed_override is not None:
+            self.eval_seed = SeedManager(
+                root_seed=int(eval_seed_override),
+                seed_registry=EXPERIMENT_SEEDS,
+            ).get_seed_int('eval')
+        
+        # When no override is provided, derive the eval seed from the existing SeedManager
+        else:
+            self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
 
         # Store configs
         self.env_config = env_config
@@ -70,7 +86,10 @@ class ExperimentRunner:
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
         if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
             self.env.obs_stats = compute_obs_statistics(
-                env_config, mode=obs_norm_mode, n_episodes=100, seed=self.obs_stats_seed,
+                env_config,
+                seed_manager=self.seed_manager,
+                mode=obs_norm_mode,
+                n_episodes=100,
             )
         
         # Initialize algorithm with separate train and eval seeds
@@ -441,10 +460,9 @@ class EvaluationRunner:
             wandb_config (Optional[Dict[str, Any]]): WandB configuration dict.
         """
 
-        # Derive eval / obs_stats seeds from SeedManager
+        # Derive eval seed from the SeedManager
         self.seed_manager = seed_manager
         self.eval_seed = seed_manager.get_seed_int('eval') if seed_manager else None
-        self.obs_stats_seed = seed_manager.get_seed_int('obs_stats') if seed_manager else None
 
         # Store evaluation parameters
         self.eval_episodes = eval_episodes
@@ -465,7 +483,10 @@ class EvaluationRunner:
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
         if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
             self.env.obs_stats = compute_obs_statistics(
-                env_config, mode=obs_norm_mode, n_episodes=100, seed=self.obs_stats_seed,
+                env_config,
+                seed_manager=self.seed_manager,
+                mode=obs_norm_mode,
+                n_episodes=100,
             )
 
         # Initialize algorithm with eval_seed only (no training in evaluation mode)
