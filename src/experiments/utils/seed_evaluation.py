@@ -257,13 +257,14 @@ def evaluate_config_across_seeds(
 
         print(f"\n--- Seed {seed_idx}/{n_seeds} (root_seed={root_seed}) ---")
 
-        # Train the model for this seed
+        # Train the model for the given seed
         _run_single_seed_eval(
             env_config_path=cfg_env,
             algorithm_config_path=cfg_algo,
             storage_dir=cfg_storage,
             experiment_name=seed_name,
             root_seed=root_seed,
+            eval_seed=eval_seed,
             wandb_project=wandb_project,
             num_iterations=num_iterations,
         )
@@ -306,6 +307,7 @@ def _run_single_seed_eval(
     storage_dir: str,
     experiment_name: str,
     root_seed: int,
+    eval_seed: Optional[int] = None,
     wandb_project: Optional[str] = None,
     num_iterations: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -324,6 +326,10 @@ def _run_single_seed_eval(
         storage_dir (str): Root directory for experiment outputs.
         experiment_name (str): Name for this seed's experiment run.
         root_seed (int): Root seed for reproducibility.
+        eval_seed (Optional[int]): Fixed eval root seed forwarded to
+            ``ExperimentRunner`` as ``eval_seed_override``. When set, the
+            PPO intra-training eval uses the same eval distribution across
+            all seeds and matches the post-training benchmark.
         wandb_project (Optional[str]): WandB project name.
         num_iterations (Optional[int]): Override training iterations
             (``None`` keeps config default).
@@ -368,6 +374,7 @@ def _run_single_seed_eval(
         seed_manager=seed_manager,
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
+        eval_seed_override=eval_seed,
     )
 
     # Save run metadata

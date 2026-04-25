@@ -1,5 +1,5 @@
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from numpy.random import SeedSequence
@@ -134,6 +134,33 @@ class SeedManager:
 
         # Respawn seeds
         self._spawn_seeds()
+
+    def spawn_child_seeds(self, name: str, n: int) -> List[Optional[int]]:
+        """
+        Returns ``n`` deterministic integer seeds spawned from the named slot.
+
+        Args:
+            name (str): Registered seed name.
+            n (int): Number of child seeds to spawn.
+
+        Returns:
+            seeds (List[Optional[int]]): List of ``n`` integer seeds. If the
+                slot has no seed (root_seed is None), returns a list of ``n``
+                ``None`` values.
+        """
+
+        # Get the seed sequence for the named slot
+        ss = self._get_seed_sequence(name)
+
+        # If the slot has no seed, return n None values
+        if ss is None:
+            return [None] * n
+
+        # Spawn n independent child seed sequences and convert each to an int
+        children = ss.spawn(n)
+        seeds = [int(child.generate_state(1, dtype=np.uint32)[0]) for child in children]
+
+        return seeds
 
     @staticmethod
     def derive_env_seed(base_seed: int, worker_index: int, env_index: int) -> int:

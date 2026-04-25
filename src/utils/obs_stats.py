@@ -1,15 +1,18 @@
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
 from src.config.schema import EnvironmentConfig, FeatureConfig
 
+if TYPE_CHECKING:
+    from src.utils.seed_manager import SeedManager
+
 
 def compute_obs_statistics(
     env_config: EnvironmentConfig,
+    seed_manager: 'SeedManager',
     mode: str = "meanstd_custom",
     n_episodes: int = 10,
-    seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes per-feature mean and std by running a random policy for
@@ -26,9 +29,10 @@ def compute_obs_statistics(
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
+        seed_manager (SeedManager): Experiment-level seed manager. Must have
+            ``'obs_stats'`` registered (it is part of ``EXPERIMENT_SEEDS``).
         mode (str): ``"meanstd_custom"`` or ``"meanstd_grouped"``.
         n_episodes (int): Number of episodes to collect.
-        seed (Optional[int]): Seed for reproducibility.
 
     Returns:
         (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing the mean and standard deviation of the observations. 
@@ -37,33 +41,37 @@ def compute_obs_statistics(
 
     from src.environment.envs.multi_env import InventoryEnvironment
 
-    env = InventoryEnvironment(env_config, seed=seed)
+    # Spawn two independent child seeds from the 'obs_stats' slot
+    env_seed, action_seed = seed_manager.spawn_child_seeds("obs_stats", 2)
+
+    # Initialize environment with the env seed
+    env = InventoryEnvironment(env_config, seed=env_seed)
     n_skus = env.n_skus
     local_obs_dim = env._compute_local_obs_dim()
 
-    action_rng = np.random.default_rng(seed)
+    # Initialize action RNG with the action seed
+    action_rng = np.random.default_rng(action_seed)
+    
+    # Run random policy for n_episodes and collect local observations
     all_local_obs = []
-
     for _ in range(n_episodes):
         obs, _ = env.reset()
         done = False
-
         while not done:
             for agent_id in env.agents:
                 all_local_obs.append(obs[agent_id][:local_obs_dim])
-
             actions = {
                 agent_id: action_rng.uniform(-1, 1, size=(n_skus,)).astype(np.float32)
                 for agent_id in env.agents
             }
             obs, _, terms, truncs, _ = env.step(actions)
             done = all(truncs.values()) or all(terms.values())
-
         for agent_id in env.agents:
             all_local_obs.append(obs[agent_id][:local_obs_dim])
 
     all_local_obs = np.array(all_local_obs, dtype=np.float32)
 
+    # Compute mean and std for the observations based on the mode
     if mode == "meanstd_grouped":
         obs_mean, obs_std = _compute_grouped_stats(
             all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,

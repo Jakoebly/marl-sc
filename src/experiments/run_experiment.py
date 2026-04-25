@@ -70,6 +70,7 @@ def run_single_experiment(
     wandb_project: Optional[str] = None,
     wandb_name: Optional[str] = None,
     root_seed: Optional[int] = None,
+    eval_seed: Optional[int] = None,
     resume_from: Optional[str] = None,
 ):
     """
@@ -89,6 +90,9 @@ def run_single_experiment(
         wandb_project (Optional[str]): WandB project name.
         wandb_name (Optional[str]): WandB run name.
         root_seed (Optional[int]): Root seed for reproducibility.
+        eval_seed (Optional[int]): Optional fixed eval root seed forwarded
+            to ``ExperimentRunner`` as ``eval_seed_override``. ``None`` keeps 
+            the per-run ``eval`` slot derived from ``root_seed``.
         resume_from (Optional[str]): Path to checkpoint to resume from.
 
     Returns:
@@ -144,6 +148,7 @@ def run_single_experiment(
         seed_manager=seed_manager,
         checkpoint_dir=checkpoint_dir,
         wandb_config=wandb_config,
+        eval_seed_override=eval_seed,
     )
 
     # Save run metadata once before training starts
@@ -713,6 +718,7 @@ def _dispatch_experiment(args: Namespace):
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
             root_seed=args.root_seed,
+            eval_seed=args.eval_seed,
             resume_from=args.resume_from,
             experiment_name=args.experiment_name,
         )

@@ -501,7 +501,8 @@ TRAIN_CMD=(python src/experiments/run_experiment.py
     --algorithm-config "$TEMP_ALGO_CONFIG"
     --storage-dir "${STORAGE_DIR}"
     --experiment-name "${EXPERIMENT_NAME}"
-    --root-seed ${ROOT_SEED})
+    --root-seed ${ROOT_SEED}
+    --eval-seed ${EVAL_SEED})
 if [ -n "$RESUME_FROM" ]; then
   TRAIN_CMD+=(--resume-from "$RESUME_FROM")
 fi
