@@ -716,9 +716,9 @@ def print_and_save_best_results(
         else best_trial_metrics_df["train/episode_return_mean"].min()
     )
 
-    # Resolve checkpoint_best saved by ExperimentRunner in the trial directory
-    best_trial_best_checkpoint_path = Path(best_trial_dir) / "checkpoint_best"
-    best_trial_best_checkpoint = str(best_trial_best_checkpoint_path) if best_trial_best_checkpoint_path.exists() else None
+    # Resolve checkpoint_final saved by ExperimentRunner in the trial directory.
+    best_trial_final_checkpoint_path = Path(best_trial_dir) / "checkpoint_final"
+    best_trial_final_checkpoint = str(best_trial_final_checkpoint_path) if best_trial_final_checkpoint_path.exists() else None
 
     # Collect and rank all completed trials by the metric for top-K selection
     trial_ranking: List[Tuple[float, str, str]] = []
@@ -766,11 +766,11 @@ def print_and_save_best_results(
         for key, value in best_trial_config["features"].items():
             print(f"    {key}: {value}")
 
-    # Print best checkpoint of best trial
-    if best_trial_best_checkpoint:
-        print(f"\nBest Checkpoint: {best_trial_best_checkpoint}")
+    # Print final checkpoint of best trial
+    if best_trial_final_checkpoint:
+        print(f"\nFinal Checkpoint: {best_trial_final_checkpoint}")
     else:
-        print("\nBest Checkpoint: None (no checkpoint_best found in trial directory)")
+        print("\nFinal Checkpoint: None (no checkpoint_final found in trial directory)")
 
     # Print top-K trial summary
     print(f"\nTop-{actual_k} Trials (by {metric}):")
@@ -790,7 +790,7 @@ def print_and_save_best_results(
         "best_trial_best_train_metric": float(best_trial_best_train_metric),
         "best_trial_env_config": best_trial_env_config,
         "best_trial_algorithm_config": best_trial_algorithm_config,
-        "best_trial_best_checkpoint": best_trial_best_checkpoint,
+        "best_trial_final_checkpoint": best_trial_final_checkpoint,
         "tune_root_seed": tune_root_seed,
         "eval_root_seed": eval_root_seed,
         "top_k_trials": top_k_trials,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -536,6 +537,42 @@ def save_env_config(env_config: EnvironmentConfig, experiment_dir: Path) -> None
                 sort_keys=False,
             )
         print(f"[INFO] Saved environment config to: {env_config_path}")
+
+def save_tune_config_to_experiment_dir(
+    tune_config_path: str,
+    storage_dir: str,
+    experiment_name: str,
+) -> None:
+    """
+    Copies the original tune config YAML into the experiment output directory as
+    ``tune_config.yaml`` so the search-space definition is preserved
+    alongside the trial outputs.
+
+    Args:
+        tune_config_path (str): Path to the source tune config YAML.
+        storage_dir (str): Root directory for experiment outputs.
+        experiment_name (str): Name of the experiment subdirectory.
+    """
+
+    # Get the path to the tune config file
+    src = Path(tune_config_path)
+    if not src.is_file():
+        print(f"[WARNING] Tune config '{tune_config_path}' not found; skipping copy.")
+        return
+
+    # Get the path to the experiment directory
+    experiment_dir = Path(storage_dir) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    dst = experiment_dir / "tune_config.yaml"
+
+    # Skip if the destination is the same as the source
+    if dst.resolve() == src.resolve():
+        return
+
+    # Copy the tune config to the experiment directory
+    shutil.copy2(src, dst)
+    
+    print(f"[INFO] Saved tune config to: {dst}")
 
 def save_algorithm_config(
     algorithm_config: "AlgorithmConfig", experiment_dir: Path
