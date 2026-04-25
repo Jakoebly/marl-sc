@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Callable
 import tempfile
 import numpy as np
 import torch
-import os
 from ray.rllib.core.columns import Columns
 
 if TYPE_CHECKING:
@@ -42,14 +41,23 @@ class BaseAlgorithmWrapper(ABC):
     def evaluate(self, eval_episodes: Optional[int] = None) -> Dict[str, Any]:
         """
         Runs evaluation using RLlib's Algorithm.evaluate().
-        
-        Temporarily overrides evaluation_duration if eval_episodes is provided,
-        then restores the original value after evaluation completes.
-        
+
+        Temporarily overrides ``evaluation_duration`` if ``eval_episodes`` is
+        provided. To prevent the eval envs from cycling back to episode 0
+        before all requested episodes have been sampled, also bumps each eval
+        env's ``_num_eval_episodes`` cycle to match ``eval_episodes`` and
+        resets its episode counter so all ``eval_episodes`` are unique seeds
+        drawn from ``eval_child(eval_seed)`` indices ``0..eval_episodes-1``.
+
+        Note: Intra-training eval driven by RLlib internally
+        (``evaluation_interval``) does NOT go through this wrapper, so its
+        fixed-validation-set cycling behavior is preserved untouched.
+
         Args:
-            eval_episodes (Optional[int]): Number of evaluation episodes. 
-                If None, uses num_eval_episodes from config.
-        
+            eval_episodes (Optional[int]): Number of evaluation episodes.
+                If ``None``, uses ``num_eval_episodes`` from config and the
+                env-side cycle is left as-is.
+
         Returns:
             metrics (Dict[str, Any]): Evaluation metrics dictionary.
         """
@@ -58,11 +66,22 @@ class BaseAlgorithmWrapper(ABC):
         original_duration = self.trainer.config.evaluation_duration
 
         # Temporarily override evaluation duration if eval_episodes is provided
-        # Config is frozen after build_algo(), so we unfreeze it temporarily
         if eval_episodes is not None:
             self.trainer.config._is_frozen = False
             self.trainer.config.evaluation_duration = eval_episodes
             self.trainer.config._is_frozen = True
+            
+            def _prime_for_final_eval(env_runner):
+                if getattr(env_runner, "env", None) is None:
+                    return
+                for sub_env in env_runner.env.envs:
+                    e = sub_env.unwrapped
+                    e._num_eval_episodes = eval_episodes
+                    if hasattr(e, "seed_manager"):
+                        e.seed_manager._episode_counter = 0
+            self.trainer.eval_env_runner_group.foreach_env_runner(
+                _prime_for_final_eval, local_env_runner=True
+            )
 
         # Evaluate the algorithm
         try:
@@ -389,12 +408,12 @@ class BaseAlgorithmWrapper(ABC):
             if env_meta:
                 seed = env_meta.get("seed")
 
-            # Derive a unique per-environment seed so that parallel envs
-            # across workers produce diverse (but deterministic) episodes.
+            # Derive a unique per-environment seed so that parallel envs across
+            # workers produce diverse (but deterministic) episodes.
             if seed is not None:
                 data_mode = env_meta.get("data_mode", "train") if env_meta else "train"
                 if data_mode == "train":
-                    worker_index = os.getpid()
+                    worker_index = getattr(env_meta, "worker_index", 0) or 0
                     env_index = _env_counter[0]
                     _env_counter[0] += 1
                     seed = SeedManager.derive_env_seed(seed, worker_index, env_index)

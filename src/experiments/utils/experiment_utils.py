@@ -280,6 +280,45 @@ def parse_checkpoint_iteration(checkpoint_dir: str) -> Optional[int]:
 
     return int(match.group(1))
 
+def find_latest_periodic_checkpoint(experiment_dir: Path | str) -> Optional[str]:
+    """
+    Returns the path to the ``checkpoint_<N>`` directory with the largest N
+    under ``experiment_dir``, or ``None`` if no periodic checkpoint exists.
+
+    Used by the resume-on-restart logic. Named checkpoints
+    (``checkpoint_best`` / ``checkpoint_final``) are ignored because only
+    ``checkpoint_<N>`` directories carry an iteration count that the runner
+    can use to truncate the metrics log and continue deterministically.
+
+    Args:
+        experiment_dir (Path | str): Directory to scan (typically the
+            per-run folder that contains ``checkpoint_<N>`` subfolders).
+
+    Returns:
+        latest_periodic_checkpoint (Optional[str]): Path to the highest-N periodic 
+            checkpoint, or ``None`` if no periodic checkpoint exists.
+    """
+
+    # Return early if the directory does not exist
+    directory = Path(experiment_dir)
+    if not directory.is_dir():
+        return None
+
+    # Walk the directory and track the largest checkpoint iteration
+    best_iter = -1
+    best_path: Optional[Path] = None
+    for entry in directory.iterdir():
+        if not entry.is_dir():
+            continue
+        n = parse_checkpoint_iteration(str(entry))
+        if n is not None and n > best_iter:
+            best_iter = n
+            best_path = entry
+
+    latest_periodic_checkpoint = str(best_path) if best_path is not None else None
+
+    return latest_periodic_checkpoint
+
 def load_and_truncate_training_metrics(
     checkpoint_dir: Path | str,
     completed_iteration: int,

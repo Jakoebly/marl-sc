@@ -105,6 +105,11 @@ class InventoryEnvironment(ParallelEnv):
         
         # Initialize seed manager
         self.seed_manager = SeedManager(root_seed=seed, seed_registry=ENVIRONMENT_SEEDS)
+
+        # Remember whether a seed was supplied at construction time. If yes, the
+        # caller (e.g. our env factory) owns the root seed and we must refuse any
+        # later reset(seed=...) injection from RLlib that would overwrite it.
+        self._seeded_at_construction = seed is not None
         
         # Extract data_mode from RLlib's config dict (defaults to "train")
         data_mode = "train"
@@ -186,29 +191,36 @@ class InventoryEnvironment(ParallelEnv):
 
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
         """
-        Resets the environment to its initial state by resetting all stochastic components with independent seeds, 
-        initializing inventory, clearing pending orders, and returning initial observations.
+        Resets the environment to its initial state by resetting all stochastic 
+        components with independent seeds, initializing inventory, clearing pending 
+        orders, and returning initial observations.
+
+        If the env was seeded at construction (factory path), the factory owns
+        the root seed. We ignore any reset(seed=...) injection from RLlib does
+        not overwrite our derived per-env root. If the env was not seeded at 
+        construction, the caller may seed it once via reset(seed=X).
         
         Args:
-            seed (Optional[int]): Random seed. If None, stochastic components are reset without explicit seeds.
+            seed (Optional[int]): Random seed. If None, stochastic components are reset 
+                without explicit seeds.
             options (Optional[Dict]): Optional dictionary of reset options (unused).
             
         Returns:
             Tuple containing:
-                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping agent_id to dictionary containing local and global observations.
-                    Shape: {warehouse_id: {"local": (2 * n_skus,), "global": (n_warehouses * 2 * n_skus,)}}.
-                - infos (Dict[str, Dict]): Dictionary containing any additional information (unused for now).
+                - observations (Dict[str, Dict[str, np.ndarray]]): Dictionary mapping 
+                    agent_id to dictionary containing local and global observations.
+                        Shape: {warehouse_id: {"local": (2 * n_skus,), "global": 
+                        (n_warehouses * 2 * n_skus,)}}.
+                - infos (Dict[str, Dict]): Dictionary containing any additional 
+                    information (unused for now).
         """
 
-        # Update root seed if provided, otherwise advance to next episode seeds.
-        # Eval envs (num_eval_episodes set) ignore explicit seeds from RLlib's
-        # init calls so that original_root_seed is never overwritten; the counter
-        # is reset to 0 on explicit-seed calls and at cycle boundaries.
-        if self._num_eval_episodes is not None:
-            if seed is not None:
-                self.seed_manager._episode_counter = 0
-            elif self.seed_manager._episode_counter >= self._num_eval_episodes:
-                self.seed_manager._episode_counter = 0
+        # If already seeded at init, cycle episodes (resetting counter when eval limit hit);
+        # otherwise accept caller seed or just advance.
+        if self._seeded_at_construction:
+            if self._num_eval_episodes is not None:
+                if seed is not None or self.seed_manager._episode_counter >= self._num_eval_episodes:
+                    self.seed_manager._episode_counter = 0
             self.seed_manager.advance_episode()
         elif seed is not None:
             self.seed_manager.update_root_seed(seed)

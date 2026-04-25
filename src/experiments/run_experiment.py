@@ -241,6 +241,7 @@ def run_tune_experiment(
     num_cpus_per_env_runner: Optional[int] = None,
     experiment_name: Optional[str] = None,
     root_seed: Optional[int] = None,
+    eval_seed: int = 123,
     top_k: int = 10,
 ):
     """
@@ -258,6 +259,8 @@ def run_tune_experiment(
         num_cpus_per_env_runner (Optional[int]): CPUs per env runner.
         experiment_name (Optional[str]): Name for the experiment.
         root_seed (Optional[int]): Root seed for reproducibility.
+        eval_seed (int): Fixed root seed for the post-tune best-trial benchmark
+            evaluation (default: 123).
         top_k (int): Number of top trials to save in best_trial_results.yaml.
 
     Returns:
@@ -339,8 +342,15 @@ def run_tune_experiment(
     analysis = tuner.fit()
 
     # Run post-tune analysis including best results, evaluation, convergence
-    _run_post_tune_analysis(analysis, metric=TUNE_METRIC, mode=TUNE_MODE, root_seed=root_seed, top_k=top_k)
-    
+    _run_post_tune_analysis(
+        analysis,
+        metric=TUNE_METRIC,
+        mode=TUNE_MODE,
+        root_seed=root_seed,
+        eval_seed=eval_seed,
+        top_k=top_k,
+    )
+
     return analysis
 
 def resume_tune_experiment(
@@ -349,6 +359,8 @@ def resume_tune_experiment(
     num_gpus: int = 0,
     num_cpus_per_env_runner: Optional[int] = None,
     wandb_project: Optional[str] = None,
+    eval_seed: int = 123,
+    top_k: int = 10,
 ):
     """
     Resumes an interrupted Ray Tune experiment via ``Tuner.restore``.
@@ -363,6 +375,9 @@ def resume_tune_experiment(
         num_gpus (int): GPUs per trial.
         num_cpus_per_env_runner (Optional[int]): CPUs per env runner.
         wandb_project (Optional[str]): WandB project name.
+        eval_seed (int): Fixed root seed for the post-tune best-trial benchmark
+            evaluation (default: 123).
+        top_k (int): Number of top trials to save in best_trial_results.yaml.
 
     Returns:
         analysis (tune.ResultGrid): Ray Tune results.
@@ -426,7 +441,14 @@ def resume_tune_experiment(
     # Run post-tune analysis including best results, evaluation, convergence
     metric = TUNE_METRIC
     mode = TUNE_MODE
-    _run_post_tune_analysis(analysis, metric=metric, mode=mode, root_seed=root_seed)
+    _run_post_tune_analysis(
+        analysis,
+        metric=metric,
+        mode=mode,
+        root_seed=root_seed,
+        eval_seed=eval_seed,
+        top_k=top_k,
+    )
 
     return analysis
 
@@ -434,7 +456,7 @@ def run_seed_evaluation(
     n_seeds: int = 5,
     top_k: int = 10,
     eval_episodes: int = 100,
-    eval_seed: int = 42,
+    eval_seed: int = 123,
     env_config_path: Optional[str] = None,
     algorithm_config_path: Optional[str] = None,
     storage_dir: Optional[str] = None,
@@ -456,7 +478,8 @@ def run_seed_evaluation(
         n_seeds (int): Number of seeds (root seeds will be 100, 200, ..., N*100).
         top_k (int): Number of top trials to evaluate (tune mode).
         eval_episodes (int): Episodes for final deterministic evaluation.
-        eval_seed (int): Fixed root seed used for all final evaluations.
+        eval_seed (int): Fixed root seed used for all final evaluations
+            (default: 123).
         env_config_path (Optional[str]): Path to environment config (single mode).
         algorithm_config_path (Optional[str]): Path to algorithm config (single mode).
         storage_dir (Optional[str]): Root directory for outputs (single mode).
@@ -508,6 +531,7 @@ def _run_post_tune_analysis(
     metric: str = TUNE_METRIC,
     mode: str = TUNE_MODE,
     root_seed: Optional[int] = None,
+    eval_seed: int = 123,
     top_k: int = 10,
 ):
     """
@@ -518,7 +542,9 @@ def _run_post_tune_analysis(
         analysis (tune.ResultGrid): Results returned by ``tuner.fit()``.
         metric (str): Metric to optimize.
         mode (str): Optimization mode (``"min"`` or ``"max"``).
-        root_seed (Optional[int]): Root seed forwarded to the evaluation runner.
+        root_seed (Optional[int]): Tune-level root seed.
+        eval_seed (int): Fixed root seed used for the best-trial benchmark
+            evaluation.
         top_k (int): Number of top trials to save.
     """
 
@@ -528,6 +554,8 @@ def _run_post_tune_analysis(
         metric=metric,
         mode=mode,
         top_k=top_k,
+        tune_root_seed=root_seed,
+        eval_root_seed=eval_seed,
     )
 
     # Get the best checkpoint and trial directory
@@ -545,7 +573,7 @@ def _run_post_tune_analysis(
             checkpoint_dir=best_checkpoint,
             experiment_dir=best_trial_dir,
             eval_episodes=100,
-            root_seed=root_seed,
+            root_seed=eval_seed,
             visualize=True,
         )
 
@@ -700,6 +728,8 @@ def _dispatch_experiment(args: Namespace):
                 num_gpus=args.num_gpus,
                 num_cpus_per_env_runner=args.num_cpus_per_env_runner,
                 wandb_project=args.wandb_project,
+                eval_seed=args.eval_seed,
+                top_k=args.top_k,
             )
         # If not resuming, start a new tune experiment
         else:
@@ -715,6 +745,7 @@ def _dispatch_experiment(args: Namespace):
                 num_cpus_per_env_runner=args.num_cpus_per_env_runner,
                 wandb_project=args.wandb_project,
                 root_seed=args.root_seed,
+                eval_seed=args.eval_seed,
                 top_k=args.top_k,
             )
 

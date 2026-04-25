@@ -11,7 +11,6 @@ from pathlib import Path
 import gc
 import shutil
 import numpy as np
-from torch._C import parse_schema
 import yaml
 import wandb
 from ray import tune
@@ -159,6 +158,10 @@ class ExperimentRunner:
                 iteration, train_return, best_metric_value, best_iteration,
             )
 
+            # Save metrics for each iteration
+            if self.checkpoint_dir and _internal_metrics:
+                save_training_metrics(self.checkpoint_dir, _internal_metrics)
+
             # If in tune mode, report metrics to Ray Tune
             if tune_callback:
                 tune_callback(result, None)
@@ -166,10 +169,6 @@ class ExperimentRunner:
             # If not in tune mode and checkpoint frequency is reached, save periodic checkpoint
             elif iteration % checkpoint_freq == 0 and self.checkpoint_dir:
                 self._save_periodic_checkpoint(iteration)
-
-            # Save metrics after each iteration
-            if self.checkpoint_dir and _internal_metrics:
-                save_training_metrics(self.checkpoint_dir, _internal_metrics)
 
             # Print training progress
             reward_str = f"{train_return:.4f}" if train_return is not None else "N/A"

@@ -36,8 +36,12 @@
 #         [--n-seeds 5] [--eval-episodes 100] [--num-iterations N] [--wandb]
 #
 # Options:
-#   --wandb   Enable WandB logging with project "marl-sc"
-#             (default: off; no wandb args passed to Python)
+#   --eval-seed <N>  Root seed for the final evaluation; shared by all
+#                    seed runs so paired comparisons see identical eval
+#                    episodes (default: 123, distinct from per-seed training
+#                    seeds 100,200,... so the benchmark is held out)
+#   --wandb          Enable WandB logging with project "marl-sc"
+#                    (default: off; no wandb args passed to Python)
 
 SEED_EVAL_MODE=""
 ENV_CONFIG=""
@@ -52,7 +56,7 @@ USE_WANDB=false
 
 WANDB_PROJECT_NAME="marl-sc"
 STORAGE_DIR="./experiment_outputs/Runs"
-EVAL_SEED=42
+EVAL_SEED=123
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -83,6 +87,9 @@ while [[ $# -gt 0 ]]; do
     --num-iterations)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
       NUM_ITERATIONS="$2"; shift 2 ;;
+    --eval-seed)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-seed requires a value" >&2; exit 1; }
+      EVAL_SEED="$2"; shift 2 ;;
     --wandb)
       USE_WANDB=true; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;

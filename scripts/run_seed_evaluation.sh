@@ -31,6 +31,11 @@
 #   --top-k <K>             Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>    Override training iterations
 #   --eval-episodes <N>     Final eval episodes (default: 100)
+#   --eval-seed <N>         Root seed for the final evaluation; shared by
+#                           all (config, seed) pairs so paired comparisons
+#                           across seed runs see identical eval episodes
+#                           (default: 123, distinct from per-seed training
+#                           seeds 100,200,... so the benchmark is held out)
 #   --checkpoint-freq <N>   Override algorithm.shared.checkpoint_freq per
 #                           worker so resume granularity is fine enough for
 #                           the 6h walltime cap (default: 25)
@@ -57,6 +62,7 @@ N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
 EVAL_EPISODES=100
+EVAL_SEED=123
 CHECKPOINT_FREQ=25
 PHASE=""
 HEAL_ROUND=0
@@ -83,6 +89,9 @@ while [[ $# -gt 0 ]]; do
     --eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
       EVAL_EPISODES="$2"; shift 2 ;;
+    --eval-seed)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-seed requires a value" >&2; exit 1; }
+      EVAL_SEED="$2"; shift 2 ;;
     --checkpoint-freq)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --checkpoint-freq requires a value" >&2; exit 1; }
       CHECKPOINT_FREQ="$2"; shift 2 ;;
@@ -145,7 +154,7 @@ except FileNotFoundError:
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
   if [ -n "$NUM_ITERATIONS" ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --num-iterations ${NUM_ITERATIONS}"
   fi
@@ -243,7 +252,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
       if [ -n "$NUM_ITERATIONS" ]; then
         HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
       fi
@@ -515,4 +524,4 @@ python src/experiments/run_experiment.py \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --eval-episodes ${EVAL_EPISODES} \
-    --root-seed 42
+    --root-seed ${EVAL_SEED}

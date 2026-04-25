@@ -153,8 +153,13 @@ def parse_args():
     parser.add_argument(
         "--eval-seed",
         type=int,
-        default=42,
-        help="Fixed root seed for final evaluation in seed-eval mode (default: 42)"
+        default=None,
+        help="Fixed root seed for the final (benchmark) evaluation that follows "
+             "training. Only valid for modes that combine training + a separate "
+             "final evaluation step ('tune' and 'seed-eval'). Decoupling this from "
+             "the training root seed keeps the benchmark held out from "
+             "trial/seed selection. Defaults to 123 when used "
+             "Not allowed for 'single' or 'evaluate' modes."
     )
     parser.add_argument(
         "--num-iterations",
@@ -181,6 +186,19 @@ def validate_args(args: Namespace):
 
     # Determine whether this is a resume run
     is_resume = args.resume_from is not None
+
+    # Validate that --eval-seed is only used in modes that combine training + final eval
+    if args.eval_seed is not None and args.mode not in ("tune", "seed-eval"):
+        raise ValueError(
+            f"--eval-seed is only valid for --mode tune or --mode seed-eval "
+            f"(got --mode {args.mode}). For --mode evaluate, use --root-seed "
+            f"to control the eval episode set; for --mode single there is no "
+            f"separate final-evaluation step."
+        )
+    
+    # Set default eval seed to 123 if not provided
+    if args.eval_seed is None and args.mode in ("tune", "seed-eval"):
+        args.eval_seed = 123 
 
     # ----- Validate required args per mode -----
     # Mode 'single' requires environment and algorithm config

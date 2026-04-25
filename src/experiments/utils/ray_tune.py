@@ -672,6 +672,8 @@ def print_and_save_best_results(
     metric: str = "eval/episode_return_mean",
     mode: str = "max",
     top_k: int = 10,
+    tune_root_seed: Optional[int] = None,
+    eval_root_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Prints and saves the best trial results from tuning. Selects the best trial
@@ -683,6 +685,11 @@ def print_and_save_best_results(
         metric (str): Metric name to optimize.
         mode (str): Optimization mode (``"min"`` or ``"max"``).
         top_k (int): Number of top trials to save for seed evaluation.
+        tune_root_seed (Optional[int]): Root seed used for the tune sweep itself.
+            Saved into ``best_trial_results.yaml`` for traceability.
+        eval_root_seed (Optional[int]): Root seed used for the post-tune
+            best-trial benchmark evaluation. Saved into
+            ``best_trial_results.yaml`` for traceability.
 
     Returns:
         best_trial_info (Dict[str, Any]): Dictionary with best trial information.
@@ -784,6 +791,8 @@ def print_and_save_best_results(
         "best_trial_env_config": best_trial_env_config,
         "best_trial_algorithm_config": best_trial_algorithm_config,
         "best_trial_best_checkpoint": best_trial_best_checkpoint,
+        "tune_root_seed": tune_root_seed,
+        "eval_root_seed": eval_root_seed,
         "top_k_trials": top_k_trials,
     }
 

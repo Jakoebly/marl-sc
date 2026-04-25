@@ -22,10 +22,15 @@
 # Parse arguments
 # ============================================================================
 
-# Usage: sbatch run_experiment_batch.sh --name <FolderName> [--wandb]
+# Usage: sbatch run_experiment_batch.sh --name <FolderName> [--eval-seed N] [--wandb]
 #
 # Options:
 #   --name <FolderName>   Subfolder under experiment_outputs/Runs (optional)
+#   --eval-seed <N>       Root seed for the final evaluation; shared by all
+#                         array tasks so paired comparisons across runs see
+#                         identical eval episodes (default: 123, distinct from
+#                         per-task training root seeds so the benchmark is
+#                         held out from training).
 #   --wandb               Enable WandB logging with project "marl-sc"
 #                         (default: off; no wandb args passed to Python)
 
@@ -33,12 +38,17 @@ WANDB_PROJECT_NAME="marl-sc"
 
 FOLDER_NAME=""
 USE_WANDB=false
+EVAL_SEED=123
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)
       [[ $# -ge 2 && "$2" != -* ]] || 
         { echo "ERROR: --name requires a value" >&2; exit 1; }
       FOLDER_NAME="$2"; shift 2 ;;
+    --eval-seed)
+      [[ $# -ge 2 && "$2" != -* ]] ||
+        { echo "ERROR: --eval-seed requires a value" >&2; exit 1; }
+      EVAL_SEED="$2"; shift 2 ;;
     --wandb)
       USE_WANDB=true; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
@@ -52,6 +62,7 @@ else
   echo "FOLDER_NAME=not specified"
 fi
 echo "USE_WANDB=${USE_WANDB}"
+echo "EVAL_SEED=${EVAL_SEED}"
 
 
 # ============================================================================
@@ -201,4 +212,4 @@ python src/experiments/run_experiment.py \
     --experiment-name "${EXPERIMENT_NAME}" \
     --visualize \
     --eval-episodes 100 \
-    --root-seed ${ROOT_SEED}
+    --root-seed ${EVAL_SEED}

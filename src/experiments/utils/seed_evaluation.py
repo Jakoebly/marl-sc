@@ -25,6 +25,7 @@ from src.config.loader import load_algorithm_config, load_environment_config
 from src.experiments.runner import ExperimentRunner
 from src.experiments.utils.experiment_utils import (
     find_checkpoint_dir,
+    find_latest_periodic_checkpoint,
     save_run_metadata,
 )
 from src.experiments.utils.wandb import setup_wandb
@@ -235,6 +236,24 @@ def evaluate_config_across_seeds(
         # Calculate a spaced-out root seed and set the run name
         root_seed = seed_idx * 100
         seed_name = f"{config_name}_Seed{root_seed}"
+        seed_experiment_dir = Path(cfg_storage) / seed_name
+
+        # Skip the seed if a valid eval_results_best.yaml is already on disk.
+        eval_best_file = seed_experiment_dir / "eval_results_best.yaml"
+        if eval_best_file.exists():
+            try:
+                with open(eval_best_file, encoding="utf-8") as f:
+                    prev_eval = yaml.safe_load(f) or {}
+                prev_mean = prev_eval.get("episode_return_mean")
+            except (OSError, yaml.YAMLError):
+                prev_mean = None
+            if isinstance(prev_mean, (int, float)):
+                print(
+                    f"\n--- Seed {seed_idx}/{n_seeds} (root_seed={root_seed}): "
+                    f"already complete, skipping ---"
+                )
+                seed_values.append((root_seed, float(prev_mean)))
+                continue
 
         print(f"\n--- Seed {seed_idx}/{n_seeds} (root_seed={root_seed}) ---")
 
@@ -250,13 +269,12 @@ def evaluate_config_across_seeds(
         )
 
         # Evaluate with fixed eval seed
-        seed_experiment_dir = str(Path(cfg_storage) / seed_name)
         checkpoint_dir = str(
-            find_checkpoint_dir(Path(seed_experiment_dir))
+            find_checkpoint_dir(seed_experiment_dir)
         )
         eval_result = run_evaluation(
             checkpoint_dir=checkpoint_dir,
-            experiment_dir=seed_experiment_dir,
+            experiment_dir=str(seed_experiment_dir),
             eval_episodes=eval_episodes,
             root_seed=eval_seed,
         )
@@ -337,6 +355,12 @@ def _run_single_seed_eval(
     experiment_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = str(experiment_dir)
 
+    # Check if there is a periodic checkpoint to resume from 
+    # because the job was killed before.
+    resume_from = find_latest_periodic_checkpoint(experiment_dir)
+    if resume_from:
+        print(f"[RESUME] Found existing periodic checkpoint: {resume_from}")
+
     # Create the experiment runner
     runner = ExperimentRunner(
         env_config=env_config,
@@ -354,7 +378,7 @@ def _run_single_seed_eval(
     )
 
     # Run the experiment
-    result = runner.run()
+    result = runner.run(resume_from=resume_from)
 
     return result
 
