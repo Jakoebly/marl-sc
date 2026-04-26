@@ -1,6 +1,12 @@
 import argparse
 from argparse import Namespace
 
+# Single source of truth for CLI / runtime defaults
+DEFAULT_EVAL_SEED: int = 123
+DEFAULT_ROOT_SEED: int = 42
+DEFAULT_EVAL_EPISODES: int = 100
+
+
 def parse_args():
     """
     Parses command line arguments.
@@ -158,8 +164,8 @@ def parse_args():
              "training and for intra-training evaluation to achieve paired comparison. "
              "Only valid for 'tune', 'seed-eval', and 'single' modes. Not allowed "
              "for 'evaluate' mode (use --root-seed instead). "
-             "Defaults to 123 in 'tune' and 'seed-eval' modes; defaults to "
-             "None in 'single' mode (per-run derived eval). "
+             f"Defaults to {DEFAULT_EVAL_SEED} in 'tune' and 'seed-eval' modes; "
+             "defaults to None in 'single' mode (per-run derived eval). "
     )
     parser.add_argument(
         "--num-iterations",
@@ -186,6 +192,7 @@ def validate_args(args: Namespace):
 
     # Determine whether this is a resume run
     is_resume = args.resume_from is not None
+    is_tune_resume = args.mode == "tune" and is_resume
 
     # Validate that 'eval-seed' is not used with mode 'evaluate' where the
     # eval seed is set directly via 'root-seed'. It is allowed in mode 'single'
@@ -196,10 +203,10 @@ def validate_args(args: Namespace):
             f"Use --root-seed to control the eval episode set."
         )
 
-    # Set default eval seed to 123 if not provided in tune / seed-eval modes.
-    # Single mode keeps its derived per-run eval seed unless the user opts in
-    if args.eval_seed is None and args.mode in ("tune", "seed-eval"):
-        args.eval_seed = 123 
+    # Set default eval_seed in tune / seed-eval modes. Tune resume keeps None so
+    # resume_tune_experiment can recover the value stored in params.json.
+    if args.eval_seed is None and args.mode in ("tune", "seed-eval") and not is_tune_resume:
+        args.eval_seed = DEFAULT_EVAL_SEED
 
     # ----- Validate required args per mode -----
     # Mode 'single' requires environment and algorithm config

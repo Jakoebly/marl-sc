@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config.loader import load_environment_config
 from src.config.schema import EnvironmentConfig
 from src.environment.envs.multi_env import InventoryEnvironment
+from src.experiments.utils.args import DEFAULT_ROOT_SEED
 from src.experiments.utils.experiment_utils import (
     generate_baseline_experiment_name,
     save_env_config,
@@ -1534,7 +1535,7 @@ def main():
     parser.add_argument("--storage-dir", type=str, default="./experiment_outputs")
     parser.add_argument("--experiment-name", type=str, default=None, help="Experiment folder name. If not provided, auto-generated.")
     parser.add_argument("--num-episodes", type=int, default=10)
-    parser.add_argument("--root-seed", type=int, default=42)
+    parser.add_argument("--root-seed", type=int, default=DEFAULT_ROOT_SEED)
     args = parser.parse_args()
 
     # Load environment config
