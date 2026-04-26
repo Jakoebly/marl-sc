@@ -15,7 +15,7 @@ import ray
 from ray import tune
 from ray.tune import RunConfig, CLIReporter
 
-from src.experiments.utils.args import parse_args
+from src.experiments.utils.args import parse_args, DEFAULT_EVAL_SEED, DEFAULT_EVAL_EPISODES
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
 from src.experiments.utils.wandb import setup_wandb
@@ -247,7 +247,7 @@ def run_tune_experiment(
     num_cpus_per_env_runner: Optional[int] = None,
     experiment_name: Optional[str] = None,
     root_seed: Optional[int] = None,
-    eval_seed: int = 123,
+    eval_seed: int = DEFAULT_EVAL_SEED,
     top_k: int = 10,
 ):
     """
@@ -266,7 +266,7 @@ def run_tune_experiment(
         experiment_name (Optional[str]): Name for the experiment.
         root_seed (Optional[int]): Root seed for reproducibility.
         eval_seed (int): Fixed root seed for the post-tune best-trial benchmark
-            evaluation (default: 123).
+            evaluation (default: ``DEFAULT_EVAL_SEED``).
         top_k (int): Number of top trials to save in best_trial_results.yaml.
 
     Returns:
@@ -316,8 +316,9 @@ def run_tune_experiment(
     # Wrap trainable with resources
     trainable_with_resources = tune.with_resources(trainable, resources_per_trial)
 
-    # Add root seed to the search config
+    # Add root seed and eval seed to the search config
     search_config["root_seed"] = root_seed
+    search_config["eval_seed"] = eval_seed
 
     # Setup scheduler and search algorithm from validated config objects
     scheduler = get_tune_scheduler(scheduler_config, metric=TUNE_METRIC, mode=TUNE_MODE)
@@ -372,7 +373,7 @@ def resume_tune_experiment(
     num_gpus: int = 0,
     num_cpus_per_env_runner: Optional[int] = None,
     wandb_project: Optional[str] = None,
-    eval_seed: int = 123,
+    eval_seed: Optional[int] = None,
     top_k: int = 10,
 ):
     """
@@ -388,8 +389,9 @@ def resume_tune_experiment(
         num_gpus (int): GPUs per trial.
         num_cpus_per_env_runner (Optional[int]): CPUs per env runner.
         wandb_project (Optional[str]): WandB project name.
-        eval_seed (int): Fixed root seed for the post-tune best-trial benchmark
-            evaluation (default: 123).
+        eval_seed (Optional[int]): Fixed root seed for the post-tune best-trial
+            benchmark evaluation (default: ``DEFAULT_EVAL_SEED``). Might be read
+            from ``params.json`` if the initial tune run stored it.
         top_k (int): Number of top trials to save in best_trial_results.yaml.
 
     Returns:
@@ -426,7 +428,12 @@ def resume_tune_experiment(
     # Get the algorithm config and number of environment runners from the tune config
     algorithm_config_dict = first_trial_config["algorithm_config"]
     num_env_runners = algorithm_config_dict["shared"]["num_env_runners"]
+
+    # Get the root seed and eval seed from the first trial's params.json.
+    # Resolution order: CLI override > stored value in params.json > DEFAULT_EVAL_SEED.
     root_seed = first_trial_config.get("root_seed")
+    if eval_seed is None:
+        eval_seed = first_trial_config.get("eval_seed", DEFAULT_EVAL_SEED)
 
     # Get required resources per trial
     resources_per_trial = get_resources_per_trial(
@@ -468,8 +475,8 @@ def resume_tune_experiment(
 def run_seed_evaluation(
     n_seeds: int = 5,
     top_k: int = 10,
-    eval_episodes: int = 100,
-    eval_seed: int = 123,
+    eval_episodes: int = DEFAULT_EVAL_EPISODES,
+    eval_seed: int = DEFAULT_EVAL_SEED,
     env_config_path: Optional[str] = None,
     algorithm_config_path: Optional[str] = None,
     storage_dir: Optional[str] = None,
@@ -492,7 +499,7 @@ def run_seed_evaluation(
         top_k (int): Number of top trials to evaluate (tune mode).
         eval_episodes (int): Episodes for final deterministic evaluation.
         eval_seed (int): Fixed root seed used for all final evaluations
-            (default: 123).
+            (default: ``DEFAULT_EVAL_SEED``).
         env_config_path (Optional[str]): Path to environment config (single mode).
         algorithm_config_path (Optional[str]): Path to algorithm config (single mode).
         storage_dir (Optional[str]): Root directory for outputs (single mode).
@@ -544,7 +551,7 @@ def _run_post_tune_analysis(
     metric: str = TUNE_METRIC,
     mode: str = TUNE_MODE,
     root_seed: Optional[int] = None,
-    eval_seed: int = 123,
+    eval_seed: int = DEFAULT_EVAL_SEED,
     top_k: int = 10,
 ):
     """
@@ -585,7 +592,7 @@ def _run_post_tune_analysis(
         eval_result = run_evaluation(
             checkpoint_dir=final_checkpoint,
             experiment_dir=best_trial_dir,
-            eval_episodes=100,
+            eval_episodes=DEFAULT_EVAL_EPISODES,
             root_seed=eval_seed,
             visualize=True,
         )
@@ -679,9 +686,9 @@ def trainable(config: Dict[str, Any]):
     # Run the experiment and report metrics each iteration via report_tune_metrics
     result = runner.run(tune_callback=report_tune_metrics)
 
-    # End-of-training deterministic evaluation (100 episodes) to produce a
-    # definitive eval metric for Optuna and trial selection.
-    eval_result = runner.algorithm.evaluate(eval_episodes=100)
+    # End-of-training deterministic evaluation (DEFAULT_EVAL_EPISODES) to
+    # produce a definitive eval metric for Optuna and trial selection.
+    eval_result = runner.algorithm.evaluate(eval_episodes=DEFAULT_EVAL_EPISODES)
     eval_reward = (
         eval_result
         .get("env_runners", {})
@@ -803,7 +810,7 @@ def _dispatch_experiment(args: Namespace):
     elif args.mode == "seed-eval":
         run_seed_evaluation(
             n_seeds=args.n_seeds,
-            eval_episodes=args.eval_episodes or 100,
+            eval_episodes=args.eval_episodes or DEFAULT_EVAL_EPISODES,
             eval_seed=args.eval_seed,
             wandb_project=args.wandb_project,
             num_iterations=args.num_iterations,
