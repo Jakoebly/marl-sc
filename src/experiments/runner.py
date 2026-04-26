@@ -213,7 +213,7 @@ class ExperimentRunner:
         if self.checkpoint_dir:
             self._save_final_checkpoint()
 
-        # Emodule weights only when not in tune mode to save disk space
+        # Save module weights only when not in tune mode to save disk space
         if not tune_callback and self.checkpoint_dir:
             self._export_module_weights()
 

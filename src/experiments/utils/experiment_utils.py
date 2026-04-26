@@ -456,11 +456,6 @@ def save_training_metrics(
     """
     Writes ``training_metrics.yaml`` in the checkpoint directory.
 
-    Kept as a list-of-dicts for backwards compatibility with
-    :func:`src.experiments.utils.seed_evaluation.load_training_metrics_from_disk`;
-    ``last_iteration`` is derivable as ``max(m['iteration'] for m in metrics)``
-    without needing a schema change.
-
     Args:
         checkpoint_dir (Path | str): Directory to write ``training_metrics.yaml`` into.
         metrics (List[Dict[str, Any]]): Per-iteration metrics list.

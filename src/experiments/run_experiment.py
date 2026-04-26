@@ -542,7 +542,8 @@ def run_seed_evaluation(
 
     # If multiple configs (tune mode), save an overall summary + combined plot
     if len(configs_to_eval) > 1 and tune_name is not None:
-        save_combined_seed_evaluation_summary(tune_name, all_config_stats)
+        seed_eval_dir = Path("experiment_outputs/Tuning") / tune_name / "seed_evaluation"
+        save_combined_seed_evaluation_summary(seed_eval_dir, all_config_stats)
 
     return all_config_stats
 
