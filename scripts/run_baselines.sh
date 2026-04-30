@@ -25,10 +25,9 @@
 #
 # Options:
 #   --name <Name>           Experiment / output folder name (required).
-#                           Convention: BASELINE_<n_warehouses>WH<n_skus>SKU_<env_class>
-#   --env-config <path>     Environment config YAML (required)
 #   --storage-dir <dir>     Parent directory for the experiment folder
 #                           (default: experiment_outputs/Runs)
+#   --env-config <path>     Environment config YAML (required)
 #   --n-seeds <N>           Number of seeds (default: 5)
 #   --eval-episodes <N>     Final eval episodes (default: 100)
 #   --eval-seed <N>         Held-out eval root seed shared by all
@@ -40,21 +39,20 @@
 #   --max-heal-rounds <N>   Stop self-healing after N rounds (default: 2)
 #
 # When --phase is omitted the script acts as a launcher. It computes the
-# SLURM array size (N_BASELINES * N_SEEDS) and submits a worker array job
-# plus a dependent aggregate job, both pointing back at this same script
-# with the appropriate --phase.
-#
-# Each worker runs ONE (baseline, root_seed) pair via
-# `run_baselines.py --mode single`, writing:
-#   <storage-dir>/<name>/seed_evaluation/<DisplayName>_Seed<root_seed>/eval_results_best.yaml
-#
+# SLURM array size and submits a worker array job + a dependent aggregate job,
+# both pointing back at this same script with the appropriate --phase.
+
 # The aggregate phase scans for missing pairs (via find_missing_baseline_tasks)
 # and either re-submits them (self-heal) or runs the final aggregator
 # (aggregate_seed_evaluation) which writes seed_evaluation_summary.yaml.
 
+# The aggregate phase is self-healing: if some (baseline, seed) pairs are
+# still missing, it re-submits only those array indices and chains a new 
+# aggregate behind them.
+
 NAME=""
-ENV_CONFIG=""
 STORAGE_DIR="experiment_outputs/Runs"
+ENV_CONFIG=""
 N_SEEDS=5
 EVAL_EPISODES=100
 EVAL_SEED=123
@@ -106,32 +104,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: ./scripts/run_baselines.sh --name <Name> --env-config <path> [options]"
+  echo "ERROR: --name is required for baseline seed-evaluation." >&2
   exit 1
 fi
 if [ -z "$ENV_CONFIG" ]; then
-  echo "ERROR: --env-config is required"
+  echo "ERROR: --env-config is required for baseline seed-evaluation." >&2
   exit 1
 fi
 
-
-# ============================================================================
-# Resolve seed-eval directory (shared by launcher / worker / aggregate)
-# ============================================================================
-
-# The seed-eval directory is always derived from --storage-dir and --name so
-# that baseline outputs land in their own BASELINE_* folder, structurally
-# identical to (but separate from) RL run folders.
-SEED_EVAL_DIR="${STORAGE_DIR}/${NAME}/seed_evaluation"
-
-
-# ============================================================================
-# Resolve baselines and array size
-# ============================================================================
-
 # Default to the canonical baseline list when --baselines was not provided.
-# Imported directly from the registry in run_baselines.py so the .sh and
-# .py stay in sync.
 if [ -z "$BASELINES" ]; then
   BASELINES="$(python -c "
 from src.experiments.run_baselines import BASELINE_NAMES
@@ -143,20 +124,24 @@ print(' '.join(BASELINE_NAMES))
   fi
 fi
 
-# Convert the baselines string into a bash array for index lookups in the
-# worker phase. This array MUST stay aligned with how run_baselines.py
-# registers baselines and with find_missing_baseline_tasks's task-id mapping.
+# Convert the baselines string into a bash array and compute the number of baselines
 read -r -a BASELINES_ARR <<< "$BASELINES"
 N_BASELINES=${#BASELINES_ARR[@]}
+
+# Set the experiment name and directories
+EXPERIMENT_NAME="${NAME}"
+EXPERIMENT_DIR="${STORAGE_DIR}/${EXPERIMENT_NAME}"
+SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation"
 
 
 # ============================================================================
 # LAUNCHER: no --phase was provided and we should launch the jobs
 # ============================================================================
 
+# If no phase was provided, launch the jobs
 if [ -z "$PHASE" ]; then
 
-  # Compute the array size
+  # Determine the array size and the maximum concurrent tasks
   ARRAY_SIZE=$(( N_BASELINES * N_SEEDS - 1 ))
   TOTAL_TASKS=$(( ARRAY_SIZE + 1 ))
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
@@ -164,10 +149,9 @@ if [ -z "$PHASE" ]; then
   # Collect all arguments to forward to the worker and aggregate phases
   FORWARD_ARGS="--name ${NAME} --env-config ${ENV_CONFIG} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
-  echo "Launching baseline seed-eval: name=${NAME}, n_baselines=${N_BASELINES}, n_seeds=${N_SEEDS}"
+  echo "Launching baseline seed evaluation: name=${NAME}, n_baselines=${N_BASELINES}, n_seeds=${N_SEEDS}"
   echo "Total tasks: ${TOTAL_TASKS} (${N_BASELINES} baselines x ${N_SEEDS} seeds)"
   echo "Baselines:   ${BASELINES}"
-  echo "Output dir:  ${SEED_EVAL_DIR}"
 
   # Submit worker array job
   WORKER_JOB=$(sbatch --parsable \
@@ -175,9 +159,7 @@ if [ -z "$PHASE" ]; then
     "$0" --phase worker ${FORWARD_ARGS})
   echo "Workers submitted: job ${WORKER_JOB} (${TOTAL_TASKS} tasks, max ${MAX_CONCURRENT} concurrent)"
 
-  # Aggregate depends on 'afterany' (not 'afterok') so a single failed worker
-  # does not stall the pipeline; the aggregate phase is self-healing and
-  # re-submits only the unfinished (baseline, seed) pairs.
+  # Submit aggregate job
   AGG_JOB=$(sbatch --parsable \
     --dependency=afterany:${WORKER_JOB} \
     --cpus-per-task=1 --mem=4G --time=00:30:00 \
@@ -192,21 +174,28 @@ fi
 # SHARED SETUP: shared settings for worker and aggregate phases
 # ============================================================================
 
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment
 module load miniforge/25.11.0-0
 cd /home/jakobeh/projects/marl-sc
 source ~/projects/marl-sc/.venv/bin/activate
 
+# Set the Python path, unbuffer the output, and set the Python hash seed
 export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
-# Pin thread pools to the cores SLURM granted us so two co-tenanted tasks
-# do not oversubscribe the node and slow each other down.
+# Pin thread pools to the cores SLURM actually granted us.
+# Default Python/PyTorch detects *physical* cores on the whole node and
+# oversubscribes with other tasks sharing the node, potentially
+# resulting in slow runs.
 CPUS_THREAD_PIN=${SLURM_CPUS_PER_TASK:-1}
 export OMP_NUM_THREADS="${CPUS_THREAD_PIN}"
 export MKL_NUM_THREADS="${CPUS_THREAD_PIN}"
 export OPENBLAS_NUM_THREADS="${CPUS_THREAD_PIN}"
 export NUMEXPR_NUM_THREADS="${CPUS_THREAD_PIN}"
+export TORCH_NUM_THREADS="${CPUS_THREAD_PIN}"
+export RAY_DEFAULT_OMP_NUM_THREADS="${CPUS_THREAD_PIN}"
 
 
 # ============================================================================
@@ -214,7 +203,7 @@ export NUMEXPR_NUM_THREADS="${CPUS_THREAD_PIN}"
 # ============================================================================
 
 if [ "$PHASE" = "aggregate" ]; then
-  echo "Running baseline seed-eval aggregation: name=${NAME}, heal_round=${HEAL_ROUND}"
+  echo "Running baseline seed-eval aggregation for: ${NAME} (heal_round=${HEAL_ROUND})"
 
   # ---------- Step 1 ----------
   # Detect any (baseline, seed) pairs whose eval_results_best.yaml is
@@ -224,7 +213,7 @@ if [ "$PHASE" = "aggregate" ]; then
 from src.experiments.run_baselines import find_missing_baseline_tasks
 baselines = '${BASELINES}'.split() or None
 missing = find_missing_baseline_tasks(
-    seed_eval_dir='${SEED_EVAL_DIR}',
+    storage_dir='${SEED_DIR}',
     n_seeds=${N_SEEDS},
     baselines=baselines,
 )
@@ -240,31 +229,37 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
   MISSING_STR=$(echo "$MISSING_RAW" | grep '^__MISSING_TASKS__:' | tail -n1 | sed 's/^__MISSING_TASKS__://')
 
   # ---------- Step 2 ----------
-  # If work is still pending and we have heal budget left, re-submit JUST
-  # the missing array indices and chain a new aggregate behind them.
+  # If work is still pending and we haven't exhausted the heal
+  # budget, re-submit JUST the missing array indices and chain a new
+  # aggregate behind them.
   if [ -n "$MISSING_STR" ]; then
+    # Count the number of missing tasks
     MISSING_COUNT=$(echo "$MISSING_STR" | awk -F, '{print NF}')
     if [ "$HEAL_ROUND" -lt "$MAX_HEAL_ROUNDS" ]; then
       NEXT_ROUND=$(( HEAL_ROUND + 1 ))
       MAX_CONCURRENT=$(( MISSING_COUNT < 17 ? MISSING_COUNT : 17 ))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
+      # Build the forward arguments for the worker and aggregate jobs
       HEAL_FORWARD="--name ${NAME} --env-config ${ENV_CONFIG} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
+      # Submit the missing worker jobs
       HEAL_WORKER_JOB=$(sbatch --parsable \
         --array=${MISSING_STR}%${MAX_CONCURRENT} \
         "$0" --phase worker ${HEAL_FORWARD})
       echo "[HEAL] Re-submitted workers: job ${HEAL_WORKER_JOB}"
 
+      # Submit a new aggregate job
       HEAL_AGG_JOB=$(sbatch --parsable \
         --dependency=afterany:${HEAL_WORKER_JOB} \
         --cpus-per-task=1 --mem=4G --time=00:30:00 \
         "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
       echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
 
-      # Exit 0 so SLURM does not flag the chain as failed; the next
-      # aggregate job will perform the final aggregation.
+      # Deliberately exit 0 since the next aggregate job will do the final plotting
       exit 0
+
+    # If we have exhausted the heal budget, proceed to the final aggregation
     else
       echo "[HEAL] Exhausted ${MAX_HEAL_ROUNDS} heal rounds but ${MISSING_COUNT} task(s) still missing: ${MISSING_STR}"
       echo "[HEAL] Proceeding to aggregate with incomplete results."
@@ -272,10 +267,10 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
   fi
 
   # ---------- Step 3 ----------
-  # Final aggregation: produces seed_evaluation_summary.yaml in SEED_EVAL_DIR.
+  # Final aggregation
   python -c "
 from src.experiments.utils.seed_evaluation import aggregate_seed_evaluation
-aggregate_seed_evaluation('${SEED_EVAL_DIR}')
+aggregate_seed_evaluation('${SEED_DIR}')
 "
   exit $?
 fi
@@ -285,47 +280,59 @@ fi
 # WORKER PHASE: each worker runs one (baseline, seed) pair
 # ============================================================================
 
+# If the phase is not worker, exit with an error
 if [ "$PHASE" != "worker" ]; then
   echo "ERROR: Unknown --phase: ${PHASE}" >&2
   exit 1
 fi
 
 # --------------------------------------------------
-# Map SLURM_ARRAY_TASK_ID to (baseline, seed)
+# Map SLURM_ARRAY_TASK_ID to baseline and seed index
 # --------------------------------------------------
 
-# Mirrors baseline_task_layout() in run_baselines.py:
-#   task_id    = baseline_idx * n_seeds + (seed_idx - 1)
-#   seed_idx   = task_id % n_seeds + 1
-#   root_seed  = seed_idx * 100
+# Use the ID of the current task to compute the baseline and seed index
 ID=${SLURM_ARRAY_TASK_ID}
 BASELINE_IDX=$(( ID / N_SEEDS ))
 SEED_IDX=$(( ID % N_SEEDS + 1 ))
+
+# Set the root seed as the seed index multiplied by 100 to ensure spaced out seeds
 ROOT_SEED=$(( SEED_IDX * 100 ))
 
+# Safeguard against out-of-bounds baseline index
 if [ $BASELINE_IDX -ge $N_BASELINES ]; then
   echo "ERROR: BASELINE_IDX=${BASELINE_IDX} >= N_BASELINES=${N_BASELINES} (id=${ID})"
   exit 1
 fi
 
+# Set the baseline name and get its display name
 BASELINE_NAME="${BASELINES_ARR[$BASELINE_IDX]}"
+BASELINE_DISPLAY_NAME="$(
+python - <<PY
+from src.experiments.run_baselines import BASELINE_DISPLAY_NAMES
+print(BASELINE_DISPLAY_NAMES["${BASELINE_NAME}"])
+PY
+)"
 
-echo "Task ${ID} -> Baseline #${BASELINE_IDX} (${BASELINE_NAME}), Seed #${SEED_IDX} (root_seed=${ROOT_SEED})"
-echo "  env_config:   ${ENV_CONFIG}"
-echo "  seed_eval:    ${SEED_EVAL_DIR}"
-echo "  eval_seed:    ${EVAL_SEED}"
-echo "  eval_eps:     ${EVAL_EPISODES}"
+# Set the seed evaluation directory
+SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation"
+SEED_BASELINE_DIR="${SEED_DIR}/${BASELINE_DISPLAY_NAME}"
+
+# Set the seed experiment name as the experiment name plus the root seed
+SEED_EXPERIMENT_NAME="${BASELINE_DISPLAY_NAME}_Seed${ROOT_SEED}"
+
+echo "Task ${ID} -> Baseline #${BASELINE_IDX} (${BASELINE_DISPLAY_NAME}), Seed #${SEED_IDX} (root_seed=${ROOT_SEED})"
+
 
 # --------------------------------------------------
-# Run the worker
+# Run the baseline
 # --------------------------------------------------
 
 python src/experiments/run_baselines.py \
   --mode single \
-  --baseline "${BASELINE_NAME}" \
+  --baselines "${BASELINE_NAME}" \
   --root-seed ${ROOT_SEED} \
   --env-config "${ENV_CONFIG}" \
-  --storage-dir "${STORAGE_DIR}" \
-  --experiment-name "${NAME}" \
+  --storage-dir "${SEED_BASELINE_DIR}" \
+  --experiment-name "${SEED_EXPERIMENT_NAME}" \
   --eval-seed ${EVAL_SEED} \
   --eval-episodes ${EVAL_EPISODES}

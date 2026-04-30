@@ -245,23 +245,28 @@ def validate_args(args: Namespace):
                 "not with --checkpoint-dir (which already points to a specific checkpoint)."
             )
 
-    # Mode 'seed-eval' requires either tune-name or (env-config + algorithm-config)
+     # Mode 'seed-eval' requires either tune-name or 
+     # (experiment-name (+ optional env-config & algorithm-config))
     elif args.mode == "seed-eval":
         has_tune = args.tune_name is not None
-        has_explicit = args.env_config is not None and args.algorithm_config is not None
-        if not has_tune and not has_explicit:
+        has_name = args.experiment_name is not None
+        has_env = args.env_config is not None
+        has_algo = args.algorithm_config is not None
+        if has_tune and (has_name or has_env or has_algo):
             raise ValueError(
-                "For seed-eval mode, provide either --tune-name (tune mode) or "
-                "--env-config + --algorithm-config (single mode)"
+                "Cannot combine --tune-name with --experiment-name / "
+                "--env-config / --algorithm-config. Use one or the other."
             )
-        if has_tune and has_explicit:
+        if not has_tune and not has_name:
             raise ValueError(
-                "Cannot specify both --tune-name and explicit configs. "
-                "Use one or the other."
+                "For seed-eval mode, provide either --tune-name (tune sub-case) "
+                "or --experiment-name (single sub-case, with optional "
+                "--env-config + --algorithm-config to seed-eval a fresh config)."
             )
-        if has_explicit and not args.experiment_name:
+        if has_env != has_algo:
             raise ValueError(
-                "--experiment-name is required for single-mode seed evaluation"
+                "--env-config and --algorithm-config must be provided together "
+                "(or both omitted to resolve them from the saved experiment dir)."
             )
 
     return args

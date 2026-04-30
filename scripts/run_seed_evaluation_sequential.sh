@@ -21,29 +21,54 @@
 # ============================================================================
 
 # Usage:
-#   	Single mode:
+#       Tune mode:
 #       sbatch scripts/run_seed_evaluation_sequential.sh \
 #           --mode tune \
-#           --tune-name "IPPO_Tune_3WH5SKU_Optuna" \
-#           [--n-seeds 5] [--top-k 10] [--eval-episodes 100] [--wandb]
+#           --tune-name <Name> \
+#           [opts]
 #
-#   	Tune mode:
+#       Single mode (fresh config: no prior training run required):
 #       sbatch scripts/run_seed_evaluation_sequential.sh \
 #         --mode single \
-#         --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
-#         --algorithm-config ./config_files/algorithms/ippo.yaml \
-#         --experiment-name "IPPO_3WH5SKU_Final" \
-#         [--n-seeds 5] [--eval-episodes 100] [--num-iterations N] [--wandb]
+#         --experiment-name <Name> \
+#         --env-config <path> \
+#         --algorithm-config <path> \
+#         [opts]
 #
-# Options:
-#   --eval-seed <N>  Root seed for the final evaluation; shared by all
-#                    seed runs so paired comparisons see identical eval
-#                    episodes (default: 123, distinct from per-seed training
-#                    seeds 100,200,... so the benchmark is held out)
-#   --wandb          Enable WandB logging with project "marl-sc"
-#                    (default: off; no wandb args passed to Python)
+#       Single mode (existing run: configs read from the run directory):
+#       sbatch scripts/run_seed_evaluation_sequential.sh \
+#         --mode single \
+#         --experiment-name <Name> \
+#         [opts]
+#
 
-SEED_EVAL_MODE=""
+# Options:
+#   --mode <single|tune>      Seed-eval mode (required)
+#   --tune-name <Name>        Tune name (required for tune mode)
+#   --experiment-name <Name>  Experiment name (required for single mode)
+#   --env-config <path>       Single-mode only. Path to an env config YAML to
+#                             seed-evaluate a fresh config (no prior run
+#                             required). Must be passed together with
+#                             --algorithm-config. When omitted, the saved
+#                             env_config.yaml in the resolved run directory
+#                             is used.
+#   --algorithm-config <path> Single-mode only. Path to an algorithm config
+#                             YAML. Must be passed together with --env-config.
+#                             When omitted, the saved algorithm_config.yaml in
+#                             the resolved run directory is used.
+#   --n-seeds <N>             Number of seeds (default: 5)
+#   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
+#   --num-iterations <N>      Override training iterations
+#   --eval-episodes <N>       Final eval episodes (default: 100)
+#   --eval-seed <N>           Root seed for the final evaluation; shared by
+#                             all (config, seed) pairs so paired comparisons
+#                             across seed runs see identical eval episodes
+#                             (default: 123, distinct from per-seed training
+#                             seeds 100,200,... so the benchmark is held out)
+#   --wandb                   Enable WandB logging with project "marl-sc"
+#                             (default: off; no wandb args passed to Python)
+
+MODE=""
 ENV_CONFIG=""
 ALGO_CONFIG=""
 EXPERIMENT_NAME=""
@@ -62,7 +87,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --mode requires a value" >&2; exit 1; }
-      SEED_EVAL_MODE="$2"; shift 2 ;;
+      MODE="$2"; shift 2 ;;
     --env-config)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --env-config requires a value" >&2; exit 1; }
       ENV_CONFIG="$2"; shift 2 ;;
@@ -95,13 +120,30 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
-if [ -z "$SEED_EVAL_MODE" ]; then
+
+# Validate args
+if [ -z "$MODE" ]; then
   echo "ERROR: --mode is required (single or tune)" >&2
   exit 1
 fi
-
+if [ -n "$ENV_CONFIG" ] && [ -z "$ALGO_CONFIG" ]; then
+  echo "ERROR: --env-config requires --algorithm-config" >&2
+  exit 1
+fi
+if [ -z "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
+  echo "ERROR: --algorithm-config requires --env-config" >&2
+  exit 1
+fi
+if [ "$MODE" = "tune" ] && { [ -n "$ENV_CONFIG" ] || [ -n "$ALGO_CONFIG" ]; }; then
+  echo "ERROR: --env-config / --algorithm-config are not valid in tune mode" >&2
+  exit 1
+fi
+if [ "$MODE" = "single" ] && [ -z "$EXPERIMENT_NAME" ]; then
+  echo "ERROR: --experiment-name is required for single-mode seed evaluation" >&2
+  exit 1
+fi
 # Print the arguments
-echo "SEED_EVAL_MODE=${SEED_EVAL_MODE}"
+echo "MODE=${MODE}"
 echo "N_SEEDS=${N_SEEDS}"
 echo "EVAL_EPISODES=${EVAL_EPISODES}"
 echo "EVAL_SEED=${EVAL_SEED}"
@@ -142,14 +184,15 @@ CMD=(
   --eval-episodes "$EVAL_EPISODES"
   --eval-seed "$EVAL_SEED"
 )
-
-if [ "$SEED_EVAL_MODE" = "tune" ]; then
+if [ "$MODE" = "tune" ]; then
   CMD+=(--tune-name "$TUNE_NAME" --top-k "$TOP_K")
-elif [ "$SEED_EVAL_MODE" = "single" ]; then
-  CMD+=(--env-config "$ENV_CONFIG" --algorithm-config "$ALGO_CONFIG")
+elif [ "$MODE" = "single" ]; then
   CMD+=(--experiment-name "$EXPERIMENT_NAME" --storage-dir "$STORAGE_DIR")
+  if [ -n "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
+    CMD+=(--env-config "$ENV_CONFIG" --algorithm-config "$ALGO_CONFIG")
+  fi
 else
-  echo "ERROR: --mode must be 'single' or 'tune' (got: ${SEED_EVAL_MODE})" >&2
+  echo "ERROR: --mode must be 'single' or 'tune' (got: ${MODE})" >&2
   exit 1
 fi
 

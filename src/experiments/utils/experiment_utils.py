@@ -368,6 +368,45 @@ def load_and_truncate_training_metrics(
 
     return metrics, best_metric_value, best_iteration
 
+def find_missing_seed_eval_tasks(
+    configs: List[Tuple[int, str, Path]], 
+    n_seeds: int,
+) -> List[int]:
+    """
+    Finds missing seed evaluation tasks for a (config_idx, seed_idx) tuple layout 
+    shared by RL seed-eval and baseline seed-eval pipelines.
+    
+    Args:
+        configs List[Tuple[int, str, Path]]: List of config tuples.
+        n_seeds (int): Number of seeds.
+
+    Returns:
+        missing (List[int]): List of missing task IDs.
+    """
+
+    # Loop over all tuples (config_idx, config_name, config_dir) in the configs list
+    missing: List[int] = []
+    for config_idx, config_name, config_dir in configs:
+        for seed_idx in range(1, n_seeds + 1):
+            root_seed = seed_idx * 100
+            task_id = config_idx * n_seeds + (seed_idx - 1)
+            eval_file = (
+                Path(config_dir)
+                / f"{config_name}_Seed{root_seed}"
+                / "eval_results_best.yaml"
+            )
+            if not eval_file.exists():
+                missing.append(task_id); continue
+            try:
+                with open(eval_file, encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            except (OSError, yaml.YAMLError):
+                missing.append(task_id); continue
+            if not isinstance(data.get("episode_return_mean"), (int, float)):
+                missing.append(task_id)
+                
+    return sorted(missing)
+
 
 # ============================================================================
 # Experiment Name Helpers

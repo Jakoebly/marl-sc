@@ -25,25 +25,46 @@
 #   ./scripts/run_seed_evaluation.sh --mode <single|tune> --name <Name> [opts]
 #
 # Options:
-#   --mode <single|tune>    Seed-eval mode (required)
-#   --name <Name>           Experiment or tune name (required)
-#   --n-seeds <N>           Number of seeds (default: 5)
-#   --top-k <K>             Top-K trials to evaluate (tune mode, default: 10)
-#   --num-iterations <N>    Override training iterations
-#   --eval-episodes <N>     Final eval episodes (default: 100)
-#   --eval-seed <N>         Root seed for the final evaluation; shared by
-#                           all (config, seed) pairs so paired comparisons
-#                           across seed runs see identical eval episodes
-#                           (default: 123, distinct from per-seed training
-#                           seeds 100,200,... so the benchmark is held out)
-#   --checkpoint-freq <N>   Override algorithm.shared.checkpoint_freq per
-#                           worker so resume granularity is fine enough for
-#                           the 6h walltime cap (default: 25)
-#   --wandb                 Enable WandB logging with project "marl-sc"
-#                           (default: off; no wandb args passed to Python)
-#   --phase <worker|aggregate>  Internal, set automatically by the launcher
-#   --heal-round <N>        Internal, self-heal recursion depth (default: 0)
-#   --max-heal-rounds <N>   Stop self-healing after N rounds (default: 2)
+#   --mode <single|tune>      Seed-eval mode (required)
+#   --name <Name>             Experiment or tune name (required).
+#                             Existing-run sub-case (no explicit configs):
+#                             resolved against <storage-dir>/ via
+#                             find_experiment_dir (supports prefix match).
+#                             New-config sub-case (with --env-config +
+#                             --algorithm-config): used as the literal folder
+#                             name under <storage-dir>/, created on demand.
+#   --storage-dir <path>      Base directory for runs (single mode) or tune
+#                             experiments (tune mode). Defaults to
+#                             experiment_outputs/Runs (single) or
+#                             experiment_outputs/Tuning (tune). When provided
+#                             explicitly, the directory must already exist.
+#   --env-config <path>       Single-mode only. Path to an env config YAML to
+#                             seed-evaluate a fresh config (no prior run
+#                             required). Must be passed together with
+#                             --algorithm-config. When omitted, the saved
+#                             env_config.yaml in the resolved run directory
+#                             is used.
+#   --algorithm-config <path> Single-mode only. Path to an algorithm config
+#                             YAML. Must be passed together with --env-config.
+#                             When omitted, the saved algorithm_config.yaml in
+#                             the resolved run directory is used.
+#   --n-seeds <N>             Number of seeds (default: 5)
+#   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
+#   --num-iterations <N>      Override training iterations
+#   --eval-episodes <N>       Final eval episodes (default: 100)
+#   --eval-seed <N>           Root seed for the final evaluation; shared by
+#                             all (config, seed) pairs so paired comparisons
+#                             across seed runs see identical eval episodes
+#                             (default: 123, distinct from per-seed training
+#                             seeds 100,200,... so the benchmark is held out)
+#   --checkpoint-freq <N>     Override algorithm.shared.checkpoint_freq per
+#                             worker so resume granularity is fine enough for
+#                             the 6h walltime cap (default: 25)
+#   --wandb                   Enable WandB logging with project "marl-sc"
+#                             (default: off; no wandb args passed to Python)
+#   --phase <worker|aggregate>Internal, set automatically by the launcher
+#   --heal-round <N>          Internal, self-heal recursion depth (default: 0)
+#   --max-heal-rounds <N>     Stop self-healing after N rounds (default: 2)
 #
 # When --phase is omitted the script acts as a launcher. It computes the
 # SLURM array size and submits a worker array job + a dependent aggregate job,
@@ -58,6 +79,9 @@ WANDB_PROJECT_NAME="marl-sc"
 
 MODE=""
 NAME=""
+STORAGE_DIR=""
+ENV_CONFIG=""
+ALGO_CONFIG=""
 N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
@@ -77,6 +101,15 @@ while [[ $# -gt 0 ]]; do
     --name)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --name requires a value" >&2; exit 1; }
       NAME="$2"; shift 2 ;;
+    --storage-dir)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --storage-dir requires a value" >&2; exit 1; }
+      STORAGE_DIR="$2"; shift 2 ;;
+    --env-config)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --env-config requires a value" >&2; exit 1; }
+      ENV_CONFIG="$2"; shift 2 ;;
+    --algorithm-config)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --algorithm-config requires a value" >&2; exit 1; }
+      ALGO_CONFIG="$2"; shift 2 ;;
     --n-seeds)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --n-seeds requires a value" >&2; exit 1; }
       N_SEEDS="$2"; shift 2 ;;
@@ -110,12 +143,41 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [ -z "$MODE" ] || [ -z "$NAME" ]; then
-  echo "Usage: ./scripts/run_seed_evaluation.sh --mode <single|tune> --name <Name> [options]"
+# Validate args
+if [ -z "$MODE" ]; then
+  echo "ERROR: --mode is required (single or tune)" >&2
   exit 1
 fi
 if [[ "$MODE" != "single" && "$MODE" != "tune" ]]; then
   echo "ERROR: --mode must be 'single' or 'tune' (got: ${MODE})" >&2
+  exit 1
+fi
+if [ -n "$ENV_CONFIG" ] && [ -z "$ALGO_CONFIG" ]; then
+  echo "ERROR: --env-config requires --algorithm-config" >&2
+  exit 1
+fi
+if [ -z "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
+  echo "ERROR: --algorithm-config requires --env-config" >&2
+  exit 1
+fi
+if [ "$MODE" = "tune" ] && { [ -n "$ENV_CONFIG" ] || [ -n "$ALGO_CONFIG" ]; }; then
+  echo "ERROR: --env-config / --algorithm-config are not valid in tune mode" >&2
+  exit 1
+fi
+if [ -z "$NAME" ]; then
+  echo "ERROR: --name is required for seed evaluation" >&2
+  exit 1
+fi
+
+# Default to the canonical storage directory when --storage-dir was not provided.
+if [ -z "$STORAGE_DIR" ]; then
+  if [ "$MODE" = "single" ]; then
+    STORAGE_DIR="experiment_outputs/Runs"
+  else
+    STORAGE_DIR="experiment_outputs/Tuning"
+  fi
+elif [ ! -d "$STORAGE_DIR" ]; then
+  echo "ERROR: --storage-dir does not exist: ${STORAGE_DIR}" >&2
   exit 1
 fi
 
@@ -127,25 +189,84 @@ fi
 # If no phase was provided, launch the jobs
 if [ -z "$PHASE" ]; then
 
-  # Compute the number of configs
+  # If in tune mode compute the number of configs based on the length of the top-k trials
   if [ "$MODE" = "tune" ]; then
     N_CONFIGS=$(python3 -c "
-import yaml, sys
-path = 'experiment_outputs/Tuning/${NAME}/best_trial_results.yaml'
+import sys
+from pathlib import Path
+import yaml
+from src.experiments.utils.experiment_utils import find_experiment_dir
 try:
+    experiment_dir = find_experiment_dir('${STORAGE_DIR}', '${NAME}')
+    if not experiment_dir.exists():
+        raise FileNotFoundError(f'Experiment directory not found: {experiment_dir}')
+    path = experiment_dir / 'best_trial_results.yaml'
     with open(path) as f:
         data = yaml.safe_load(f)
     print(min(${TOP_K}, len(data.get('top_k_trials', []))))
-except FileNotFoundError:
-    print(f'ERROR: {path} not found', file=sys.stderr)
+except (FileNotFoundError, ValueError) as e:
+    print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
 ")
     if [ $? -ne 0 ] || [ -z "$N_CONFIGS" ]; then
       echo "ERROR: Failed to determine number of configs from best_trial_results.yaml"
       exit 1
     fi
+  
+  # If in single mode, set the number of configs to 1
   else
     N_CONFIGS=1
+
+    # If explicit env/algorithm configs are provided, make sure they exist
+    if [ -n "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
+      if [ ! -f "$ENV_CONFIG" ]; then
+        echo "ERROR: --env-config not found: ${ENV_CONFIG}" >&2
+        exit 1
+      fi
+      if [ ! -f "$ALGO_CONFIG" ]; then
+        echo "ERROR: --algorithm-config not found: ${ALGO_CONFIG}" >&2
+        exit 1
+      fi
+    
+    # If no explicit env/algorithm configs are provided, find the experiment directory
+    # and make sure the saved env/algorithm configs can be resolved
+    else
+      EXPERIMENT_DIR=$(python3 -c "
+import sys
+from src.experiments.utils.experiment_utils import find_experiment_dir
+try:
+    experiment_dir = find_experiment_dir('${STORAGE_DIR}', '${NAME}')
+    print(str(experiment_dir))
+except (FileNotFoundError, ValueError) as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+")
+      if [ $? -ne 0 ] || [ -z "$EXPERIMENT_DIR" ]; then
+        echo "ERROR: No run directory matching '${NAME}' found under ${STORAGE_DIR}/." >&2
+        echo "  Either point --name at an existing run, or pass --env-config +" >&2
+        echo "  --algorithm-config to seed-evaluate a fresh config." >&2
+        exit 1
+      fi
+      if ! python3 -c "
+import os
+import sys
+from pathlib import Path
+from src.experiments.utils.experiment_utils import resolve_saved_config
+try:
+    d = Path('${EXPERIMENT_DIR}')
+    resolve_saved_config(d, 'env_config.yaml')
+    resolve_saved_config(d, 'algorithm_config.yaml')
+except FileNotFoundError as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+"; then
+        echo "ERROR: Resolved run dir '${EXPERIMENT_DIR}' is missing env_config.yaml" >&2
+        echo "  or algorithm_config.yaml. Either pass --env-config + --algorithm-config" >&2
+        echo "  to seed-evaluate a fresh config, or use a run with saved configs." >&2
+        exit 1
+      fi
+
+    fi
   fi
 
   # Determine the array size and the maximum concurrent tasks
@@ -154,15 +275,22 @@ except FileNotFoundError:
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
   if [ -n "$NUM_ITERATIONS" ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --num-iterations ${NUM_ITERATIONS}"
+  fi
+  if [ -n "$ENV_CONFIG" ]; then
+    FORWARD_ARGS="${FORWARD_ARGS} --env-config ${ENV_CONFIG}"
+  fi
+  if [ -n "$ALGO_CONFIG" ]; then
+    FORWARD_ARGS="${FORWARD_ARGS} --algorithm-config ${ALGO_CONFIG}"
   fi
   if [ "$USE_WANDB" = true ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --wandb"
   fi
-  echo "Launching seed evaluation: mode=${MODE}, name=${NAME}, seeds=${N_SEEDS}, configs=${N_CONFIGS}"
-  echo "Total tasks: $(( ARRAY_SIZE + 1 )) (${N_CONFIGS} configs x ${N_SEEDS} seeds)"
+  echo "Launching seed evaluation: mode=${MODE}, name=${NAME}, configs=${N_CONFIGS}, n_seeds=${N_SEEDS}"
+  echo "Total tasks: ${TOTAL_TASKS} (${N_CONFIGS} configs x ${N_SEEDS} seeds)"
+  echo "Output dir:  ${SEED_DIR}"
 
   # Submit worker array job
   WORKER_JOB=$(sbatch --parsable \
@@ -170,9 +298,7 @@ except FileNotFoundError:
     "$0" --phase worker ${FORWARD_ARGS})
   echo "Workers submitted: job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
 
-  # Aggregate depends on 'afterany' (not 'afterok') so that if any worker
-  # fails (walltime/OOM/crash), the aggregate phase still runs and triggers
-  # the self-healing re-submission instead of leaving the pipeline stalled.
+  # Submit aggregate job
   AGG_JOB=$(sbatch --parsable \
     --dependency=afterany:${WORKER_JOB} \
     --cpus-per-task=1 --mem=4G --time=00:30:00 \
@@ -226,7 +352,11 @@ if [ "$PHASE" = "aggregate" ]; then
   MISSING_RAW=$(python -c "
 from src.experiments.utils.seed_evaluation import find_missing_seed_evaluation_tasks
 missing = find_missing_seed_evaluation_tasks(
-    mode='${MODE}', name='${NAME}', n_seeds=${N_SEEDS}, top_k=${TOP_K},
+    mode='${MODE}', 
+    name='${NAME}', 
+    n_seeds=${N_SEEDS}, 
+    top_k=${TOP_K},
+    storage_dir='${STORAGE_DIR}',
 )
 print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
 ")
@@ -252,9 +382,15 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
       if [ -n "$NUM_ITERATIONS" ]; then
         HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
+      fi
+      if [ -n "$ENV_CONFIG" ]; then
+        HEAL_FORWARD="${HEAL_FORWARD} --env-config ${ENV_CONFIG}"
+      fi
+      if [ -n "$ALGO_CONFIG" ]; then
+        HEAL_FORWARD="${HEAL_FORWARD} --algorithm-config ${ALGO_CONFIG}"
       fi
       if [ "$USE_WANDB" = true ]; then
         HEAL_FORWARD="${HEAL_FORWARD} --wandb"
@@ -273,7 +409,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
         "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
       echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
 
-      # Deliberately exit 0 since the next aggregate job will do the final plotting.
+      # Deliberately exit 0 since the next aggregate job will do the final plotting
       exit 0
     
     # If we have exhausted the heal budget, proceed to the final aggregation
@@ -287,7 +423,11 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
   # Final aggregation + plots
   python -c "
 from src.experiments.utils.seed_evaluation import aggregate_and_plot_seed_evaluation
-aggregate_and_plot_seed_evaluation(mode='${MODE}', name='${NAME}')
+aggregate_and_plot_seed_evaluation(
+    mode='${MODE}', 
+    name='${NAME}',
+    storage_dir='${STORAGE_DIR}',
+)
 "
   exit $?
 fi
@@ -328,41 +468,61 @@ if [ "$MODE" = "single" ]; then
     exit 1
   fi
 
-  # Get the experiment path from the runs directory with the given name
-  EXPERIMENT_PATH=$(python -c "
+  # If new environment and algorithm configs are provided, create the experiment path
+  if [ -n "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
+    EXPERIMENT_DIR="${STORAGE_DIR}/${NAME}"
+    mkdir -p "$EXPERIMENT_DIR"
+    ENV_CFG_FILE="$ENV_CONFIG"
+    ALGO_CFG_FILE="$ALGO_CONFIG"
+  
+  # If an existing run name is provided, find its experiment dir
+  else
+    EXPERIMENT_DIR=$(python -c "
 import sys
 from src.experiments.utils.experiment_utils import find_experiment_dir
 try:
-    d = find_experiment_dir('experiment_outputs/Runs', '${NAME}')
-    print(str(d))
+    experiment_dir = find_experiment_dir('${STORAGE_DIR}', '${NAME}')
+    print(str(experiment_dir))
 except (FileNotFoundError, ValueError) as e:
     print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
 ")
-  if [ $? -ne 0 ] || [ -z "$EXPERIMENT_PATH" ]; then
-    echo "ERROR: Failed to find experiment '${NAME}' under experiment_outputs/Runs/"
-    exit 1
+    if [ $? -ne 0 ] || [ -z "$EXPERIMENT_DIR" ]; then
+      echo "ERROR: Failed to find experiment '${NAME}' under ${STORAGE_DIR}/"
+      exit 1
+    fi
+    ENV_CFG_FILE="${EXPERIMENT_DIR}/env_config.yaml"
+    ALGO_CFG_FILE="${EXPERIMENT_DIR}/algorithm_config.yaml"
   fi
 
   # Set the config path and name and the storage directory explicitly
-  CONFIG_PATH="${EXPERIMENT_PATH}"
-  CONFIG_NAME="${NAME}"
-  STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation"
+  EXPERIMENT_NAME="${NAME}"
+  SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation"
 
 # ---------- Tune mode ----------
 elif [ "$MODE" = "tune" ]; then
 
-  # Get the experiment path from the tuning directory with the given name
-  EXPERIMENT_PATH="experiment_outputs/Tuning/${NAME}"
-  if [ ! -d "$EXPERIMENT_PATH" ]; then
-    echo "ERROR: Tune experiment directory not found: ${EXPERIMENT_PATH}"
+  # Get the experiment directory from the storage_dir and name
+    EXPERIMENT_DIR=$(python -c "
+import sys
+from pathlib import Path
+from src.experiments.utils.experiment_utils import find_experiment_dir
+try:
+    experiment_dir = find_experiment_dir('${STORAGE_DIR}', '${NAME}')
+    print(experiment_dir)
+except (FileNotFoundError, ValueError) as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+")
+  if [ $? -ne 0 ] || [ -z "$EXPERIMENT_DIR" ]; then
+    echo "ERROR: Tune experiment not found for '${NAME}' under ${STORAGE_DIR}/"
     exit 1
   fi
 
   # Get the config path and name for the current CONFIG_IDX from the best trial results
   PYTHON_OUTPUT=$(python -c "
 import yaml, sys
-with open('${EXPERIMENT_PATH}/best_trial_results.yaml') as f:
+with open('${EXPERIMENT_DIR}/best_trial_results.yaml') as f:
     data = yaml.safe_load(f)
 trials = data.get('top_k_trials', [])
 idx = ${CONFIG_IDX}
@@ -380,19 +540,24 @@ print(f'{trial_path} {config_name}')
     echo "ERROR: Failed to resolve trial config for CONFIG_IDX=${CONFIG_IDX}"
     exit 1
   fi
-  read -r CONFIG_PATH CONFIG_NAME <<< "$PYTHON_OUTPUT"
+  read -r TRIAL_DIR EXPERIMENT_NAME <<< "$PYTHON_OUTPUT"
 
-  # Set the storage directory to the seed evaluation directory with the config name
-  STORAGE_DIR="${EXPERIMENT_PATH}/seed_evaluation/${CONFIG_NAME}"
+  # Tune-mode configs always live next to the trial directory
+  ENV_CFG_FILE="${TRIAL_DIR}/env_config.yaml"
+  ALGO_CFG_FILE="${TRIAL_DIR}/algorithm_config.yaml"
+
+  # Set the seed evaluation directory
+  SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation/${EXPERIMENT_NAME}"
 fi
 
-# Set the experiment name for both single and tune modes as the config name plus the root seed
-EXPERIMENT_NAME="${CONFIG_NAME}_Seed${ROOT_SEED}"
+# Set the seed experiment name as the experiment name plus the root seed
+SEED_EXPERIMENT_NAME="${EXPERIMENT_NAME}_Seed${ROOT_SEED}"
 
-echo "Task ${ID} -> Config #${CONFIG_IDX} (${CONFIG_NAME}), Seed #${SEED_IDX} (root_seed=${ROOT_SEED})"
-echo "  Config path:  ${CONFIG_PATH}"
-echo "  Storage dir:  ${STORAGE_DIR}"
-echo "  Experiment:   ${EXPERIMENT_NAME}"
+echo "Task ${ID} -> Config #${CONFIG_IDX} (${EXPERIMENT_NAME}), Seed #${SEED_IDX} (root_seed=${ROOT_SEED})"
+echo "  Env config:   ${ENV_CFG_FILE}"
+echo "  Algo config:  ${ALGO_CFG_FILE}"
+echo "  Storage dir:  ${SEED_DIR}"
+echo "  Experiment:   ${SEED_EXPERIMENT_NAME}"
 
 
 # --------------------------------------------------
@@ -402,9 +567,9 @@ echo "  Experiment:   ${EXPERIMENT_NAME}"
 # If a prior (killed) run for this (config, seed) left a periodic checkpoint_<N> behind, 
 # resume from the largest N instead of starting from iteration 1.
 RESUME_FROM=""
-RUN_DIR="${STORAGE_DIR}/${EXPERIMENT_NAME}"
-if [ -d "$RUN_DIR" ]; then
-  LATEST_CHKPT=$(ls -d "${RUN_DIR}"/checkpoint_[0-9]* 2>/dev/null \
+SEED_EXPERIMENT_DIR="${SEED_DIR}/${SEED_EXPERIMENT_NAME}"
+if [ -d "$SEED_EXPERIMENT_DIR" ]; then
+  LATEST_CHKPT=$(ls -d "${SEED_EXPERIMENT_DIR}"/checkpoint_[0-9]* 2>/dev/null \
     | awk -F'checkpoint_' '{print $2"|"$0}' \
     | sort -n \
     | tail -n1 \
@@ -430,10 +595,9 @@ python - <<PY
 import yaml, sys
 from pathlib import Path
 
-# Get the env and algorithm config paths from the config path
-config_path = Path("${CONFIG_PATH}")
-env_cfg_path = config_path / "env_config.yaml"
-algo_cfg_path = config_path / "algorithm_config.yaml"
+# Resolve env/algorithm config paths (file paths, set by the worker phase)
+env_cfg_path = Path("${ENV_CFG_FILE}")
+algo_cfg_path = Path("${ALGO_CFG_FILE}")
 
 # Check if the env and algorithm config files exist
 if not env_cfg_path.exists():
@@ -490,24 +654,24 @@ RAY_EXTRA_CLEANUP_PATHS="$TEMP_ENV_CONFIG $TEMP_ALGO_CONFIG"
 source scripts/lib/start_ray.sh
 
 
-# ============================================================================
+# --------------------------------------------------
 # Run training + evaluation
-# ============================================================================
+# --------------------------------------------------
 
 # Build training command
 TRAIN_CMD=(python src/experiments/run_experiment.py
     --mode single
     --env-config "$TEMP_ENV_CONFIG"
     --algorithm-config "$TEMP_ALGO_CONFIG"
-    --storage-dir "${STORAGE_DIR}"
-    --experiment-name "${EXPERIMENT_NAME}"
+    --storage-dir "${SEED_DIR}"
+    --experiment-name "${SEED_EXPERIMENT_NAME}"
     --root-seed ${ROOT_SEED}
     --eval-seed ${EVAL_SEED})
 if [ -n "$RESUME_FROM" ]; then
   TRAIN_CMD+=(--resume-from "$RESUME_FROM")
 fi
 if [ "$USE_WANDB" = true ]; then
-  TRAIN_CMD+=(--wandb-project "$WANDB_PROJECT_NAME" --wandb-name "$EXPERIMENT_NAME")
+  TRAIN_CMD+=(--wandb-project "$WANDB_PROJECT_NAME" --wandb-name "$SEED_EXPERIMENT_NAME")
 fi
 
 # Run training
@@ -519,10 +683,10 @@ if [ $TRAIN_EXIT -ne 0 ]; then
   exit $TRAIN_EXIT
 fi
 
-# Run evaluation	
+# Run evaluation
 python src/experiments/run_experiment.py \
     --mode evaluate \
-    --storage-dir "${STORAGE_DIR}" \
-    --experiment-name "${EXPERIMENT_NAME}" \
+    --storage-dir "${SEED_DIR}" \
+    --experiment-name "${SEED_EXPERIMENT_NAME}" \
     --eval-episodes ${EVAL_EPISODES} \
     --root-seed ${EVAL_SEED}

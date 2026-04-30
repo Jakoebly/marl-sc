@@ -44,26 +44,386 @@ from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 
 
 # ============================================================================
-# Baseline registry
+# SLURM helpers (task-id mapping and self-heal scan)
 # ============================================================================
 
-BASELINE_NAMES: Tuple[str, ...] = (
-    "random",
-    "constant",
-    "bs_newsvendor",
-    "bs_adaptive",
-    "bs_optimized",
-    "bs_independent",
-)
+def baseline_task_layout(
+    n_seeds: int,
+    baselines: Optional[List[str]] = None,
+) -> List[Tuple[int, str, int, int]]:
+    """
+    Returns the canonical ``(task_id, baseline, seed_idx, root_seed)``
+    layout the SLURM array launcher expects:
 
-BASELINE_DISPLAY_NAMES: Dict[str, str] = {
-    "random": "Random",
-    "constant": "ConstantOrder",
-    "bs_newsvendor": "BSNewsvendor",
-    "bs_adaptive": "BSAdaptive",
-    "bs_optimized": "BSOptimized",
-    "bs_independent": "BSIndependent",
-}
+        task_id    = baseline_idx * n_seeds + (seed_idx - 1)
+        seed_idx   = task_id % n_seeds + 1
+        root_seed  = seed_idx * 100
+
+    Args:
+        n_seeds (int): Number of seeds per baseline.
+        baselines (Optional[List[str]]): Ordered baseline list. Defaults to
+            :data:`BASELINE_NAMES`.
+
+    Returns:
+        layout (List[Tuple[int, str, int, int]]): ``(task_id, baseline,
+            seed_idx, root_seed)`` tuples.
+    """
+
+    # Default to all baselines if not provided
+    if baselines is None:
+        baselines = list(BASELINE_NAMES)
+
+    # Loop over all (baseline, seed) pairs and create the task layout
+    layout: List[Tuple[int, str, int, int]] = []
+    for baseline_idx, baseline in enumerate(baselines):
+        for seed_idx in range(1, n_seeds + 1):
+            task_id = baseline_idx * n_seeds + (seed_idx - 1)
+            layout.append((task_id, baseline, seed_idx, seed_idx * 100))
+    return layout
+
+def find_missing_baseline_tasks(
+    storage_dir: Path,
+    n_seeds: int,
+    baselines: Optional[List[str]] = None,
+) -> List[int]:
+    """
+    Returns SLURM array task IDs whose ``eval_results_best.yaml`` is 
+    missing or unreadable. Used by the self-healing mechanism of the
+    aggregate phase in ``scripts/run_baselines.sh``.
+
+    A task is considered complete when its expected run directory contains
+    an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
+
+    Args:
+        seed_eval_dir (Path): Parent directory of ``<DisplayName>_Seed<N>/``.
+        n_seeds (int): Number of seeds per baseline.
+        baselines (Optional[List[str]]): Ordered baseline list. Defaults
+            to :data:`BASELINE_NAMES`.
+
+    Returns:
+        missing (List[int]): Sorted SLURM array indices still pending.
+    """
+
+    # Set the storage directory
+    storage_dir = Path(storage_dir)
+
+    # Loop over all (baseline, seed) pairs and check for completed output
+    missing: List[int] = []
+    for task_id, baseline, _, root_seed in baseline_task_layout(n_seeds, baselines):
+        # Get the eval results file for the current (baseline, seed) pair
+        baseline_display_name = BASELINE_DISPLAY_NAMES[baseline]
+        seed_experiment_dir = (
+            storage_dir
+            / baseline_display_name
+            / f"{baseline_display_name}_Seed{root_seed}"
+        )
+        eval_file = seed_experiment_dir / "eval_results_best.yaml"
+        
+        # If the eval results file does not exist, add the task ID to the missing list
+        if not eval_file.exists():
+            missing.append(task_id)
+            continue
+        
+        # If the eval results file is not readable, add the task ID to the missing list
+        try:
+            with open(eval_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            missing.append(task_id)
+            continue
+
+        # If the eval results file does not contain a valid episode return mean, 
+        # add the task ID to the missing list
+        if not isinstance(data.get("episode_return_mean"), (int, float)):
+            missing.append(task_id)
+
+    return sorted(missing)
+
+
+# ============================================================================
+# Environment construction helpers
+# ============================================================================
+
+def make_eval_env(
+    env_config: EnvironmentConfig,
+    eval_seed: int,
+    eval_episodes: int,
+) -> InventoryEnvironment:
+    """
+    Builds an evaluation env that mirrors RLlib's eval env exactly.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        eval_seed (int): Fixed root seed for the evaluation distribution.
+        eval_episodes (int): Number of rollout episodes; sets the env-side
+            cycle so the counter does not wrap mid-loop.
+
+    Returns:
+        env (InventoryEnvironment): Eval-mode environment instance.
+    """
+
+    return InventoryEnvironment(
+        env_config,
+        seed=eval_seed,
+        env_meta={"data_mode": "val", "num_eval_episodes": eval_episodes},
+    )
+
+def make_train_env(
+    env_config: EnvironmentConfig,
+    seed: int,
+) -> InventoryEnvironment:
+    """
+    Builds a training env that mirrors RLlib's train env exactly.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        seed (int): Root seed for the training-side episodes.
+
+    Returns:
+        env (InventoryEnvironment): Train-mode environment instance.
+    """
+
+    return InventoryEnvironment(
+        env_config,
+        seed=seed,
+        env_meta={"data_mode": "train"},
+    )
+
+
+# ============================================================================
+# Rollout and aggregation helpers
+# ============================================================================
+
+def episode_costs(episode: Dict[str, np.ndarray]) -> Dict[str, float]:
+    """
+    Computes per-component total costs and reward for a single episode.
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict (must have
+            been produced with ``collect_step_info=True``).
+
+    Returns:
+        costs (Dict[str, float]): Reward and cost components for the episode.
+    """
+
+    # Compute the costs for the episode
+    costs = {
+        "reward": float(episode["rewards"].sum()),
+        "holding": float(episode["holding_cost"].sum()),
+        "penalty": float(episode["penalty_cost"].sum()),
+        "outbound": float(episode["outbound_shipment_cost"].sum()),
+        "inbound": float(episode["inbound_shipment_cost"].sum()),
+    }
+
+    return costs
+
+def aggregate_costs(episodes: List[Dict[str, np.ndarray]]) -> Dict[str, float]:
+    """
+    Aggregates per-episode costs into mean/std summaries.
+
+    Args:
+        episodes (List[Dict[str, np.ndarray]]): Episodes from
+            :func:`baseline_rollout` (with ``collect_step_info=True``).
+
+    Returns:
+        agg (Dict[str, float]): Mean and std summaries.
+    """
+
+    # Extract the costs from the episodes
+    costs = [episode_costs(ep) for ep in episodes]
+    rewards = [c["reward"] for c in costs]
+    total_costs = [c["holding"] + c["penalty"] + c["outbound"] + c["inbound"] for c in costs]
+
+    # Compute the stats of the costs
+    agg = {
+        "reward_mean": float(np.mean(rewards)),
+        "reward_std": float(np.std(rewards, ddof=1) if len(rewards) > 1 else 0.0),
+        "reward_min": float(np.min(rewards)),
+        "reward_max": float(np.max(rewards)),
+        "holding_mean": float(np.mean([c["holding"] for c in costs])),
+        "penalty_mean": float(np.mean([c["penalty"] for c in costs])),
+        "outbound_mean": float(np.mean([c["outbound"] for c in costs])),
+        "inbound_mean": float(np.mean([c["inbound"] for c in costs])),
+        "total_cost_mean": float(np.mean(total_costs)),
+        "total_cost_std": float(np.std(total_costs, ddof=1) if len(total_costs) > 1 else 0.0),
+    }
+
+    return agg
+
+
+# ============================================================================
+# Rollout functions
+# ============================================================================
+
+def baseline_rollout(
+    env: InventoryEnvironment,
+    action_fn: Callable,
+    num_episodes: int,
+    collect_step_info: bool = True,
+) -> List[Dict[str, np.ndarray]]:
+    """
+    Runs ``num_episodes`` deterministic rollout episodes using a fixed
+    ``action_fn`` (no learning, no exploration noise).
+
+    Args:
+        env (InventoryEnvironment): Environment instance to evaluate on.
+        action_fn (Callable): ``action_fn(env, obs)`` returning agent_id ->
+            action arrays in ``[-1, 1]``.
+        num_episodes (int): Number of episodes to roll out.
+        collect_step_info (bool): If ``True``, collect per-step info to
+            enable cost decomposition. Set to ``False`` inside hot loops
+            (e.g., BO objective) to skip the bookkeeping cost.
+
+    Returns:
+        all_episodes (List[Dict[str, np.ndarray]]): Per-episode data dicts.
+    """
+
+    # Enable per-step info collection
+    env.collect_step_info = collect_step_info
+
+    # Run manual rollout
+    all_episodes: List[Dict[str, np.ndarray]] = []
+    for _ in range(num_episodes):
+        # Initialize episode data and reset environment
+        episode_data: Dict[str, List[Any]] = {}
+        obs, _ = env.reset()
+
+        # Run episode
+        done = False
+        while not done:
+            # Query the action function for actions and step environment
+            actions = action_fn(env, obs)
+            obs, rewards, terms, truncs, infos = env.step(actions)
+
+    	    # Extract step info (shared across all agents)
+            if collect_step_info:
+                step_info = infos[env.agents[0]]
+                for key, value in step_info.items():
+                    episode_data.setdefault(key, []).append(
+                        value.copy() if isinstance(value, np.ndarray) else value
+                    )
+
+            # Record per-warehouse rewards and check if the episode is done
+            rewards_array = np.array([rewards[a] for a in env.agents])
+            episode_data.setdefault("rewards", []).append(rewards_array)
+            done = all(truncs.values()) or all(terms.values())
+
+        episode_dict = {k: np.array(v) for k, v in episode_data.items()}
+        all_episodes.append(episode_dict)
+
+    # Disable per-step info collection
+    env.collect_step_info = False
+
+    return all_episodes
+
+def calibrate_demand(
+    env_config: EnvironmentConfig,
+    calibration_seed: int,
+    calibration_episodes: int = 50,
+) -> np.ndarray:
+    """
+    Estimates empirical mean demand per (warehouse, SKU) by running
+    episodes with an zero-order policy on ``data_mode="train"``. Demand
+    is read from ``env._incoming_demand_home``, which records raw 
+    home-region demand independent of the agent's actions.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        calibration_seed (int): Seed for reproducible calibration rollouts,
+            independent of the eval seed.
+        calibration_episodes (int): Number of calibration episodes.
+
+    Returns:
+        mean_demand (np.ndarray): Mean demand per timestep, shape
+            ``(n_warehouses, n_skus)``.
+    """
+
+    # Create the calibration environment
+    env = make_train_env(env_config, calibration_seed)
+
+    # Run the calibration rollouts
+    demand_observations: List[np.ndarray] = []
+    for _ in range(calibration_episodes):
+        # Reset the environment
+        env.reset()
+
+        # Run the episode
+        done = False
+        while not done:
+            # Set the actions of all agents to zero-order and step the environment
+            actions = {
+                agent_id: np.full(env.n_skus, -1.0, dtype=np.float32)
+                for agent_id in env.agents
+            }
+            _, _, terms, truncs, _ = env.step(actions)
+
+            # Record the incoming demand and check if the episode is done
+            demand_observations.append(env._incoming_demand_home.copy())
+            done = all(truncs.values()) or all(terms.values())
+
+    # Compute the mean demand
+    mean_demand = np.array(demand_observations).mean(axis=0)
+
+    return mean_demand
+
+def run_sweep(
+    env_config: EnvironmentConfig,
+    sweep_seed: int,
+    num_episodes: int,
+    sweep_values: List[Any],
+    make_action_fn: Callable[[Any], Callable],
+    label_fn: Callable[[Any], str],
+) -> Tuple[List[float], int]:
+    """
+    Evaluates a sequence of candidate hyperparameters on a sweep
+    rollout and returns the per-value mean reward and the argmax index.
+    It is run on ``data_mode="train"``and seed ``sweep_seed``to avoid
+    confounding with the final eval.
+    
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        sweep_seed (int): Seed for the sweep rollouts; must be
+            distinct from ``eval_seed`` and any other run's eval seed.
+        num_episodes (int): Episodes per sweep value.
+        sweep_values (List[Any]): Candidate hyperparameter values.
+        make_action_fn (Callable[[Any], Callable]): Maps a candidate value
+            to an action function.
+        label_fn (Callable[[Any], str]): Maps a candidate value to a
+            human-readable label.
+
+    Returns:
+        sweep_rewards (List[float]): Mean reward per candidate.
+        best_idx (int): Index of the argmax candidate.
+    """
+
+    # Run the sweep rollouts for each candidate sweep value
+    rewards: List[float] = []
+    best_idx = 0
+    best_reward = -np.inf
+    for idx, value in enumerate(sweep_values):
+        # Create the training environment
+        env = make_train_env(env_config, sweep_seed)
+
+        # Run the baseline rollout 
+        episodes = baseline_rollout(
+            env,
+            make_action_fn(value),
+            num_episodes,
+            collect_step_info=False,
+        )
+
+        # Compute the mean reward 
+        ep_rewards = [float(ep["rewards"].sum()) for ep in episodes]
+        mean_reward = float(np.mean(ep_rewards))
+        rewards.append(mean_reward)
+        print(f"    [val] {label_fn(value)}  ->  reward={mean_reward:>10.1f}")
+        
+        # Update the best reward and index if the current mean reward is better
+        if mean_reward > best_reward:
+            best_reward = mean_reward
+            best_idx = idx
+
+    return rewards, best_idx
 
 
 # ============================================================================
@@ -338,280 +698,534 @@ def make_bs_optimized_action_fn(
 
 
 # ============================================================================
-# Environment construction helpers
+# Per-baseline run functions
 # ============================================================================
 
-def make_eval_env(
+def run_action_fn_evaluation(
     env_config: EnvironmentConfig,
+    action_fn: Callable,
     eval_seed: int,
     eval_episodes: int,
-) -> InventoryEnvironment:
+) -> Dict[str, Any]:
     """
-    Builds an evaluation env that mirrors RLlib's eval env exactly.
+    Runs the final evaluation of a fixed policy on the held-out eval seed
+    and returns a dict matching the schema produced by RL's
+    ``EvaluationRunner.run()``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        eval_seed (int): Fixed root seed for the evaluation distribution.
-        eval_episodes (int): Number of rollout episodes; sets the env-side
-            cycle so the counter does not wrap mid-loop.
+        action_fn (Callable): Pre-built action function for the policy.
+        eval_seed (int): Held-out root seed for the final evaluation
+            (default 123 across all RL and baseline runs).
+        eval_episodes (int): Number of evaluation episodes.
 
     Returns:
-        env (InventoryEnvironment): Eval-mode environment instance.
+        eval_results (Dict[str, Any]): Top-level dict including
+            ``episode_return_mean`` and per-component cost statistics.
     """
 
-    return InventoryEnvironment(
-        env_config,
-        seed=eval_seed,
-        env_meta={"data_mode": "val", "num_eval_episodes": eval_episodes},
-    )
-
-def make_train_env(
-    env_config: EnvironmentConfig,
-    seed: int,
-) -> InventoryEnvironment:
-    """
-    Builds a training env that mirrors RLlib's train env exactly.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        seed (int): Root seed for the training-side episodes.
-
-    Returns:
-        env (InventoryEnvironment): Train-mode environment instance.
-    """
-
-    return InventoryEnvironment(
-        env_config,
-        seed=seed,
-        env_meta={"data_mode": "train"},
-    )
-
-
-# ============================================================================
-# Rollout and aggregation
-# ============================================================================
-
-def baseline_rollout(
-    env: InventoryEnvironment,
-    action_fn: Callable,
-    num_episodes: int,
-    collect_step_info: bool = True,
-) -> List[Dict[str, np.ndarray]]:
-    """
-    Runs ``num_episodes`` deterministic rollout episodes using a fixed
-    ``action_fn`` (no learning, no exploration noise).
-
-    Args:
-        env (InventoryEnvironment): Environment instance to evaluate on.
-        action_fn (Callable): ``action_fn(env, obs)`` returning agent_id ->
-            action arrays in ``[-1, 1]``.
-        num_episodes (int): Number of episodes to roll out.
-        collect_step_info (bool): If ``True``, collect per-step info to
-            enable cost decomposition. Set to ``False`` inside hot loops
-            (e.g., BO objective) to skip the bookkeeping cost.
-
-    Returns:
-        all_episodes (List[Dict[str, np.ndarray]]): Per-episode data dicts.
-    """
-
-    # Enable per-step info collection
-    env.collect_step_info = collect_step_info
-
-    # Run manual rollout
-    all_episodes: List[Dict[str, np.ndarray]] = []
-    for _ in range(num_episodes):
-        # Initialize episode data and reset environment
-        episode_data: Dict[str, List[Any]] = {}
-        obs, _ = env.reset()
-
-        # Run episode
-        done = False
-        while not done:
-            # Query the action function for actions and step environment
-            actions = action_fn(env, obs)
-            obs, rewards, terms, truncs, infos = env.step(actions)
-
-    	    # Extract step info (shared across all agents)
-            if collect_step_info:
-                step_info = infos[env.agents[0]]
-                for key, value in step_info.items():
-                    episode_data.setdefault(key, []).append(
-                        value.copy() if isinstance(value, np.ndarray) else value
-                    )
-
-            # Record per-warehouse rewards
-            rewards_array = np.array([rewards[a] for a in env.agents])
-            episode_data.setdefault("rewards", []).append(rewards_array)
-
-    	    # Check if episode is done
-            done = all(truncs.values()) or all(terms.values())
-
-        episode_dict = {k: np.array(v) for k, v in episode_data.items()}
-        all_episodes.append(episode_dict)
-
-    # Disable per-step info collection
-    env.collect_step_info = False
-
-    return all_episodes
-
-
-def episode_costs(episode: Dict[str, np.ndarray]) -> Dict[str, float]:
-    """
-    Computes per-component total costs and reward for a single episode.
-
-    Args:
-        episode (Dict[str, np.ndarray]): Episode data dict (must have
-            been produced with ``collect_step_info=True``).
-
-    Returns:
-        costs (Dict[str, float]): Reward and cost components for the episode.
-    """
-
-    return {
-        "reward": float(episode["rewards"].sum()),
-        "holding": float(episode["holding_cost"].sum()),
-        "penalty": float(episode["penalty_cost"].sum()),
-        "outbound": float(episode["outbound_shipment_cost"].sum()),
-        "inbound": float(episode["inbound_shipment_cost"].sum()),
+    # Create the evaluation environment and run the rollout
+    env = make_eval_env(env_config, eval_seed, eval_episodes)
+    episodes = baseline_rollout(env, action_fn, eval_episodes, collect_step_info=True)
+    
+    # Aggregate costs and create the evaluation results dictionary
+    agg = aggregate_costs(episodes)
+    eval_results = {
+        "episode_return_mean": agg["reward_mean"],
+        "episode_return_std": agg["reward_std"],
+        "episode_return_min": agg["reward_min"],
+        "episode_return_max": agg["reward_max"],
+        "num_episodes": int(eval_episodes),
+        "cost_components": {
+            "holding_mean": agg["holding_mean"],
+            "penalty_mean": agg["penalty_mean"],
+            "outbound_mean": agg["outbound_mean"],
+            "inbound_mean": agg["inbound_mean"],
+            "total_cost_mean": agg["total_cost_mean"],
+            "total_cost_std": agg["total_cost_std"],
+        },
     }
 
+    return eval_results
 
-def aggregate_costs(episodes: List[Dict[str, np.ndarray]]) -> Dict[str, float]:
+def run_random_baseline(
+    env_config: EnvironmentConfig,
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+) -> Dict[str, Any]:
     """
-    Aggregates per-episode costs into mean/std summaries.
+    Runs the random baseline that samples uniform random orders in
+    ``[-1, 1]`` for every warehouse-SKU pair.
+
+    Has no calibration step. The action RNG is seeded directly from
+    ``root_seed`` so different seed runs produce independent random
+    policies (the across-seed std then captures the effect of policy
+    stochasticity, analogous to RL across-seed training stochasticity).
 
     Args:
-        episodes (List[Dict[str, np.ndarray]]): Episodes from
-            :func:`baseline_rollout` (with ``collect_step_info=True``).
-
+        env_config (EnvironmentConfig): Environment configuration.
+        root_seed (int): Per-run root seed (e.g., ``100, 200, ...``).
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+    
     Returns:
-        agg (Dict[str, float]): Mean and std summaries.
+        result (Dict[str, Any]): Eval results dict to be written to
+            ``eval_results_best.yaml``.
     """
 
-    costs = [episode_costs(ep) for ep in episodes]
-    rewards = [c["reward"] for c in costs]
-    total_costs = [c["holding"] + c["penalty"] + c["outbound"] + c["inbound"] for c in costs]
+    # Create a RNG from the root seed so different seed 
+    # runs produce independent random policies
+    rng = np.random.default_rng(root_seed)
 
+    # Create the action function and run the evaluation
+    action_fn = make_random_action_fn(rng)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
     return {
-        "reward_mean": float(np.mean(rewards)),
-        "reward_std": float(np.std(rewards, ddof=1) if len(rewards) > 1 else 0.0),
-        "reward_min": float(np.min(rewards)),
-        "reward_max": float(np.max(rewards)),
-        "holding_mean": float(np.mean([c["holding"] for c in costs])),
-        "penalty_mean": float(np.mean([c["penalty"] for c in costs])),
-        "outbound_mean": float(np.mean([c["outbound"] for c in costs])),
-        "inbound_mean": float(np.mean([c["inbound"] for c in costs])),
-        "total_cost_mean": float(np.mean(total_costs)),
-        "total_cost_std": float(np.std(total_costs, ddof=1) if len(total_costs) > 1 else 0.0),
+        "baseline": "random",
+        "selected_hparams": {},
+        **eval_results,
     }
 
-
-# ============================================================================
-# Demand calibration and sweep helpers
-# ============================================================================
-
-def calibrate_demand(
+def run_constant_baseline(
     env_config: EnvironmentConfig,
-    calibration_seed: int,
-    num_calibration_episodes: int = 50,
-) -> np.ndarray:
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+    alpha_values: Optional[List[float]] = None,
+    calibration_episodes: int = 50,
+    sweep_episodes: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Estimates empirical mean demand per (warehouse, SKU) by running
-    pilot episodes with a zero-order policy on ``data_mode="train"``.
+    Runs the constant-order baseline that orders fixed per-(warehouse, SKU)
+    quantities ``round(alpha * mean_demand)`` at each timestep. Parameter
+    ``alpha`` is selected by a validation sweep on ``data_mode="train"``
+    
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        alpha_values (Optional[List[float]]): Sweep grid for ``alpha``.
+        calibration_episodes (int): Pilot episodes for demand
+            calibration.
+        sweep_episodes (Optional[int]): Episodes per sweep value
+            on validation (defaults to ``eval_episodes``).
 
-    The zero-order policy ensures observations are not confounded by
-    inventory-dependent allocation effects. Demand is read from
-    ``env._incoming_demand_home``, which records raw home-region demand
-    independent of the agent's actions.
+    Returns:
+        result (Dict[str, Any]): Eval results dict.
+    """
+
+    # Create a seed manager and spawn calibration and sweep seeds
+    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    calibration_seed, sweep_seed = sm.spawn_child_seeds("train", 2)
+
+    # Default alpha values to 0.05 if not provided
+    if alpha_values is None:
+        alpha_values = [round(0.05 * i, 2) for i in range(1, 41)]
+
+    # Default sweep episodes to eval episodes if not provided
+    sweep_episodes = sweep_episodes or eval_episodes
+
+    # Calibrate to get the mean demand
+    print("  Calibrating mean demand...")
+    mean_demand = calibrate_demand(
+        env_config, calibration_seed, calibration_episodes,
+    )
+
+    # Extract max order quantities for the action function
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Run the sweep
+    print(f"  Sweeping alpha grid of ({len(alpha_values)} values, "
+          f"{sweep_episodes} eps each, sweep_seed={sweep_seed})...")
+    sweep_rewards, best_idx = run_sweep(
+        env_config=env_config,
+        sweep_seed=sweep_seed,
+        num_episodes=sweep_episodes,
+        sweep_values=alpha_values,
+        make_action_fn=lambda alpha: make_constant_action_fn(
+            np.round(alpha * mean_demand), max_qty,
+        ),
+        label_fn=lambda alpha: f"alpha={alpha:.2f}",
+    )
+
+    # Select the best alpha value and compute the best constant quantities
+    best_alpha = alpha_values[best_idx]
+    best_quantities = np.round(best_alpha * mean_demand)
+
+    # Create the action function based on the best
+    # constant quantities and run final evaluation
+    action_fn = make_constant_action_fn(best_quantities, max_qty)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "constant",
+        "selected_hparams": {
+            "best_alpha": float(best_alpha),
+            "calibrated_mean_demand": mean_demand.tolist(),
+            "best_quantities": best_quantities.tolist(),
+        },
+        "validation": {
+            "sweep_seed": int(sweep_seed),
+            "sweep_episodes": int(sweep_episodes),
+            "alpha_values": [float(a) for a in alpha_values],
+            "sweep_rewards": [float(r) for r in sweep_rewards],
+            "best_idx": int(best_idx),
+        },
+        "calibration": {
+            "calibration_seed": int(calibration_seed),
+            "calibration_episodes": int(calibration_episodes),
+        },
+        **eval_results,
+    }
+
+    return results
+
+def run_bs_newsvendor_baseline(
+    env_config: EnvironmentConfig,
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+    z_values: Optional[List[float]] = None,
+    sweep_episodes: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Runs the BS-Newsvendor baseline that implements an oracle base-stock
+    heuristic with true demand parameters and is swept over safety factor
+    ``z`` on a sweep rollout.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        calibration_seed (int): Seed for reproducible calibration rollouts,
-            independent of the eval seed.
-        num_calibration_episodes (int): Number of pilot episodes.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        z_values (Optional[List[float]]): Sweep grid for ``z``.
+        sweep_episodes (Optional[int]): Episodes per sweep value.
 
     Returns:
-        mean_demand (np.ndarray): Mean demand per timestep, shape
-            ``(n_warehouses, n_skus)``.
+        result (Dict[str, Any]): Eval results dict.
     """
 
-    env = make_train_env(env_config, calibration_seed)
-    demand_observations: List[np.ndarray] = []
+    # Create a seed manager and spawn a sweep seed
+    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    (sweep_seed,) = sm.spawn_child_seeds("train", 1)
 
-    for _ in range(num_calibration_episodes):
-        env.reset()
-        done = False
-        while not done:
-            actions = {
-                agent_id: np.full(env.n_skus, -1.0, dtype=np.float32)
-                for agent_id in env.agents
-            }
-            _, _, terms, truncs, _ = env.step(actions)
-            demand_observations.append(env._incoming_demand_home.copy())
-            done = all(truncs.values()) or all(terms.values())
+    # Default z values to 0.25 if not provided
+    if z_values is None:
+        z_values = [round(0.25 * i, 2) for i in range(25)]
+    
+    # Default sweep episodes to eval episodes if not provided
+    sweep_episodes = sweep_episodes or eval_episodes
 
-    return np.array(demand_observations).mean(axis=0)
+    # Run the sweep
+    print(f"  Validating z grid ({len(z_values)} values, "
+          f"{sweep_episodes} eps each, sweep_seed={sweep_seed})...")
+    sweep_rewards, best_idx = run_sweep(
+        env_config=env_config,
+        sweep_seed=sweep_seed,
+        num_episodes=sweep_episodes,
+        sweep_values=z_values,
+        make_action_fn=lambda z: make_bs_newsvendor_action_fn(env_config, z=z),
+        label_fn=lambda z: f"z={z:5.2f}",
+    )
 
+    # Select the best z value
+    best_z = z_values[best_idx]
 
-def run_validation_sweep(
+    # Create the action function based on the best
+    # z value and run final evaluation
+    action_fn = make_bs_newsvendor_action_fn(env_config, z=best_z)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "bs_newsvendor",
+        "selected_hparams": {"best_z": float(best_z)},
+        "validation": {
+            "sweep_seed": int(sweep_seed),
+            "sweep_episodes": int(sweep_episodes),
+            "z_values": [float(z) for z in z_values],
+            "sweep_rewards": [float(r) for r in sweep_rewards],
+            "best_idx": int(best_idx),
+        },
+        **eval_results,
+    }
+
+    return results
+
+def run_bs_adaptive_baseline(
     env_config: EnvironmentConfig,
-    validation_seed: int,
-    num_episodes: int,
-    sweep_values: List[Any],
-    make_action_fn: Callable[[Any], Callable],
-    label_fn: Callable[[Any], str],
-) -> Tuple[List[float], int]:
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+    z_values: Optional[List[float]] = None,
+    H_values: Optional[List[int]] = None,
+    sweep_episodes: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Evaluates a sequence of candidate hyperparameters on a *validation*
-    rollout (``data_mode="train"``, seeded by ``validation_seed``) and
-    returns the per-value mean reward and the argmax index.
-
-    Important: the validation rollout is independent of the final eval.
-    Hyperparameter selection on the eval distribution would constitute
-    selecting on the test set.
+    Runs the BS-Adaptive baseline that implements a rolling-mean base-stock
+    heuristic with observed demand history and is swept over safety
+    factor ``z`` and rolling-window width ``H``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        validation_seed (int): Seed for the validation rollouts; must be
-            distinct from ``eval_seed`` and any other run's eval seed.
-        num_episodes (int): Episodes per sweep value.
-        sweep_values (List[Any]): Candidate hyperparameter values.
-        make_action_fn (Callable[[Any], Callable]): Maps a candidate value
-            to an action function.
-        label_fn (Callable[[Any], str]): Maps a candidate value to a
-            human-readable label.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        z_values (Optional[List[float]]): Sweep grid for ``z``.
+        H_values (Optional[List[int]]): Sweep grid for ``H``.
+        sweep_episodes (Optional[int]): Episodes per sweep value.
 
     Returns:
-        validation_rewards (List[float]): Mean reward per candidate.
-        best_idx (int): Index of the argmax candidate.
+        result (Dict[str, Any]): Eval results dict.
     """
 
-    rewards: List[float] = []
-    best_idx = 0
-    best_reward = -np.inf
+    # Create a seed manager and spawn a sweep seed
+    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    (sweep_seed,) = sm.spawn_child_seeds("train", 1)
 
-    for idx, value in enumerate(sweep_values):
-        env = make_train_env(env_config, validation_seed)
-        episodes = baseline_rollout(
-            env,
-            make_action_fn(value),
-            num_episodes,
-            collect_step_info=False,
-        )
-        ep_rewards = [float(ep["rewards"].sum()) for ep in episodes]
-        mean_reward = float(np.mean(ep_rewards))
-        rewards.append(mean_reward)
-        print(f"    [val] {label_fn(value)}  ->  reward={mean_reward:>10.1f}")
-        if mean_reward > best_reward:
-            best_reward = mean_reward
-            best_idx = idx
+    # Default z values to 0.25 if not provided
+    if z_values is None:
+        z_values = [round(0.25 * i, 2) for i in range(25)]
+    
+    # Default H values to 5, 10, 20, 30, 40, 50, 100 if not provided
+    if H_values is None:
+        H_values = [5, 10, 20, 30, 40, 50, 100]
+    
+    # Default sweep episodes to eval episodes if not provided
+    sweep_episodes = sweep_episodes or eval_episodes
 
-    return rewards, best_idx
+    # Create the sweep parameters as the combination of z and H values
+    sweep_params = [(z, H) for H in H_values for z in z_values]
 
+    # Run the sweep
+    print(f"  Validating (z, H) grid ({len(sweep_params)} pairs, "
+          f"{sweep_episodes} eps each, sweep_seed={sweep_seed})...")
+    sweep_rewards, best_idx = run_sweep(
+        env_config=env_config,
+        sweep_seed=sweep_seed,
+        num_episodes=sweep_episodes,
+        sweep_values=sweep_params,
+        make_action_fn=lambda zh: make_adaptive_bs_action_fn(
+            env_config, z=zh[0], H=zh[1],
+        ),
+        label_fn=lambda zh: f"z={zh[0]:5.2f}, H={zh[1]:3d}",
+    )
 
-# ============================================================================
-# Bayesian optimization
-# ============================================================================
+    # Select the best z and H values
+    best_z, best_H = sweep_params[best_idx]
+
+    # Create the action function based on the best 
+    # z and H values and run final evaluation
+    action_fn = make_adaptive_bs_action_fn(env_config, z=best_z, H=best_H)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "bs_adaptive",
+        "selected_hparams": {
+            "best_z": float(best_z),
+            "best_H": int(best_H),
+        },
+        "validation": {
+            "sweep_seed": int(sweep_seed),
+            "sweep_episodes": int(sweep_episodes),
+            "z_values": [float(z) for z in z_values],
+            "H_values": [int(h) for h in H_values],
+            "sweep_params": [[float(z), int(h)] for (z, h) in sweep_params],
+            "sweep_rewards": [float(r) for r in sweep_rewards],
+            "best_idx": int(best_idx),
+        },
+        **eval_results,
+    }
+
+    return results
+
+def run_bs_optimized_baseline(
+    env_config: EnvironmentConfig,
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+    n_calls: int = 300,
+    n_random_starts: int = 50,
+    n_obj_episodes: int = 50,
+    upper_bound: float = 200.0,
+) -> Dict[str, Any]:
+    """
+    Runs the BS-Optimized baseline that implements simulation-optimized base-stock
+    via Bayesian optimization. The BO objective is averaged over training-mode
+    rollouts and the optimum is then evaluated on the held-out eval seed.
+    optimization. 
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        n_calls (int): Total BO evaluations.
+        n_random_starts (int): Initial random BO evaluations.
+        n_obj_episodes (int): Episodes per BO objective evaluation.
+        upper_bound (float): Upper bound on each base-stock parameter.
+
+    Returns:
+        result (Dict[str, Any]): Eval results dict.
+    """
+
+    # Create a seed manager and spawn an optimization seed
+    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    (optimization_seed,) = sm.spawn_child_seeds("train", 1)
+
+    # Run Bayesian optimization to find the optimal base-stock levels
+    print(f"  BO optimization_seed={optimization_seed}")
+    S_star, bo_convergence = run_bs_optimization(
+        env_config=env_config,
+        optimization_seed=optimization_seed,
+        n_calls=n_calls,
+        n_random_starts=n_random_starts,
+        n_obj_episodes=n_obj_episodes,
+        upper_bound=upper_bound,
+    )
+
+    # Extract the max order quantities for the action function
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Create the action function based on the optimal 
+    # base-stock levels and run final evaluation
+    action_fn = make_bs_optimized_action_fn(S_star, max_qty)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "bs_optimized",
+        "selected_hparams": {
+            "best_base_stock_levels": S_star.tolist(),
+        },
+        "optimization": {
+            "optimization_seed": int(optimization_seed),
+            "n_calls": int(n_calls),
+            "n_random_starts": int(n_random_starts),
+            "n_obj_episodes": int(n_obj_episodes),
+            "upper_bound": float(upper_bound),
+            "bo_convergence": [float(c) for c in bo_convergence],
+        },
+        **eval_results,
+    }
+    
+    return results
+
+def run_bs_independent_baseline(
+    env_config: EnvironmentConfig,
+    root_seed: int,
+    eval_seed: int,
+    eval_episodes: int,
+    n_rounds: int = 3,
+    n_calls_per_wh: int = 100,
+    n_random_starts_per_wh: int = 50,
+    n_obj_episodes: int = 50,
+    upper_bound: float = 200.0,
+    calibration_episodes: int = 50,
+) -> Dict[str, Any]:
+    """
+    Runs the BS-Independent baseline that implements per-warehouse independent 
+    BO with iterated best response. Initial base-stock levels ``S`` are derived 
+    from a newsvendor formula on calibrated mean demand.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        n_rounds (int): Iterated best-response rounds.
+        n_calls_per_wh (int): BO evaluations per (round, warehouse).
+        n_random_starts_per_wh (int): Initial random evaluations per call.
+        n_obj_episodes (int): Episodes per BO objective evaluation.
+        upper_bound (float): Upper bound on each base-stock parameter.
+        calibration_episodes (int): Pilot episodes for the
+            initial-S calibration.
+
+    Returns:
+        result (Dict[str, Any]): Eval results dict.
+    """
+
+    # Create a seed manager and spawn calibration and optimization seeds
+    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+    calibration_seed, optimization_seed = sm.spawn_child_seeds("train", 2)
+
+    # Calibrate to get the mean demand
+    print(f"  Calibrating initial S (cal_seed={calibration_seed})...")
+    mean_demand = calibrate_demand(
+        env_config, calibration_seed, calibration_episodes,
+    )
+
+    # Extract the lead times from the environment config
+    lead_times = np.array(
+        env_config.components.lead_time_sampler.params.expected_lead_times,
+        dtype=float,
+    )
+
+    # Initialize the base-stock levels using the newsvendor formula
+    z_init = 1.0
+    S_init = lead_times * mean_demand + z_init * np.sqrt(lead_times * mean_demand)
+
+    # Run the iterated best response Bayesian optimization 
+    # to find the optimal base-stock levels
+    print(f"  Iterated-BR BO (opt_seed={optimization_seed})...")
+    S_indep, indep_convergence = run_bs_independent_optimization(
+        env_config=env_config,
+        optimization_seed=optimization_seed,
+        S_init=S_init,
+        n_rounds=n_rounds,
+        n_calls_per_wh=n_calls_per_wh,
+        n_random_starts_per_wh=n_random_starts_per_wh,
+        n_obj_episodes=n_obj_episodes,
+        upper_bound=upper_bound,
+    )
+
+    # Extract the max order quantities for the action function
+    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
+
+    # Create the action function based on the optimal 
+    # base-stock levels and run final evaluation
+    action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
+    eval_results = run_action_fn_evaluation(
+        env_config, action_fn, eval_seed, eval_episodes,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "bs_independent",
+        "selected_hparams": {
+            "best_base_stock_levels": S_indep.tolist(),
+            "initial_base_stock_levels": S_init.tolist(),
+            "z_init": float(z_init),
+        },
+        "optimization": {
+            "calibration_seed": int(calibration_seed),
+            "optimization_seed": int(optimization_seed),
+            "n_rounds": int(n_rounds),
+            "n_calls_per_wh": int(n_calls_per_wh),
+            "n_random_starts_per_wh": int(n_random_starts_per_wh),
+            "n_obj_episodes": int(n_obj_episodes),
+            "upper_bound": float(upper_bound),
+            "convergence_log": {
+                k: [float(c) for c in v] for k, v in indep_convergence.items()
+            },
+        },
+        **eval_results,
+    }
+
+    return results
 
 def run_bs_optimization(
     env_config: EnvironmentConfig,
@@ -645,17 +1259,22 @@ def run_bs_optimization(
 
     from skopt import gp_minimize
 
+    # Extract the number of warehouses, SKUs, and max order quantities
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
     n_params = n_warehouses * n_skus
 
+    # Initialize the call count 
     call_count = [0]
 
+    # Define the objective function for the BO
     def objective(S_flat: List[float]) -> float:
+         # Reshape base-stock levels and create action function
         S = np.array(S_flat).reshape(n_warehouses, n_skus)
         action_fn = make_bs_optimized_action_fn(S, max_qty)
 
+        # Run the objective function rollout
         total_rewards = []
         for ep_idx in range(n_obj_episodes):
             env = make_train_env(env_config, optimization_seed + ep_idx)
@@ -669,36 +1288,47 @@ def run_bs_optimization(
                 done = all(truncs.values()) or all(terms.values())
             total_rewards.append(ep_reward)
 
+        # Calculate the mean reward and update the call counter
         mean_reward = float(np.mean(total_rewards))
         call_count[0] += 1
+        
+        # Print progress every 25 calls or the first 5 calls
         if call_count[0] % 25 == 0 or call_count[0] <= 5:
             print(
                 f"    BO call {call_count[0]:4d}/{n_calls} -> "
                 f"reward={mean_reward:>10.1f}  "
                 f"S=[{min(S_flat):.1f}, {max(S_flat):.1f}]"
             )
+
         return -mean_reward
 
-    dimensions = [(0.0, upper_bound)] * n_params
+    # Run the Bayesian optimization
     print(
         f"  Starting BO ({n_params} params, {n_calls} calls, "
         f"{n_obj_episodes} episodes/call)..."
     )
     result = gp_minimize(
         objective,
-        dimensions=dimensions,
+        dimensions=[(0.0, upper_bound)] * n_params,
         n_calls=n_calls,
         n_random_starts=n_random_starts,
         random_state=optimization_seed,
         verbose=False,
     )
 
+    # Reshape the best solution found into a 2D array of base-stock levels
     S_star = np.array(result.x).reshape(n_warehouses, n_skus)
+
+    # Build convergence curve
     convergence = np.minimum.accumulate(result.func_vals).tolist()
-    print(f"  BO complete. Best train reward = {-result.fun:.1f}")
+
+    # Print the final best reward and the optimized base-stock levels
+    print(f"  BO complete. Best reward = {-result.fun:.1f}")
+    print(f"  Optimised base-stock levels (per WH × SKU):")
+    for wh in range(n_warehouses):
+        print(f"    WH {wh}: {S_star[wh].round(1)}")
 
     return S_star, convergence
-
 
 def run_bs_independent_optimization(
     env_config: EnvironmentConfig,
@@ -711,9 +1341,14 @@ def run_bs_independent_optimization(
     upper_bound: float = 200.0,
 ) -> Tuple[np.ndarray, Dict[str, List[float]]]:
     """
-    Iterated-best-response BO: for each round, each warehouse's ``S`` is
-    optimized while the others are held fixed. Mirrors the incentive
-    structure of independent learning agents.
+    Finds base-stock levels ``S*`` via **iterated best response**, where
+    each warehouse's parameters are optimised independently while the other
+    warehouses' policies are held fixed.
+
+    Since the environment uses ``scope: "agent"``, each warehouse's BO
+    objective minimizes *that warehouse's own* negative reward, which 
+    matches the incentive structure faced by an independent RL agent.
+    the incentive structure faced by an independent RL agent.
 
     The per-(round, warehouse) BO uses an independent child seed spawned
     from ``optimization_seed`` so the search trajectories are independent
@@ -737,43 +1372,54 @@ def run_bs_independent_optimization(
 
     from skopt import gp_minimize
 
+    # Extract the number of warehouses, SKUs, and max order quantities
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
-    # Independent child seeds for each (round, wh) BO call so the GP
-    # search and rollout sampling are independent across calls. Spawning
-    # from a fresh SeedSequence keeps results deterministic and order-
-    # independent of any other code that consumes the SeedManager.
+    # Get independent child seeds for each (round, wh) BO call so the GP
+    # search and rollout sampling are independent across calls
     parent_ss = np.random.SeedSequence(optimization_seed)
     child_ss = parent_ss.spawn(n_rounds * n_warehouses)
 
+    # Initialize the current base-stock levels and convergence log
     S_current = S_init.copy()
     convergence_log: Dict[str, List[float]] = {}
 
+    # Run the iterated best response optimization
     for rnd in range(n_rounds):
         print(f"\n  === Independent BO -- Round {rnd + 1}/{n_rounds} ===")
 
+        # Optimize each warehouse independently
         for wh_target in range(n_warehouses):
+            # Get the child seed for the current (round, warehouse) BO call
             child_idx = rnd * n_warehouses + wh_target
             wh_seed = int(child_ss[child_idx].generate_state(1, dtype=np.uint32)[0])
+            
             print(
                 f"    Optimising WH {wh_target} ({n_skus} params, "
                 f"{n_calls_per_wh} calls, child_seed={wh_seed})..."
             )
 
+            # Initialize the current base-stock levels and convergence log
             S_snapshot = S_current.copy()
             call_count = [0]
 
-            def objective(s_wh_flat: List[float], _target=wh_target,
-                          _snapshot=S_snapshot, _seed=wh_seed) -> float:
-                S_candidate = _snapshot.copy()
-                S_candidate[_target] = np.array(s_wh_flat)
+            # Define the objective function for the BO
+            def objective(s_wh_flat: List[float], wh_target=wh_target,
+                          S_fixed=S_snapshot, wh_seed=wh_seed) -> float:
+                
+                # Replace the target warehouse's base-stock level with the candidate
+                S_candidate = S_fixed.copy()
+                S_candidate[wh_target] = np.array(s_wh_flat)
+
+                # Create the action function
                 action_fn = make_bs_optimized_action_fn(S_candidate, max_qty)
 
+                # Run the objective function rollout
                 wh_rewards = []
                 for ep_idx in range(n_obj_episodes):
-                    env = make_train_env(env_config, _seed + ep_idx)
+                    env = make_train_env(env_config, wh_seed + ep_idx)
                     obs, _ = env.reset()
                     ep_wh_reward = 0.0
                     done = False
@@ -784,16 +1430,24 @@ def run_bs_independent_optimization(
                         done = all(truncs.values()) or all(terms.values())
                     wh_rewards.append(ep_wh_reward)
 
+                # Calculate the mean reward and update the call counter
                 mean_reward = float(np.mean(wh_rewards))
                 call_count[0] += 1
+
+                # Print progress every 25 calls or the first 3 calls
                 if call_count[0] % 25 == 0 or call_count[0] <= 3:
                     print(
-                        f"      BO WH{_target} call {call_count[0]:4d}/"
+                        f"      BO WH{wh_target} call {call_count[0]:4d}/"
                         f"{n_calls_per_wh} -> reward={mean_reward:>10.1f}  "
                         f"S=[{min(s_wh_flat):.1f}, {max(s_wh_flat):.1f}]"
                     )
                 return -mean_reward
 
+            # Run the Bayesian optimization
+            print(
+                f"  Starting BO ({n_skus} params, {n_calls_per_wh} calls, "
+                f"{n_obj_episodes} episodes/call)..."
+            )
             result = gp_minimize(
                 objective,
                 dimensions=[(0.0, upper_bound)] * n_skus,
@@ -803,15 +1457,21 @@ def run_bs_independent_optimization(
                 verbose=False,
             )
 
+            # Update the current base-stock levels with the best solution found
             S_current[wh_target] = np.array(result.x)
+
+            # Build convergence curve
             key = f"round{rnd + 1}_wh{wh_target}"
             convergence_log[key] = np.minimum.accumulate(result.func_vals).tolist()
+
+            # Print progress
             print(
                 f"      WH {wh_target} done. "
                 f"Best wh_reward = {-result.fun:.1f}, "
                 f"S = {S_current[wh_target].round(1)}"
             )
 
+    # Print final base-stock levels
     print("\n  Independent BO complete. Final S (per WH x SKU):")
     for wh in range(n_warehouses):
         print(f"    WH {wh}: {S_current[wh].round(1)}")
@@ -820,464 +1480,26 @@ def run_bs_independent_optimization(
 
 
 # ============================================================================
-# Per-baseline runners
+# Baseline names and registry
 # ============================================================================
 
-def _eval_action_fn_on_eval_seed(
-    env_config: EnvironmentConfig,
-    action_fn: Callable,
-    eval_seed: int,
-    eval_episodes: int,
-) -> Dict[str, Any]:
-    """
-    Runs the final evaluation of a fixed policy on the held-out eval seed
-    and returns a dict matching the schema produced by RL's
-    ``EvaluationRunner.run()``.
+BASELINE_NAMES: Tuple[str, ...] = (
+    "random",
+    "constant",
+    "bs_newsvendor",
+    "bs_adaptive",
+    "bs_optimized",
+    "bs_independent",
+)
 
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        action_fn (Callable): Pre-built action function for the policy.
-        eval_seed (int): Held-out root seed for the final evaluation
-            (default 123 across all RL and baseline runs).
-        eval_episodes (int): Number of evaluation episodes.
-
-    Returns:
-        eval_results (Dict[str, Any]): Top-level dict including
-            ``episode_return_mean`` and per-component cost statistics.
-    """
-
-    env = make_eval_env(env_config, eval_seed, eval_episodes)
-    episodes = baseline_rollout(env, action_fn, eval_episodes, collect_step_info=True)
-    agg = aggregate_costs(episodes)
-
-    return {
-        "episode_return_mean": agg["reward_mean"],
-        "episode_return_std": agg["reward_std"],
-        "episode_return_min": agg["reward_min"],
-        "episode_return_max": agg["reward_max"],
-        "num_episodes": int(eval_episodes),
-        "cost_components": {
-            "holding_mean": agg["holding_mean"],
-            "penalty_mean": agg["penalty_mean"],
-            "outbound_mean": agg["outbound_mean"],
-            "inbound_mean": agg["inbound_mean"],
-            "total_cost_mean": agg["total_cost_mean"],
-            "total_cost_std": agg["total_cost_std"],
-        },
-    }
-
-
-def run_random_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-) -> Dict[str, Any]:
-    """
-    Random baseline: uniform random actions in ``[-1, 1]``.
-
-    Has no calibration step. The action RNG is seeded directly from
-    ``root_seed`` so different seed runs produce independent random
-    policies (the across-seed std then captures the effect of policy
-    stochasticity, analogous to RL across-seed training stochasticity).
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed (e.g., ``100, 200, ...``).
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict to be written to
-            ``eval_results_best.yaml``.
-    """
-
-    rng = np.random.default_rng(root_seed)
-    action_fn = make_random_action_fn(rng)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-    return {
-        "baseline": "random",
-        "selected_hparams": {},
-        **eval_results,
-    }
-
-
-def run_constant_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-    alpha_values: Optional[List[float]] = None,
-    num_calibration_episodes: int = 50,
-    num_validation_episodes: Optional[int] = None,
-) -> Dict[str, Any]:
-    """
-    Constant-order baseline: per-(WH, SKU) constant order quantities
-    ``round(alpha * mean_demand)``, with ``alpha`` selected by a validation
-    sweep on ``data_mode="train"``.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-        alpha_values (Optional[List[float]]): Sweep grid for ``alpha``.
-        num_calibration_episodes (int): Pilot episodes for demand
-            calibration.
-        num_validation_episodes (Optional[int]): Episodes per sweep value
-            on validation (defaults to ``eval_episodes``).
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict.
-    """
-
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    calibration_seed, validation_seed = sm.spawn_child_seeds("train", 2)
-
-    if alpha_values is None:
-        alpha_values = [round(0.05 * i, 2) for i in range(1, 41)]
-    val_episodes = num_validation_episodes or eval_episodes
-
-    print("  Calibrating mean demand...")
-    mean_demand = calibrate_demand(
-        env_config, calibration_seed, num_calibration_episodes,
-    )
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
-    print(f"  Validating alpha grid ({len(alpha_values)} values, "
-          f"{val_episodes} eps each, val_seed={validation_seed})...")
-    val_rewards, best_idx = run_validation_sweep(
-        env_config=env_config,
-        validation_seed=validation_seed,
-        num_episodes=val_episodes,
-        sweep_values=alpha_values,
-        make_action_fn=lambda alpha: make_constant_action_fn(
-            np.round(alpha * mean_demand), max_qty,
-        ),
-        label_fn=lambda alpha: f"alpha={alpha:.2f}",
-    )
-
-    best_alpha = alpha_values[best_idx]
-    best_quantities = np.round(best_alpha * mean_demand)
-    action_fn = make_constant_action_fn(best_quantities, max_qty)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-
-    return {
-        "baseline": "constant",
-        "selected_hparams": {
-            "best_alpha": float(best_alpha),
-            "calibrated_mean_demand": mean_demand.tolist(),
-            "best_quantities": best_quantities.tolist(),
-        },
-        "validation": {
-            "validation_seed": int(validation_seed),
-            "validation_episodes": int(val_episodes),
-            "alpha_values": [float(a) for a in alpha_values],
-            "validation_rewards": [float(r) for r in val_rewards],
-            "best_idx": int(best_idx),
-        },
-        "calibration": {
-            "calibration_seed": int(calibration_seed),
-            "num_calibration_episodes": int(num_calibration_episodes),
-        },
-        **eval_results,
-    }
-
-
-def run_bs_newsvendor_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-    z_values: Optional[List[float]] = None,
-    num_validation_episodes: Optional[int] = None,
-) -> Dict[str, Any]:
-    """
-    BS-Newsvendor baseline: oracle base-stock with true demand parameters,
-    swept over safety factor ``z`` on a validation rollout.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-        z_values (Optional[List[float]]): Sweep grid for ``z``.
-        num_validation_episodes (Optional[int]): Episodes per sweep value.
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict.
-    """
-
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (validation_seed,) = sm.spawn_child_seeds("train", 1)
-
-    if z_values is None:
-        z_values = [round(0.25 * i, 2) for i in range(25)]
-    val_episodes = num_validation_episodes or eval_episodes
-
-    print(f"  Validating z grid ({len(z_values)} values, "
-          f"{val_episodes} eps each, val_seed={validation_seed})...")
-    val_rewards, best_idx = run_validation_sweep(
-        env_config=env_config,
-        validation_seed=validation_seed,
-        num_episodes=val_episodes,
-        sweep_values=z_values,
-        make_action_fn=lambda z: make_bs_newsvendor_action_fn(env_config, z=z),
-        label_fn=lambda z: f"z={z:5.2f}",
-    )
-
-    best_z = z_values[best_idx]
-    action_fn = make_bs_newsvendor_action_fn(env_config, z=best_z)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-
-    return {
-        "baseline": "bs_newsvendor",
-        "selected_hparams": {"best_z": float(best_z)},
-        "validation": {
-            "validation_seed": int(validation_seed),
-            "validation_episodes": int(val_episodes),
-            "z_values": [float(z) for z in z_values],
-            "validation_rewards": [float(r) for r in val_rewards],
-            "best_idx": int(best_idx),
-        },
-        **eval_results,
-    }
-
-
-def run_bs_adaptive_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-    z_values: Optional[List[float]] = None,
-    H_values: Optional[List[int]] = None,
-    num_validation_episodes: Optional[int] = None,
-) -> Dict[str, Any]:
-    """
-    BS-Adaptive baseline: rolling-mean base-stock, swept over safety
-    factor ``z`` and rolling-window width ``H``.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-        z_values (Optional[List[float]]): Sweep grid for ``z``.
-        H_values (Optional[List[int]]): Sweep grid for ``H``.
-        num_validation_episodes (Optional[int]): Episodes per sweep value.
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict.
-    """
-
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (validation_seed,) = sm.spawn_child_seeds("train", 1)
-
-    if z_values is None:
-        z_values = [round(0.25 * i, 2) for i in range(25)]
-    if H_values is None:
-        H_values = [5, 10, 20, 30, 40, 50, 100]
-    val_episodes = num_validation_episodes or eval_episodes
-
-    sweep_params = [(z, H) for H in H_values for z in z_values]
-
-    print(f"  Validating (z, H) grid ({len(sweep_params)} pairs, "
-          f"{val_episodes} eps each, val_seed={validation_seed})...")
-    val_rewards, best_idx = run_validation_sweep(
-        env_config=env_config,
-        validation_seed=validation_seed,
-        num_episodes=val_episodes,
-        sweep_values=sweep_params,
-        make_action_fn=lambda zh: make_adaptive_bs_action_fn(
-            env_config, z=zh[0], H=zh[1],
-        ),
-        label_fn=lambda zh: f"z={zh[0]:5.2f}, H={zh[1]:3d}",
-    )
-
-    best_z, best_H = sweep_params[best_idx]
-    action_fn = make_adaptive_bs_action_fn(env_config, z=best_z, H=best_H)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-
-    return {
-        "baseline": "bs_adaptive",
-        "selected_hparams": {
-            "best_z": float(best_z),
-            "best_H": int(best_H),
-        },
-        "validation": {
-            "validation_seed": int(validation_seed),
-            "validation_episodes": int(val_episodes),
-            "z_values": [float(z) for z in z_values],
-            "H_values": [int(h) for h in H_values],
-            "sweep_params": [[float(z), int(h)] for (z, h) in sweep_params],
-            "validation_rewards": [float(r) for r in val_rewards],
-            "best_idx": int(best_idx),
-        },
-        **eval_results,
-    }
-
-
-def run_bs_optimized_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-    n_calls: int = 300,
-    n_random_starts: int = 50,
-    n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
-) -> Dict[str, Any]:
-    """
-    BS-Optimized baseline: simulation-optimized base-stock via Bayesian
-    optimization. The BO objective is averaged over training-mode
-    rollouts; the optimum is then evaluated on the held-out eval seed.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-        n_calls (int): Total BO evaluations.
-        n_random_starts (int): Initial random BO evaluations.
-        n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock parameter.
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict.
-    """
-
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (optimization_seed,) = sm.spawn_child_seeds("train", 1)
-
-    print(f"  BO optimization_seed={optimization_seed}")
-    S_star, bo_convergence = run_bs_optimization(
-        env_config=env_config,
-        optimization_seed=optimization_seed,
-        n_calls=n_calls,
-        n_random_starts=n_random_starts,
-        n_obj_episodes=n_obj_episodes,
-        upper_bound=upper_bound,
-    )
-
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-    action_fn = make_bs_optimized_action_fn(S_star, max_qty)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-
-    return {
-        "baseline": "bs_optimized",
-        "selected_hparams": {
-            "best_base_stock_levels": S_star.tolist(),
-        },
-        "optimization": {
-            "optimization_seed": int(optimization_seed),
-            "n_calls": int(n_calls),
-            "n_random_starts": int(n_random_starts),
-            "n_obj_episodes": int(n_obj_episodes),
-            "upper_bound": float(upper_bound),
-            "bo_convergence": [float(c) for c in bo_convergence],
-        },
-        **eval_results,
-    }
-
-
-def run_bs_independent_baseline(
-    env_config: EnvironmentConfig,
-    root_seed: int,
-    eval_seed: int,
-    eval_episodes: int,
-    n_rounds: int = 3,
-    n_calls_per_wh: int = 100,
-    n_random_starts_per_wh: int = 50,
-    n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
-    num_calibration_episodes: int = 50,
-) -> Dict[str, Any]:
-    """
-    BS-Independent baseline: per-warehouse independent BO with iterated
-    best response. Initial ``S`` derived from a newsvendor formula on
-    calibrated mean demand.
-
-    Args:
-        env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
-        eval_seed (int): Fixed eval seed.
-        eval_episodes (int): Number of evaluation episodes.
-        n_rounds (int): Iterated best-response rounds.
-        n_calls_per_wh (int): BO evaluations per (round, warehouse).
-        n_random_starts_per_wh (int): Initial random evaluations per call.
-        n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock parameter.
-        num_calibration_episodes (int): Pilot episodes for the
-            initial-S calibration.
-
-    Returns:
-        result (Dict[str, Any]): Eval results dict.
-    """
-
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    calibration_seed, optimization_seed = sm.spawn_child_seeds("train", 2)
-
-    print(f"  Calibrating initial S (cal_seed={calibration_seed})...")
-    mean_demand = calibrate_demand(
-        env_config, calibration_seed, num_calibration_episodes,
-    )
-    lead_times = np.array(
-        env_config.components.lead_time_sampler.params.expected_lead_times,
-        dtype=float,
-    )
-    z_init = 1.0
-    S_init = lead_times * mean_demand + z_init * np.sqrt(lead_times * mean_demand)
-
-    print(f"  Iterated-BR BO (opt_seed={optimization_seed})...")
-    S_indep, indep_convergence = run_bs_independent_optimization(
-        env_config=env_config,
-        optimization_seed=optimization_seed,
-        S_init=S_init,
-        n_rounds=n_rounds,
-        n_calls_per_wh=n_calls_per_wh,
-        n_random_starts_per_wh=n_random_starts_per_wh,
-        n_obj_episodes=n_obj_episodes,
-        upper_bound=upper_bound,
-    )
-
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-    action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
-    eval_results = _eval_action_fn_on_eval_seed(
-        env_config, action_fn, eval_seed, eval_episodes,
-    )
-
-    return {
-        "baseline": "bs_independent",
-        "selected_hparams": {
-            "best_base_stock_levels": S_indep.tolist(),
-            "initial_base_stock_levels": S_init.tolist(),
-            "z_init": float(z_init),
-        },
-        "optimization": {
-            "calibration_seed": int(calibration_seed),
-            "optimization_seed": int(optimization_seed),
-            "n_rounds": int(n_rounds),
-            "n_calls_per_wh": int(n_calls_per_wh),
-            "n_random_starts_per_wh": int(n_random_starts_per_wh),
-            "n_obj_episodes": int(n_obj_episodes),
-            "upper_bound": float(upper_bound),
-            "convergence_log": {
-                k: [float(c) for c in v] for k, v in indep_convergence.items()
-            },
-        },
-        **eval_results,
-    }
-
+BASELINE_DISPLAY_NAMES: Dict[str, str] = {
+    "random": "Random",
+    "constant": "ConstantOrder",
+    "bs_newsvendor": "BSNewsvendor",
+    "bs_adaptive": "BSAdaptive",
+    "bs_optimized": "BSOptimized",
+    "bs_independent": "BSIndependent",
+}
 
 BASELINE_REGISTRY: Dict[str, Callable[..., Dict[str, Any]]] = {
     "random": run_random_baseline,
@@ -1290,30 +1512,29 @@ BASELINE_REGISTRY: Dict[str, Callable[..., Dict[str, Any]]] = {
 
 
 # ============================================================================
-# Per-(baseline, seed) worker and multi-seed orchestrator
+# Single- and Multi-Seed Orchestrators
 # ============================================================================
 
-def run_single_baseline_seed_eval(
+def run_single_baseline(
     baseline: str,
     env_config: EnvironmentConfig,
     root_seed: int,
     eval_seed: int,
     eval_episodes: int,
-    output_dir: Path,
+    experiment_dir: Path,
     skip_if_done: bool = True,
 ) -> Dict[str, Any]:
     """
     Runs one ``(baseline, root_seed)`` pair and writes
-    ``eval_results_best.yaml`` into ``output_dir``.
+    ``eval_results_best.yaml`` into ``experiment_dir``.
 
     Args:
         baseline (str): Baseline key in :data:`BASELINE_REGISTRY`.
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed (e.g. ``100, 200, ...``).
-        eval_seed (int): Fixed eval seed shared with RL runs.
+        root_seed (int): Per-run root seed.
+        eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
-        output_dir (Path): Directory to write into. Should follow the
-            convention ``<seed_eval_dir>/<DisplayName>_Seed<root_seed>/``.
+        experiment_dir (Path): Directory to write into.
         skip_if_done (bool): If ``True`` and a valid
             ``eval_results_best.yaml`` already exists, skip and return it.
 
@@ -1321,29 +1542,38 @@ def run_single_baseline_seed_eval(
         eval_results (Dict[str, Any]): The result dict written to disk.
     """
 
+    # If the baseline is not registered, raise an error
     if baseline not in BASELINE_REGISTRY:
         raise ValueError(
             f"Unknown baseline {baseline!r}. "
             f"Choose from: {sorted(BASELINE_REGISTRY.keys())}"
         )
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    eval_file = output_dir / "eval_results_best.yaml"
+    # Create the experiment directory
+    experiment_dir = Path(experiment_dir)
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
-    if skip_if_done and eval_file.exists():
+    # Save the environment config
+    save_env_config(env_config, experiment_dir)
+
+    # Create the eval results file
+    eval_results_file = experiment_dir / "eval_results_best.yaml"
+
+    # If skip_if_done is True and the eval results file exists, return the existing results
+    if skip_if_done and eval_results_file.exists():
         try:
-            with open(eval_file, encoding="utf-8") as f:
+            with open(eval_results_file, encoding="utf-8") as f:
                 existing = yaml.safe_load(f) or {}
             if isinstance(existing.get("episode_return_mean"), (int, float)):
                 print(
-                    f"[SKIP] {output_dir.name}: eval_results_best.yaml already complete "
+                    f"[SKIP] {experiment_dir.name}: eval_results_best.yaml already complete "
                     f"(episode_return_mean={existing['episode_return_mean']:.4f})"
                 )
                 return existing
         except (OSError, yaml.YAMLError):
             pass
 
+    # If the action space type is not direct, raise an error
     if env_config.action_space.type != "direct":
         raise ValueError(
             f"Baselines require action_space.type='direct', got "
@@ -1358,6 +1588,7 @@ def run_single_baseline_seed_eval(
     )
     print(f"{'=' * 75}")
 
+    # Run the baseline using the run function from the registry
     runner = BASELINE_REGISTRY[baseline]
     eval_results = runner(
         env_config=env_config,
@@ -1366,50 +1597,45 @@ def run_single_baseline_seed_eval(
         eval_episodes=eval_episodes,
     )
 
+    # Add the root seed, eval seed, and display name to the eval results
     eval_results["root_seed"] = int(root_seed)
     eval_results["eval_seed"] = int(eval_seed)
     eval_results["display_name"] = BASELINE_DISPLAY_NAMES[baseline]
 
-    with open(eval_file, "w", encoding="utf-8") as f:
+    # Save the eval results to the eval results file
+    with open(eval_results_file, "w", encoding="utf-8") as f:
         yaml.safe_dump(eval_results, f, default_flow_style=False, sort_keys=False)
+    print(f"[INFO] Saved: {eval_results_file}")
+    
+    # Print the eval results
     print(
         f"\n[INFO] {BASELINE_DISPLAY_NAMES[baseline]} "
         f"(root_seed={root_seed}): episode_return_mean = "
         f"{eval_results['episode_return_mean']:.4f}"
     )
-    print(f"[INFO] Saved: {eval_file}")
-    return eval_results
 
+    return eval_results
 
 def run_baselines_across_seeds(
     env_config: EnvironmentConfig,
     n_seeds: int,
     eval_seed: int,
     eval_episodes: int,
-    seed_eval_dir: Path,
+    seed_dir: Path,
     baselines: Optional[List[str]] = None,
     skip_if_done: bool = True,
     aggregate: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """
-    Runs every ``(baseline, root_seed)`` pair sequentially, then optionally
-    calls :func:`aggregate_seed_evaluation` to produce
-    ``seed_evaluation_summary.yaml``.
-
-    Output layout::
-
-        <seed_eval_dir>/<DisplayName>_Seed<root_seed>/eval_results_best.yaml
-
-    This matches the directory layout used by the RL seed-evaluation
-    pipeline so dropping baseline outputs into the same ``seed_eval_dir``
-    as RL runs produces a combined ranked table for free.
+    Runs each given ``(baseline, root_seed)`` pair sequentially and then optionally
+    aggregates the seed evaluation results.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
         n_seeds (int): Number of seeds. Root seeds are ``100, 200, ...``.
         eval_seed (int): Fixed eval seed shared with RL runs.
         eval_episodes (int): Number of evaluation episodes.
-        seed_eval_dir (Path): Parent directory for ``<DisplayName>_Seed<N>/``.
+        seed_dir (Path): Parent directory of each seed evaluation directory.
         baselines (Optional[List[str]]): Subset of baselines to run.
         skip_if_done (bool): Skip pairs that already have a complete
             ``eval_results_best.yaml``.
@@ -1420,113 +1646,50 @@ def run_baselines_across_seeds(
         summary (Optional[Dict[str, Any]]): Aggregator summary or None.
     """
 
-    seed_eval_dir = Path(seed_eval_dir)
-    seed_eval_dir.mkdir(parents=True, exist_ok=True)
+    # If no baselines are provided, run all registered baselines
     if baselines is None:
         baselines = list(BASELINE_NAMES)
 
     for baseline in baselines:
+        # If the baseline is not registered, raise an error
         if baseline not in BASELINE_REGISTRY:
             raise ValueError(
                 f"Unknown baseline {baseline!r}. "
                 f"Choose from: {sorted(BASELINE_REGISTRY.keys())}"
             )
-        display = BASELINE_DISPLAY_NAMES[baseline]
+        
+        # Get the display name of the baseline and create the seed baseline directory
+        baseline_display_name = BASELINE_DISPLAY_NAMES[baseline]
+        seed_baseline_dir = seed_dir / baseline_display_name
+        seed_baseline_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run the single baseline for each seed
         for seed_idx in range(1, n_seeds + 1):
             root_seed = seed_idx * 100
-            run_single_baseline_seed_eval(
+            seed_experiment_name = f"{baseline_display_name}_Seed{root_seed}"
+            experiment_dir = seed_baseline_dir / seed_experiment_name
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+            run_single_baseline(
                 baseline=baseline,
                 env_config=env_config,
                 root_seed=root_seed,
                 eval_seed=eval_seed,
                 eval_episodes=eval_episodes,
-                output_dir=seed_eval_dir / f"{display}_Seed{root_seed}",
+                experiment_dir=experiment_dir,
                 skip_if_done=skip_if_done,
             )
 
+    # If aggregate is True, aggregate the seed evaluation results
     if aggregate:
-        return aggregate_seed_evaluation(seed_eval_dir)
-    return None
+        summary = aggregate_seed_evaluation(seed_dir)
+        return summary
+    
+    summary = None
+    return summary
 
 
 # ============================================================================
-# SLURM helpers (task-id mapping and self-heal scan)
-# ============================================================================
-
-def baseline_task_layout(
-    n_seeds: int,
-    baselines: Optional[List[str]] = None,
-) -> List[Tuple[int, str, int, int]]:
-    """
-    Returns the canonical ``(task_id, baseline, seed_idx, root_seed)``
-    layout the SLURM array launcher expects:
-
-        task_id    = baseline_idx * n_seeds + (seed_idx - 1)
-        seed_idx   = task_id % n_seeds + 1
-        root_seed  = seed_idx * 100
-
-    Args:
-        n_seeds (int): Number of seeds per baseline.
-        baselines (Optional[List[str]]): Ordered baseline list. Defaults to
-            :data:`BASELINE_NAMES`.
-
-    Returns:
-        layout (List[Tuple[int, str, int, int]]): ``(task_id, baseline,
-            seed_idx, root_seed)`` tuples.
-    """
-
-    if baselines is None:
-        baselines = list(BASELINE_NAMES)
-    layout: List[Tuple[int, str, int, int]] = []
-    for baseline_idx, baseline in enumerate(baselines):
-        for seed_idx in range(1, n_seeds + 1):
-            task_id = baseline_idx * n_seeds + (seed_idx - 1)
-            layout.append((task_id, baseline, seed_idx, seed_idx * 100))
-    return layout
-
-
-def find_missing_baseline_tasks(
-    seed_eval_dir: Path,
-    n_seeds: int,
-    baselines: Optional[List[str]] = None,
-) -> List[int]:
-    """
-    Scans ``seed_eval_dir`` and returns SLURM array task IDs whose
-    ``eval_results_best.yaml`` is missing or unreadable. Used by the
-    self-healing aggregate phase in ``scripts/run_baselines.sh``.
-
-    Args:
-        seed_eval_dir (Path): Parent directory of ``<DisplayName>_Seed<N>/``.
-        n_seeds (int): Number of seeds per baseline.
-        baselines (Optional[List[str]]): Ordered baseline list. Defaults
-            to :data:`BASELINE_NAMES`.
-
-    Returns:
-        missing (List[int]): Sorted task IDs still pending.
-    """
-
-    seed_eval_dir = Path(seed_eval_dir)
-    missing: List[int] = []
-    for task_id, baseline, _, root_seed in baseline_task_layout(n_seeds, baselines):
-        display = BASELINE_DISPLAY_NAMES[baseline]
-        seed_dir = seed_eval_dir / f"{display}_Seed{root_seed}"
-        eval_file = seed_dir / "eval_results_best.yaml"
-        if not eval_file.exists():
-            missing.append(task_id)
-            continue
-        try:
-            with open(eval_file, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError):
-            missing.append(task_id)
-            continue
-        if not isinstance(data.get("episode_return_mean"), (int, float)):
-            missing.append(task_id)
-    return sorted(missing)
-
-
-# ============================================================================
-# CLI
+# Argument Parser and Main Function
 # ============================================================================
 
 def parse_args() -> argparse.Namespace:
@@ -1585,7 +1748,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Experiment folder name. If not provided, auto-generated as "
-            "'BASELINE_<n_warehouses>WH<n_skus>SKU_<env_class>'.",
+            "'BASELINE_<W>WH_<S>SKU_<timestamp>'.",
     )
     parser.add_argument(
         "--n-seeds",
@@ -1618,13 +1781,6 @@ def parse_args() -> argparse.Namespace:
             "Only valid for --mode all-seeds.",
     )
     parser.add_argument(
-        "--baseline",
-        type=str,
-        choices=list(BASELINE_NAMES),
-        default=None,
-        help="Baseline name (--mode single only).",
-    )
-    parser.add_argument(
         "--root-seed",
         type=int,
         default=None,
@@ -1634,85 +1790,75 @@ def parse_args() -> argparse.Namespace:
     # Parse arguments
     args = parser.parse_args()
 
-    # Validate mode-specific arguments
+    # Validate arguments
+    if args.baselines is not None and len(args.baselines) != len(set(args.baselines)):
+        parser.error(
+            "--baselines must not repeat the same baseline name "
+            "(remove duplicate entries)."
+        )
     if args.mode == "single":
-        if args.baseline is None or args.root_seed is None:
-            parser.error("--mode single requires --baseline and --root-seed")
-        if args.baselines is not None:
+        if args.root_seed is None:
+            parser.error("--mode single requires --root-seed")
+        if args.baselines is None or len(args.baselines) != 1:
             parser.error(
-                "--baselines (plural) is incompatible with --mode single; "
-                "use --baseline (singular) instead."
+                "--mode single requires exactly one baseline."
             )
     elif args.mode == "all-seeds":
-        if args.baseline is not None or args.root_seed is not None:
+        if args.root_seed is not None:
             parser.error(
-                "--baseline / --root-seed are only valid for --mode single; "
-                "use --baselines (plural) and --n-seeds for --mode all-seeds."
+                "--root-seed is only valid for --mode single; "
+                "use --n-seeds for --mode all-seeds."
             )
-
+        if args.n_seeds < 1:
+            parser.error("--n-seeds must be >= 1")
+    else:
+        parser.error(
+            "Invalid mode: {args.mode}. "
+            "Please use either --mode single or --mode all-seeds."
+        )
+    
     return args
-
-
-def resolve_seed_eval_dir(
-    args: argparse.Namespace,
-    env_config: EnvironmentConfig,
-) -> Path:
-    """
-    Resolves ``<storage-dir>/<experiment-name>/seed_evaluation/`` from CLI
-    args. When ``--experiment-name`` is omitted, the name is auto-generated
-    from the env config (e.g. ``BASELINE_3WH5SKU_SymmetricEnv``).
-
-    Args:
-        args (argparse.Namespace): Parsed CLI args.
-        env_config (EnvironmentConfig): Loaded env config (used for
-            auto-naming when no explicit name is given).
-
-    Returns:
-        seed_eval_dir (Path): Resolved seed-evaluation directory.
-    """
-
-    experiment_name = args.experiment_name or generate_baseline_experiment_name(env_config)
-    return Path(args.storage_dir) / experiment_name / "seed_evaluation"
-
 
 def main():
     """Main CLI entry point."""
 
+    # Parse arguments
     args = parse_args()
+
+    # Load the environment config
     env_config = load_environment_config(args.env_config)
-    seed_eval_dir = resolve_seed_eval_dir(args, env_config=env_config)
-    seed_eval_dir.mkdir(parents=True, exist_ok=True)
 
-    # Persist the env config alongside the seed_evaluation directory so
-    # downstream notebooks / aggregators can reproduce the experiment
-    # without relying on the original config path.
-    save_env_config(env_config, seed_eval_dir.parent)
+    # Generate an experiment name if not provided
+    experiment_name = args.experiment_name or generate_baseline_experiment_name(env_config)
+    
+    # Create the experiment directory
+    experiment_dir = Path(args.storage_dir) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
+    # If in single mode, run the single specified baseline with the specified root seed
     if args.mode == "single":
-        display = BASELINE_DISPLAY_NAMES[args.baseline]
-        output_dir = seed_eval_dir / f"{display}_Seed{args.root_seed}"
-        run_single_baseline_seed_eval(
-            baseline=args.baseline,
+        run_single_baseline(
+            baseline=args.baselines[0],
             env_config=env_config,
             root_seed=args.root_seed,
             eval_seed=args.eval_seed,
             eval_episodes=args.eval_episodes,
-            output_dir=output_dir,
+            experiment_dir=experiment_dir,
         )
-        return
 
-    # all-seeds: sequential local run + aggregate.
-    run_baselines_across_seeds(
-        env_config=env_config,
-        n_seeds=args.n_seeds,
-        eval_seed=args.eval_seed,
-        eval_episodes=args.eval_episodes,
-        seed_eval_dir=seed_eval_dir,
-        baselines=args.baselines,
-        aggregate=True,
-    )
-    print(f"\n[INFO] All baseline outputs in: {seed_eval_dir.resolve()}")
-
+    # If in all-seeds mode, run every baseline with every seed
+    elif args.mode == "all-seeds":
+        seed_dir = experiment_dir / "seed_evaluation"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        run_baselines_across_seeds(
+            env_config=env_config,
+            n_seeds=args.n_seeds,
+            eval_seed=args.eval_seed,
+            eval_episodes=args.eval_episodes,
+            seed_dir=seed_dir,
+            baselines=args.baselines,
+            aggregate=True,
+        )
 
 if __name__ == "__main__":
     main()
