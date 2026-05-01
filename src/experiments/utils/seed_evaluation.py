@@ -27,6 +27,7 @@ from src.experiments.utils.experiment_utils import (
     find_checkpoint_dir,
     find_experiment_dir,
     find_latest_periodic_checkpoint,
+    _find_missing_seed_eval_files,
     save_run_metadata,
 )
 from src.experiments.utils.wandb import setup_wandb
@@ -682,11 +683,7 @@ def find_missing_seed_evaluation_tasks(
 ) -> List[int]:
     """
     Returns the SLURM array task IDs whose ``eval_results_best.yaml`` is
-    missing or unreadable. Used by the self-healing mechanism of the
-    aggregate phase in ``scripts/run_baselines.sh``.
-
-    A task is considered complete when its expected run directory contains
-    an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
+    missing or unreadable.
 
     Args:
         mode (str): ``"tune"`` or ``"single"``.
@@ -699,10 +696,10 @@ def find_missing_seed_evaluation_tasks(
         missing (List[int]): Sorted SLURM array indices still pending.
     """
 
-    # Initiliaze a list to store (config_idx, config_name, config_storage_dir) triples
+    # Initialize a list to store (config_idx, config_name, config_storage) triples
     configs: List[Tuple[int, str, Path]] = []
 
-    # If in tune mode, build the config list by using the top-k 
+    # If in tune mode, build the config list by using the top-k
     # trials from the best_trial_results.yaml file
     if mode == "tune":
         # Resolve directories
@@ -748,35 +745,10 @@ def find_missing_seed_evaluation_tasks(
             f"Unknown seed-eval mode: {mode!r} (expected 'tune' or 'single')"
         )
 
-    # Loop over all (config, seed) pairs and check for completed output 
-    missing: List[int] = []
-    for config_idx, config_name, config_storage in configs:
-        for seed_idx in range(1, n_seeds + 1):
-            # Get the eval results file for the current (config, seed) pair
-            root_seed = seed_idx * 100
-            seed_experiment_dir = config_storage / f"{config_name}_Seed{root_seed}"
-            eval_file = seed_experiment_dir / "eval_results_best.yaml"
-            task_id = config_idx * n_seeds + (seed_idx - 1)
-            
-             # If the eval results file does not exist, add the task ID to the missing list
-            if not eval_file.exists():
-                missing.append(task_id)
-                continue
-            
-            # If the eval results file is not readable, add the task ID to the missing list
-            try:
-                with open(eval_file, encoding="utf-8") as f:
-                    eval_data = yaml.safe_load(f) or {}
-            except (OSError, yaml.YAMLError):
-                missing.append(task_id)
-                continue
-
-            # If the eval results file does not contain a valid episode return mean, 
-            # add the task ID to the missing list
-            if not isinstance(eval_data.get("episode_return_mean"), (int, float)):
-                missing.append(task_id)
-
-    return sorted(missing)
+    # Check file-existence for each (config_idx, config_name, config_storage) tuple
+    missing = _find_missing_seed_eval_files(configs, n_seeds)
+    
+    return missing
 
 
 # ============================================================================

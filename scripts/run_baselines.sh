@@ -21,13 +21,12 @@
 # ============================================================================
 
 # Usage (run directly on login node -- not via sbatch):
-#   ./scripts/run_baselines.sh --name <Name> --env-config <path> [opts]
+#   ./scripts/run_baselines.sh --name <Name> [opts]
 #
 # Options:
 #   --name <Name>           Experiment / output folder name (required).
 #   --storage-dir <dir>     Parent directory for the experiment folder
 #                           (default: experiment_outputs/Runs)
-#   --env-config <path>     Environment config YAML (required)
 #   --n-seeds <N>           Number of seeds (default: 5)
 #   --eval-episodes <N>     Final eval episodes (default: 100)
 #   --eval-seed <N>         Held-out eval root seed shared by all
@@ -52,7 +51,7 @@
 
 NAME=""
 STORAGE_DIR="experiment_outputs/Runs"
-ENV_CONFIG=""
+ENV_CONFIG="./config_files/environments/env_symmetric_3WH5SKU.yaml"
 N_SEEDS=5
 EVAL_EPISODES=100
 EVAL_SEED=123
@@ -66,9 +65,6 @@ while [[ $# -gt 0 ]]; do
     --name)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --name requires a value" >&2; exit 1; }
       NAME="$2"; shift 2 ;;
-    --env-config)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --env-config requires a value" >&2; exit 1; }
-      ENV_CONFIG="$2"; shift 2 ;;
     --storage-dir)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --storage-dir requires a value" >&2; exit 1; }
       STORAGE_DIR="$2"; shift 2 ;;
@@ -107,10 +103,6 @@ if [ -z "$NAME" ]; then
   echo "ERROR: --name is required for baseline seed-evaluation." >&2
   exit 1
 fi
-if [ -z "$ENV_CONFIG" ]; then
-  echo "ERROR: --env-config is required for baseline seed-evaluation." >&2
-  exit 1
-fi
 
 # Default to the canonical baseline list when --baselines was not provided.
 if [ -z "$BASELINES" ]; then
@@ -147,7 +139,7 @@ if [ -z "$PHASE" ]; then
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--name ${NAME} --env-config ${ENV_CONFIG} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
+  FORWARD_ARGS="--name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
   echo "Launching baseline seed evaluation: name=${NAME}, n_baselines=${N_BASELINES}, n_seeds=${N_SEEDS}"
   echo "Total tasks: ${TOTAL_TASKS} (${N_BASELINES} baselines x ${N_SEEDS} seeds)"
@@ -241,7 +233,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--name ${NAME} --env-config ${ENV_CONFIG} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
+      HEAL_FORWARD="--name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
       # Submit the missing worker jobs
       HEAL_WORKER_JOB=$(sbatch --parsable \

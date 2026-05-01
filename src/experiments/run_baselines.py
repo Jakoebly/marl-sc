@@ -39,7 +39,10 @@ from src.experiments.utils.experiment_utils import (
     generate_baseline_experiment_name,
     save_env_config,
 )
-from src.experiments.utils.seed_evaluation import aggregate_seed_evaluation
+from src.experiments.utils.seed_evaluation import (
+    _find_missing_seed_eval_files,
+    aggregate_seed_evaluation,
+)
 from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 
 
@@ -47,47 +50,13 @@ from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 # SLURM helpers (task-id mapping and self-heal scan)
 # ============================================================================
 
-def baseline_task_layout(
-    n_seeds: int,
-    baselines: Optional[List[str]] = None,
-) -> List[Tuple[int, str, int, int]]:
-    """
-    Returns the canonical ``(task_id, baseline, seed_idx, root_seed)``
-    layout the SLURM array launcher expects:
-
-        task_id    = baseline_idx * n_seeds + (seed_idx - 1)
-        seed_idx   = task_id % n_seeds + 1
-        root_seed  = seed_idx * 100
-
-    Args:
-        n_seeds (int): Number of seeds per baseline.
-        baselines (Optional[List[str]]): Ordered baseline list. Defaults to
-            :data:`BASELINE_NAMES`.
-
-    Returns:
-        layout (List[Tuple[int, str, int, int]]): ``(task_id, baseline,
-            seed_idx, root_seed)`` tuples.
-    """
-
-    # Default to all baselines if not provided
-    if baselines is None:
-        baselines = list(BASELINE_NAMES)
-
-    # Loop over all (baseline, seed) pairs and create the task layout
-    layout: List[Tuple[int, str, int, int]] = []
-    for baseline_idx, baseline in enumerate(baselines):
-        for seed_idx in range(1, n_seeds + 1):
-            task_id = baseline_idx * n_seeds + (seed_idx - 1)
-            layout.append((task_id, baseline, seed_idx, seed_idx * 100))
-    return layout
-
 def find_missing_baseline_tasks(
     storage_dir: Path,
     n_seeds: int,
     baselines: Optional[List[str]] = None,
 ) -> List[int]:
     """
-    Returns SLURM array task IDs whose ``eval_results_best.yaml`` is 
+    Returns SLURM array task IDs whose ``eval_results_best.yaml`` is
     missing or unreadable. Used by the self-healing mechanism of the
     aggregate phase in ``scripts/run_baselines.sh``.
 
@@ -95,7 +64,7 @@ def find_missing_baseline_tasks(
     an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
 
     Args:
-        seed_eval_dir (Path): Parent directory of ``<DisplayName>_Seed<N>/``.
+        storage_dir (Path): Parent directory of ``<DisplayName>_Seed<N>/``.
         n_seeds (int): Number of seeds per baseline.
         baselines (Optional[List[str]]): Ordered baseline list. Defaults
             to :data:`BASELINE_NAMES`.
@@ -104,40 +73,22 @@ def find_missing_baseline_tasks(
         missing (List[int]): Sorted SLURM array indices still pending.
     """
 
-    # Set the storage directory
+    # Default to all baselines if not provided
+    if baselines is None:
+        baselines = list(BASELINE_NAMES)
+
+    # Build one (config_idx, config_name, config_storage) tuple per baseline
     storage_dir = Path(storage_dir)
-
-    # Loop over all (baseline, seed) pairs and check for completed output
-    missing: List[int] = []
-    for task_id, baseline, _, root_seed in baseline_task_layout(n_seeds, baselines):
-        # Get the eval results file for the current (baseline, seed) pair
+    configs: List[Tuple[int, str, Path]] = []
+    for baseline_idx, baseline in enumerate(baselines):
         baseline_display_name = BASELINE_DISPLAY_NAMES[baseline]
-        seed_experiment_dir = (
-            storage_dir
-            / baseline_display_name
-            / f"{baseline_display_name}_Seed{root_seed}"
-        )
-        eval_file = seed_experiment_dir / "eval_results_best.yaml"
-        
-        # If the eval results file does not exist, add the task ID to the missing list
-        if not eval_file.exists():
-            missing.append(task_id)
-            continue
-        
-        # If the eval results file is not readable, add the task ID to the missing list
-        try:
-            with open(eval_file, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError):
-            missing.append(task_id)
-            continue
+        config_storage = storage_dir / baseline_display_name
+        configs.append((baseline_idx, baseline_display_name, config_storage))
 
-        # If the eval results file does not contain a valid episode return mean, 
-        # add the task ID to the missing list
-        if not isinstance(data.get("episode_return_mean"), (int, float)):
-            missing.append(task_id)
+    # Check file-existence for each (config_idx, config_name, config_storage) tuple
+    missing = _find_missing_seed_eval_files(configs, n_seeds)
 
-    return sorted(missing)
+    return missing
 
 
 # ============================================================================
@@ -223,7 +174,7 @@ def aggregate_costs(episodes: List[Dict[str, np.ndarray]]) -> Dict[str, float]:
 
     Args:
         episodes (List[Dict[str, np.ndarray]]): Episodes from
-            :func:`baseline_rollout` (with ``collect_step_info=True``).
+            :func:`run_rollout` (with ``collect_step_info=True``).
 
     Returns:
         agg (Dict[str, float]): Mean and std summaries.
@@ -255,7 +206,7 @@ def aggregate_costs(episodes: List[Dict[str, np.ndarray]]) -> Dict[str, float]:
 # Rollout functions
 # ============================================================================
 
-def baseline_rollout(
+def run_rollout(
     env: InventoryEnvironment,
     action_fn: Callable,
     num_episodes: int,
@@ -405,7 +356,7 @@ def run_sweep(
         env = make_train_env(env_config, sweep_seed)
 
         # Run the baseline rollout 
-        episodes = baseline_rollout(
+        episodes = run_rollout(
             env,
             make_action_fn(value),
             num_episodes,
@@ -566,7 +517,7 @@ def make_bs_newsvendor_action_fn(env_config: EnvironmentConfig, z: float) -> Cal
 
     return action_fn
 
-def make_adaptive_bs_action_fn(
+def make_bs_adaptive_action_fn(
     env_config: EnvironmentConfig,
     z: float,
     H: int,
@@ -701,7 +652,7 @@ def make_bs_optimized_action_fn(
 # Per-baseline run functions
 # ============================================================================
 
-def run_action_fn_evaluation(
+def evaluate_action_fn(
     env_config: EnvironmentConfig,
     action_fn: Callable,
     eval_seed: int,
@@ -726,7 +677,7 @@ def run_action_fn_evaluation(
 
     # Create the evaluation environment and run the rollout
     env = make_eval_env(env_config, eval_seed, eval_episodes)
-    episodes = baseline_rollout(env, action_fn, eval_episodes, collect_step_info=True)
+    episodes = run_rollout(env, action_fn, eval_episodes, collect_step_info=True)
     
     # Aggregate costs and create the evaluation results dictionary
     agg = aggregate_costs(episodes)
@@ -750,7 +701,7 @@ def run_action_fn_evaluation(
 
 def run_random_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
 ) -> Dict[str, Any]:
@@ -758,14 +709,14 @@ def run_random_baseline(
     Runs the random baseline that samples uniform random orders in
     ``[-1, 1]`` for every warehouse-SKU pair.
 
-    Has no calibration step. The action RNG is seeded directly from
-    ``root_seed`` so different seed runs produce independent random
+    Has no calibration step. The action RNG is taken from the seed manager's
+    ``train`` slot so different seed runs produce independent random
     policies (the across-seed std then captures the effect of policy
     stochasticity, analogous to RL across-seed training stochasticity).
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed (e.g., ``100, 200, ...``).
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
     
@@ -774,13 +725,13 @@ def run_random_baseline(
             ``eval_results_best.yaml``.
     """
 
-    # Create a RNG from the root seed so different seed 
+    # Get an action RNG from the seed manager's 'train' slot so different seed
     # runs produce independent random policies
-    rng = np.random.default_rng(root_seed)
+    rng = seed_manager.get_rng("train")
 
     # Create the action function and run the evaluation
     action_fn = make_random_action_fn(rng)
-    eval_results = run_action_fn_evaluation(
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
     return {
@@ -791,7 +742,7 @@ def run_random_baseline(
 
 def run_constant_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
     alpha_values: Optional[List[float]] = None,
@@ -805,7 +756,7 @@ def run_constant_baseline(
     
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
         alpha_values (Optional[List[float]]): Sweep grid for ``alpha``.
@@ -818,9 +769,8 @@ def run_constant_baseline(
         result (Dict[str, Any]): Eval results dict.
     """
 
-    # Create a seed manager and spawn calibration and sweep seeds
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    calibration_seed, sweep_seed = sm.spawn_child_seeds("train", 2)
+    # Spawn calibration and sweep seeds from the seed manager's 'train' slot
+    calibration_seed, sweep_seed = seed_manager.spawn_child_seeds("train", 2)
 
     # Default alpha values to 0.05 if not provided
     if alpha_values is None:
@@ -859,7 +809,7 @@ def run_constant_baseline(
     # Create the action function based on the best
     # constant quantities and run final evaluation
     action_fn = make_constant_action_fn(best_quantities, max_qty)
-    eval_results = run_action_fn_evaluation(
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
 
@@ -889,7 +839,7 @@ def run_constant_baseline(
 
 def run_bs_newsvendor_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
     z_values: Optional[List[float]] = None,
@@ -902,7 +852,7 @@ def run_bs_newsvendor_baseline(
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
         z_values (Optional[List[float]]): Sweep grid for ``z``.
@@ -912,9 +862,8 @@ def run_bs_newsvendor_baseline(
         result (Dict[str, Any]): Eval results dict.
     """
 
-    # Create a seed manager and spawn a sweep seed
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (sweep_seed,) = sm.spawn_child_seeds("train", 1)
+    # Spawn a sweep seed from the seed manager's 'train' slot
+    sweep_seed = seed_manager.spawn_child_seeds("train", 1)[0]
 
     # Default z values to 0.25 if not provided
     if z_values is None:
@@ -941,7 +890,7 @@ def run_bs_newsvendor_baseline(
     # Create the action function based on the best
     # z value and run final evaluation
     action_fn = make_bs_newsvendor_action_fn(env_config, z=best_z)
-    eval_results = run_action_fn_evaluation(
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
 
@@ -963,7 +912,7 @@ def run_bs_newsvendor_baseline(
 
 def run_bs_adaptive_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
     z_values: Optional[List[float]] = None,
@@ -977,7 +926,7 @@ def run_bs_adaptive_baseline(
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
         z_values (Optional[List[float]]): Sweep grid for ``z``.
@@ -988,9 +937,8 @@ def run_bs_adaptive_baseline(
         result (Dict[str, Any]): Eval results dict.
     """
 
-    # Create a seed manager and spawn a sweep seed
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (sweep_seed,) = sm.spawn_child_seeds("train", 1)
+    # Spawn a sweep seed from the seed manager's 'train' slot
+    sweep_seed = seed_manager.spawn_child_seeds("train", 1)[0]
 
     # Default z values to 0.25 if not provided
     if z_values is None:
@@ -1014,7 +962,7 @@ def run_bs_adaptive_baseline(
         sweep_seed=sweep_seed,
         num_episodes=sweep_episodes,
         sweep_values=sweep_params,
-        make_action_fn=lambda zh: make_adaptive_bs_action_fn(
+        make_action_fn=lambda zh: make_bs_adaptive_action_fn(
             env_config, z=zh[0], H=zh[1],
         ),
         label_fn=lambda zh: f"z={zh[0]:5.2f}, H={zh[1]:3d}",
@@ -1025,8 +973,8 @@ def run_bs_adaptive_baseline(
 
     # Create the action function based on the best 
     # z and H values and run final evaluation
-    action_fn = make_adaptive_bs_action_fn(env_config, z=best_z, H=best_H)
-    eval_results = run_action_fn_evaluation(
+    action_fn = make_bs_adaptive_action_fn(env_config, z=best_z, H=best_H)
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
 
@@ -1053,7 +1001,7 @@ def run_bs_adaptive_baseline(
 
 def run_bs_optimized_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
     n_calls: int = 300,
@@ -1068,7 +1016,7 @@ def run_bs_optimized_baseline(
     optimization. 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
         n_calls (int): Total BO evaluations.
@@ -1080,13 +1028,12 @@ def run_bs_optimized_baseline(
         result (Dict[str, Any]): Eval results dict.
     """
 
-    # Create a seed manager and spawn an optimization seed
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    (optimization_seed,) = sm.spawn_child_seeds("train", 1)
+    # Spawn an optimization seed from the seed manager's 'train' slot
+    optimization_seed = seed_manager.spawn_child_seeds("train", 1)[0]
 
     # Run Bayesian optimization to find the optimal base-stock levels
     print(f"  BO optimization_seed={optimization_seed}")
-    S_star, bo_convergence = run_bs_optimization(
+    S_star, bo_convergence = run_bs_joint_optimization(
         env_config=env_config,
         optimization_seed=optimization_seed,
         n_calls=n_calls,
@@ -1101,7 +1048,7 @@ def run_bs_optimized_baseline(
     # Create the action function based on the optimal 
     # base-stock levels and run final evaluation
     action_fn = make_bs_optimized_action_fn(S_star, max_qty)
-    eval_results = run_action_fn_evaluation(
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
 
@@ -1126,7 +1073,7 @@ def run_bs_optimized_baseline(
 
 def run_bs_independent_baseline(
     env_config: EnvironmentConfig,
-    root_seed: int,
+    seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
     n_rounds: int = 3,
@@ -1143,7 +1090,7 @@ def run_bs_independent_baseline(
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
-        root_seed (int): Per-run root seed.
+        seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
         n_rounds (int): Iterated best-response rounds.
@@ -1158,9 +1105,8 @@ def run_bs_independent_baseline(
         result (Dict[str, Any]): Eval results dict.
     """
 
-    # Create a seed manager and spawn calibration and optimization seeds
-    sm = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
-    calibration_seed, optimization_seed = sm.spawn_child_seeds("train", 2)
+    # Spawn calibration and optimization seeds from the seed manager's 'train' slot
+    calibration_seed, optimization_seed = seed_manager.spawn_child_seeds("train", 2)
 
     # Calibrate to get the mean demand
     print(f"  Calibrating initial S (cal_seed={calibration_seed})...")
@@ -1198,7 +1144,7 @@ def run_bs_independent_baseline(
     # Create the action function based on the optimal 
     # base-stock levels and run final evaluation
     action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
-    eval_results = run_action_fn_evaluation(
+    eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
     )
 
@@ -1227,7 +1173,7 @@ def run_bs_independent_baseline(
 
     return results
 
-def run_bs_optimization(
+def run_bs_joint_optimization(
     env_config: EnvironmentConfig,
     optimization_seed: int,
     n_calls: int = 300,
@@ -1275,18 +1221,11 @@ def run_bs_optimization(
         action_fn = make_bs_optimized_action_fn(S, max_qty)
 
         # Run the objective function rollout
-        total_rewards = []
-        for ep_idx in range(n_obj_episodes):
-            env = make_train_env(env_config, optimization_seed + ep_idx)
-            obs, _ = env.reset()
-            ep_reward = 0.0
-            done = False
-            while not done:
-                actions = action_fn(env, obs)
-                obs, rewards, terms, truncs, _ = env.step(actions)
-                ep_reward += sum(rewards.values())
-                done = all(truncs.values()) or all(terms.values())
-            total_rewards.append(ep_reward)
+        env = make_train_env(env_config, optimization_seed)
+        episodes = run_rollout(
+            env, action_fn, n_obj_episodes, collect_step_info=False,
+        )
+        total_rewards = [float(ep["rewards"].sum()) for ep in episodes]
 
         # Calculate the mean reward and update the call counter
         mean_reward = float(np.mean(total_rewards))
@@ -1379,8 +1318,8 @@ def run_bs_independent_optimization(
 
     # Get independent child seeds for each (round, wh) BO call so the GP
     # search and rollout sampling are independent across calls
-    parent_ss = np.random.SeedSequence(optimization_seed)
-    child_ss = parent_ss.spawn(n_rounds * n_warehouses)
+    sm = SeedManager(root_seed=optimization_seed, seed_registry=EXPERIMENT_SEEDS)
+    wh_seeds = sm.spawn_child_seeds("train", n_rounds * n_warehouses)
 
     # Initialize the current base-stock levels and convergence log
     S_current = S_init.copy()
@@ -1394,7 +1333,7 @@ def run_bs_independent_optimization(
         for wh_target in range(n_warehouses):
             # Get the child seed for the current (round, warehouse) BO call
             child_idx = rnd * n_warehouses + wh_target
-            wh_seed = int(child_ss[child_idx].generate_state(1, dtype=np.uint32)[0])
+            wh_seed = wh_seeds[child_idx]
             
             print(
                 f"    Optimising WH {wh_target} ({n_skus} params, "
@@ -1417,18 +1356,11 @@ def run_bs_independent_optimization(
                 action_fn = make_bs_optimized_action_fn(S_candidate, max_qty)
 
                 # Run the objective function rollout
-                wh_rewards = []
-                for ep_idx in range(n_obj_episodes):
-                    env = make_train_env(env_config, wh_seed + ep_idx)
-                    obs, _ = env.reset()
-                    ep_wh_reward = 0.0
-                    done = False
-                    while not done:
-                        actions = action_fn(env, obs)
-                        obs, rewards, terms, truncs, _ = env.step(actions)
-                        ep_wh_reward += sum(rewards.values())
-                        done = all(truncs.values()) or all(terms.values())
-                    wh_rewards.append(ep_wh_reward)
+                env = make_train_env(env_config, wh_seed)
+                episodes = run_rollout(
+                    env, action_fn, n_obj_episodes, collect_step_info=False,
+                )
+                wh_rewards = [float(ep["rewards"].sum()) for ep in episodes]
 
                 # Calculate the mean reward and update the call counter
                 mean_reward = float(np.mean(wh_rewards))
@@ -1588,11 +1520,15 @@ def run_single_baseline(
     )
     print(f"{'=' * 75}")
 
+    # Create a single top-level SeedManager for this baseline run so that each 
+    # runner can derive its sub-seeds from this manager's 'train' slot
+    seed_manager = SeedManager(root_seed=root_seed, seed_registry=EXPERIMENT_SEEDS)
+
     # Run the baseline using the run function from the registry
     runner = BASELINE_REGISTRY[baseline]
     eval_results = runner(
         env_config=env_config,
-        root_seed=root_seed,
+        seed_manager=seed_manager,
         eval_seed=eval_seed,
         eval_episodes=eval_episodes,
     )
