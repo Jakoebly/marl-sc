@@ -1,6 +1,7 @@
 # marl_sc
 
-# $env:PYTHONPATH="C:\Users\Jakob Ehrenhuber\Desktop\marl-sc"     
+# $env:PYTHONPATH="C:\Users\Jakob Ehrenhuber\Desktop\marl-sc" 
+# $env:PYTHONPATH="C:\Users\jakob\Desktop\marl-sc"     
 
 
 ls -lah /home/jakobeh/projects/marl-sc/experiment_outputs/ | grep nfs 

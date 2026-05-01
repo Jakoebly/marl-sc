@@ -29,14 +29,6 @@ from src.experiments.utils.experiment_utils import (
     find_latest_periodic_checkpoint,
     save_run_metadata,
 )
-
-
-def _resolve_tune_experiment_dir(tuning_base: str, name: str) -> Path:
-    """``tuning_base/name`` if present, else :func:`find_experiment_dir` (prefix match)."""
-    literal = Path(tuning_base) / name
-    if literal.exists():
-        return literal
-    return find_experiment_dir(tuning_base, name)
 from src.experiments.utils.wandb import setup_wandb
 from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 
@@ -100,7 +92,7 @@ def build_seed_evaluation_configs(
     )
 
 def _build_tune_mode_configs(
-    tune_name: str,
+    name: str,
     top_k: int,
 ) -> List[Dict[str, Any]]:
     """
@@ -116,29 +108,35 @@ def _build_tune_mode_configs(
     """
 
     # Get the tune directory
-    tuning_base = "experiment_outputs/Tuning"
-    tune_dir = _resolve_tune_experiment_dir(tuning_base, tune_name)
+    storage_dir = "experiment_outputs/Tuning"
+    experiment_dir = find_experiment_dir(storage_dir, name)
 
-    # Get the top-K trial configs
-    results_path = tune_dir / "best_trial_results.yaml"
-    if not results_path.exists():
+    # Check if the tune results file exists
+    tune_results_file = experiment_dir / "best_trial_results.yaml"
+    if not tune_results_file.exists():
         raise FileNotFoundError(
-            f"best_trial_results.yaml not found in {tune_dir}"
+            f"best_trial_results.yaml not found in {experiment_dir}"
         )
-    with open(results_path, encoding="utf-8") as f:
+    
+    # Open the tune results file to get the top-k trials
+    with open(tune_results_file, encoding="utf-8") as f:
         results_data = yaml.safe_load(f)
-    available_trials = results_data.get("top_k_trials", [])
-    if top_k > len(available_trials):
+    trials = results_data.get("top_k_trials", [])
+
+    # If the requested top-k is greater than the number of trials, print a warning
+    if top_k > len(trials):
         print(
             f"[WARN] Requested top_k={top_k} but best_trial_results.yaml "
-            f"only contains {len(available_trials)} trials. "
-            f"Using all {len(available_trials)} available trials."
+            f"only contains {len(trials)} trials. "
+            f"Using all {len(trials)} available trials."
         )
-    trials = available_trials[:top_k]
+    
+    # Get the top-k trials
+    trials = trials[:top_k]
 
     # Create the directory for seed evaluation runs
-    seed_eval_base = tune_dir / "seed_evaluation"
-    seed_eval_base.mkdir(parents=True, exist_ok=True)
+    seed_dir = experiment_dir / "seed_evaluation"
+    seed_dir.mkdir(parents=True, exist_ok=True)
 
     # Loop over the top-K trials and add their configs to the list of configs
     configs_to_eval: List[Dict[str, Any]] = []
@@ -147,7 +145,7 @@ def _build_tune_mode_configs(
         short_id = trial["short_id"]
         trial_path = trial["trial_path"]
         config_name = f"{rank:02d}_{short_id}"
-        config_storage = str(seed_eval_base / config_name)
+        config_storage = str(seed_dir / config_name)
         env_cfg = str(Path(trial_path) / "env_config.yaml")
         algo_cfg = str(Path(trial_path) / "algorithm_config.yaml")
         configs_to_eval.append({
@@ -189,6 +187,7 @@ def _build_single_mode_config(
     Returns:
         configs_to_eval (List[Dict[str, Any]]): One-entry config list.
     """
+
     # Safeguard against missing storage_dir or experiment_name
     if storage_dir is None:
         storage_dir = "./experiment_outputs/Runs"
@@ -202,7 +201,8 @@ def _build_single_mode_config(
     if env_config_path is not None and algorithm_config_path is not None:
         experiment_dir = Path(storage_dir) / experiment_name
     
-    # If no explicit env and algorithm configs are provided, find the experiment directory
+    # If no explicit env and algorithm configs are provided, find 
+    # the experiment directory and check for existing env and algorithm configs
     else:
         experiment_dir = find_experiment_dir(storage_dir, experiment_name)
         if env_config_path is None:
@@ -226,15 +226,15 @@ def _build_single_mode_config(
             algorithm_config_path = str(candidate)
 
     # Create the directory for seed evaluation runs
-    base_dir = str(experiment_dir / "seed_evaluation")
-    Path(base_dir).mkdir(parents=True, exist_ok=True)
+    seed_dir = str(experiment_dir / "seed_evaluation")
+    Path(seed_dir).mkdir(parents=True, exist_ok=True)
 
     # Wrap into the standard one-entry config list
     configs_to_eval = [{
         "config_name": experiment_name,
         "env_config_path": env_config_path,
         "algorithm_config_path": algorithm_config_path,
-        "storage_dir": base_dir,
+        "storage_dir": seed_dir,
     }]
 
     return configs_to_eval
@@ -289,14 +289,15 @@ def evaluate_config_across_seeds(
     for seed_idx in range(1, n_seeds + 1):
         # Calculate a spaced-out root seed and set the run name
         root_seed = seed_idx * 100
-        seed_name = f"{config_name}_Seed{root_seed}"
-        seed_experiment_dir = Path(cfg_storage) / seed_name
+        seed_experiment_name = f"{config_name}_Seed{root_seed}"
+        seed_experiment_dir = Path(cfg_storage) / seed_experiment_name
 
-        # Skip the seed if a valid eval_results_best.yaml is already on disk.
-        eval_best_file = seed_experiment_dir / "eval_results_best.yaml"
-        if eval_best_file.exists():
+        # Skip the seed if a valid eval_results_best.yaml is already on disk 
+        # or if the file is empty
+        eval_results_file = seed_experiment_dir / "eval_results_best.yaml"
+        if eval_results_file.exists():
             try:
-                with open(eval_best_file, encoding="utf-8") as f:
+                with open(eval_results_file, encoding="utf-8") as f:
                     prev_eval = yaml.safe_load(f) or {}
                 prev_mean = prev_eval.get("episode_return_mean")
             except (OSError, yaml.YAMLError):
@@ -316,7 +317,7 @@ def evaluate_config_across_seeds(
             env_config_path=cfg_env,
             algorithm_config_path=cfg_algo,
             storage_dir=cfg_storage,
-            experiment_name=seed_name,
+            experiment_name=seed_experiment_name,
             root_seed=root_seed,
             eval_seed=eval_seed,
             wandb_project=wandb_project,
@@ -449,55 +450,6 @@ def _run_single_seed_eval(
 
     return result
 
-def save_combined_seed_evaluation_summary(
-    seed_eval_dir: Path,
-    all_config_stats: List[dict],
-) -> None:
-    """
-    Writes the combined ``seed_evaluation_summary.yaml`` across all tune configs
-    and plots the combined training curves.
-
-    Used only in tune mode when multiple configs have been evaluated.
-
-    Args:
-        seed_eval_dir (Path): Path to the ``seed_evaluation/`` directory that
-            contains the per-config subfolders.
-        all_config_stats (List[dict]): Per-config stats dicts, sorted best-first.
-    """
-
-    # Skip if no configs were aggregated
-    if not all_config_stats:
-        return
-
-    # Create the overall directory for the seed evaluation results
-    seed_eval_dir = Path(seed_eval_dir)
-    seed_eval_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create and save the overall summary
-    overall_summary = {
-        "configs": all_config_stats,
-        "best_config": {
-            "name": all_config_stats[0]["name"],
-            "mean": float(all_config_stats[0]["mean"]),
-        },
-    }
-    overall_path = seed_eval_dir / "seed_evaluation_summary.yaml"
-    with open(overall_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(overall_summary, f, default_flow_style=False, sort_keys=False)
-    print(f"[INFO] Overall summary saved to: {overall_path}")
-
-    # Load training metrics from all seed eval subfolders and plot combined curves
-    all_curve_metrics: Dict[str, List[List[dict]]] = {}
-    for sub in sorted(seed_eval_dir.iterdir()):
-        if sub.is_dir() and sub.name != "seed_evaluation_plots":
-            sub_metrics = load_training_metrics_from_disk(sub)
-            all_curve_metrics.update(sub_metrics)
-    if all_curve_metrics:
-        plots_dir = seed_eval_dir / "seed_evaluation_plots"
-        plots_dir.mkdir(parents=True, exist_ok=True)
-        plot_seed_evaluation_curves(all_curve_metrics, plots_dir)
-
-
 # ============================================================================
 # Aggregation orchestration (parallel SLURM path)
 # ============================================================================
@@ -541,15 +493,19 @@ def aggregate_and_plot_seed_evaluation(
 def _aggregate_and_plot_tune(experiment_dir: Path) -> None:
     """
     Aggregates a tune-mode seed evaluation directory by completing per-config 
-    aggregation and plotting as well as top-level combined plotting across all 
+    aggregation/plotting as well as top-level combined plotting across all 
     configs.
 
     Args:
-        tune_dir (Path): Path to the tune experiment directory.
+        experiment_dir (Path): Path to the tune experiment directory.
     """
 
     # Get the seed evaluation directory
     seed_dir = experiment_dir / "seed_evaluation"
+    if not seed_dir.exists():
+        raise FileNotFoundError(
+            f"No seed_evaluation/ directory in {experiment_dir}"
+        )
 
     # Loop over each trainable config subfolder and aggregate seed evaluation results
     all_config_stats: List[dict] = []
@@ -579,28 +535,28 @@ def _aggregate_and_plot_tune(experiment_dir: Path) -> None:
 
 def _aggregate_and_plot_single(experiment_dir: Path) -> None:
     """
-    Aggregates a single-mode seed evaluation directory.
+    Aggregates and plots a single-mode seed evaluation directory.
 
     Args:
         experiment_dir (Path): Path to the single-run experiment directory.
     """
 
     # Get directories
-    seed_eval_dir = experiment_dir / "seed_evaluation"
-    if not seed_eval_dir.exists():
+    seed_dir = experiment_dir / "seed_evaluation"
+    if not seed_dir.exists():
         raise FileNotFoundError(
             f"No seed_evaluation/ directory in {experiment_dir}"
         )
-    plots_dir = seed_eval_dir / "seed_evaluation_plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    seed_plots_dir = seed_dir / "seed_evaluation_plots"
+    seed_plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Aggregate the seed evaluation results
-    aggregate_seed_evaluation(seed_eval_dir)
+    aggregate_seed_evaluation(seed_dir)
 
     # Load metrics and plot curves
-    metrics = load_training_metrics_from_disk(seed_eval_dir)
+    metrics = load_training_metrics_from_disk(seed_dir)
     if metrics:
-        plot_seed_evaluation_curves(metrics, plots_dir)
+        plot_seed_evaluation_curves(metrics, seed_plots_dir)
 
 def aggregate_seed_evaluation(seed_dir: str | Path) -> dict:
     """
@@ -1010,6 +966,54 @@ def print_seed_evaluation_table(
     print(f"Best config: {configs[0]['name']} (mean={configs[0]['mean']:.4f})")
     if summary_file:
         print(f"Summary saved to: {summary_file}")
+
+def save_combined_seed_evaluation_summary(
+    seed_dir: Path,
+    all_config_stats: List[dict],
+) -> None:
+    """
+    Writes the combined ``seed_evaluation_summary.yaml`` across all tune configs
+    and plots the combined training curves.
+
+    Used only in tune mode when multiple configs have been evaluated.
+
+    Args:
+        seed_dir (Path): Path to the ``seed_evaluation/`` directory that
+            contains the per-config subfolders.
+        all_config_stats (List[dict]): Per-config stats dicts, sorted best-first.
+    """
+
+    # Skip if no configs were aggregated
+    if not all_config_stats:
+        return
+
+    # Create the overall directory for the seed evaluation results
+    seed_dir = Path(seed_dir)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create and save the overall summary
+    overall_summary = {
+        "configs": all_config_stats,
+        "best_config": {
+            "name": all_config_stats[0]["name"],
+            "mean": float(all_config_stats[0]["mean"]),
+        },
+    }
+    eval_summary_file = seed_dir / "seed_evaluation_summary.yaml"
+    with open(eval_summary_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(overall_summary, f, default_flow_style=False, sort_keys=False)
+    print(f"[INFO] Overall summary saved to: {eval_summary_file}")
+
+    # Load training metrics from all seed eval subfolders and plot combined curves
+    all_curve_metrics: Dict[str, List[List[dict]]] = {}
+    for sub in sorted(seed_dir.iterdir()):
+        if sub.is_dir() and sub.name != "seed_evaluation_plots":
+            sub_metrics = load_training_metrics_from_disk(sub)
+            all_curve_metrics.update(sub_metrics)
+    if all_curve_metrics:
+        seed_plots_dir = seed_dir / "seed_evaluation_plots"
+        seed_plots_dir.mkdir(parents=True, exist_ok=True)
+        plot_seed_evaluation_curves(all_curve_metrics, seed_plots_dir)
 
 
 # ============================================================================

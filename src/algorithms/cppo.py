@@ -272,7 +272,7 @@ class CPPOWrapper(BaseAlgorithmWrapper):
                     env_meta.get("data_mode", "train") if env_meta else "train"
                 )
                 if data_mode == "train":
-                    worker_index = os.getpid()
+                    worker_index = getattr(env_meta, "worker_index", 0) or 0
                     env_index = _env_counter[0]
                     _env_counter[0] += 1
                     seed = SeedManager.derive_env_seed(

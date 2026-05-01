@@ -39,6 +39,33 @@ class TestAlgorithmEvaluate:
         algo.evaluate(eval_episodes=3)
         assert algo.trainer.config.evaluation_duration == original
 
+    def test_evaluate_primes_inner_inventory_env(self, trained_algorithm):
+        """evaluate(eval_episodes=N) must propagate N to the underlying
+        InventoryEnvironment (not just its gym wrapper) so eval seeds don't
+        cycle prematurely. Regression test for a bug where the cycle bump
+        and counter reset were silently applied to the wrapper.
+        """
+        algo = trained_algorithm["algorithm"]
+        # Pick eval_episodes > the fixture's num_eval_episodes (=2) so a
+        # broken implementation would still cycle every 2 episodes.
+        eval_episodes = 5
+        algo.evaluate(eval_episodes=eval_episodes)
+
+        def _assert_inner_primed(env_runner):
+            if getattr(env_runner, "env", None) is None:
+                return
+            for sub_env in env_runner.env.envs:
+                e = sub_env.unwrapped
+                inner = getattr(e, "par_env", None) or getattr(e, "env", e)
+                assert hasattr(inner, "seed_manager"), (
+                    "Could not reach InventoryEnvironment from sub_env"
+                )
+                assert inner._num_eval_episodes == eval_episodes
+
+        algo.trainer.eval_env_runner_group.foreach_env_runner(
+            _assert_inner_primed, local_env_runner=True
+        )
+
 
 # ============================================================================
 # 2. Checkpoint save/load tests

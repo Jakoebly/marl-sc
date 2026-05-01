@@ -142,6 +142,7 @@ if [ "$MODE" = "single" ] && [ -z "$EXPERIMENT_NAME" ]; then
   echo "ERROR: --experiment-name is required for single-mode seed evaluation" >&2
   exit 1
 fi
+
 # Print the arguments
 echo "MODE=${MODE}"
 echo "N_SEEDS=${N_SEEDS}"

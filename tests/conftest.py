@@ -17,7 +17,7 @@ from src.algorithms.registry import get_algorithm
 # Paths to config files (small default configs)
 # ---------------------------------------------------------------------------
 
-ENV_CONFIG_PATH = "config_files/environments/base_env.yaml"
+ENV_CONFIG_PATH = "config_files/environments/env_symmetric_3WH5SKU.yaml"
 ALGO_CONFIG_PATH = "config_files/algorithms/ippo.yaml"
 
 

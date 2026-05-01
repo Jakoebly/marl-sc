@@ -75,10 +75,15 @@ class BaseAlgorithmWrapper(ABC):
                 if getattr(env_runner, "env", None) is None:
                     return
                 for sub_env in env_runner.env.envs:
+                    # `sub_env.unwrapped` is the wrapper the env factory
+                    # produces (ParallelPettingZooEnv or CentralizedEnvWrapper)
                     e = sub_env.unwrapped
-                    e._num_eval_episodes = eval_episodes
-                    if hasattr(e, "seed_manager"):
-                        e.seed_manager._episode_counter = 0
+
+                    # The actual InventoryEnvironment is in `par_env` or `env`, 
+                    # depending on the wrapper type
+                    inner = getattr(e, "par_env", None) or getattr(e, "env", e)
+                    inner._num_eval_episodes = eval_episodes
+                    inner.seed_manager._episode_counter = 0
             self.trainer.eval_env_runner_group.foreach_env_runner(
                 _prime_for_final_eval, local_env_runner=True
             )
