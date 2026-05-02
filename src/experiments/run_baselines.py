@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 
@@ -41,8 +42,9 @@ from src.experiments.utils.experiment_utils import (
 )
 from src.experiments.utils.seed_evaluation import (
     _find_missing_seed_eval_files,
-    aggregate_seed_evaluation,
+    aggregate_and_plot_seed_evaluation,
 )
+from src.experiments.utils.visualization import generate_visualizations
 from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 
 
@@ -58,7 +60,7 @@ def find_missing_baseline_tasks(
     """
     Returns SLURM array task IDs whose ``eval_results_best.yaml`` is
     missing or unreadable. Used by the self-healing mechanism of the
-    aggregate phase in ``scripts/run_baselines.sh``.
+    aggregate phase in ``scripts/run_all_baselines.sh``.
 
     A task is considered complete when its expected run directory contains
     an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
@@ -200,6 +202,98 @@ def aggregate_costs(episodes: List[Dict[str, np.ndarray]]) -> Dict[str, float]:
     }
 
     return agg
+
+
+# ============================================================================
+# Plotting helpers
+# ============================================================================
+
+def plot_baseline_sweep(eval_results: Dict[str, Any], output_path: Path) -> None:
+    """
+    Saves a single-figure sweep/BO-convergence summary for the given baseline
+    result dict, with the best point/cell highlighted. Skipped silently for
+    baselines without a sweep (random).
+    """
+
+    # Get the baseline name and skip if baseline is "random"
+    baseline = eval_results.get("baseline")
+    if baseline == "random":
+        return
+
+    # Create the output directory and figure
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create the figure and axis
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    # Plot 1D parameter sweep over alpha (constant) or z (newsvendor)
+    if baseline in ("constant", "bs_newsvendor"):
+        v = eval_results["validation"]
+        xs = v["alpha_values"] if baseline == "constant" else v["z_values"]
+        ys = v["sweep_rewards"]
+        best_idx = v["best_idx"]
+        xlabel = "alpha" if baseline == "constant" else "z"
+        ax.plot(xs, ys, marker="o", linewidth=1.2, color="#4c72b0")
+        ax.axvline(xs[best_idx], linestyle="--", color="#c44e52",
+                   label=f"best {xlabel}={xs[best_idx]} (reward={ys[best_idx]:.1f})")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Mean sweep reward")
+        ax.set_title(f"{baseline} sweep")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    # Plot 2D parameter sweep over (z, H): heatmap with best cell marked
+    elif baseline == "bs_adaptive":
+        v = eval_results["validation"]
+        z_values = v["z_values"]
+        H_values = v["H_values"]
+        rewards = np.array(v["sweep_rewards"]).reshape(len(H_values), len(z_values))
+        best_idx = v["best_idx"]
+        best_h_idx = best_idx // len(z_values)
+        best_z_idx = best_idx % len(z_values)
+        im = ax.imshow(rewards, aspect="auto", cmap="viridis", origin="lower")
+        fig.colorbar(im, ax=ax, label="Mean sweep reward")
+        ax.set_xticks(range(len(z_values)))
+        ax.set_xticklabels([f"{z:.2f}" for z in z_values], rotation=45, fontsize=7)
+        ax.set_yticks(range(len(H_values)))
+        ax.set_yticklabels([str(h) for h in H_values], fontsize=8)
+        ax.set_xlabel("z")
+        ax.set_ylabel("H")
+        ax.set_title("bs_adaptive sweep")
+        ax.scatter([best_z_idx], [best_h_idx], marker="*", color="red", s=180,
+                   edgecolors="black", linewidths=0.8,
+                   label=f"best z={z_values[best_z_idx]}, H={H_values[best_h_idx]}")
+        ax.legend(fontsize=8, loc="best")
+
+    # Plot 1D BO convergence curve(s) for joint optimization
+    elif baseline == "bs_optimized":
+        ys = eval_results["optimization"]["bo_convergence"]
+        rewards = [-y for y in ys]
+        ax.plot(range(1, len(rewards) + 1), rewards, linewidth=1.2, color="#4c72b0")
+        ax.set_xlabel("BO call")
+        ax.set_ylabel("Best reward so far")
+        ax.set_title("bs_optimized BO convergence")
+        ax.grid(True, alpha=0.3)
+
+    # Plot 1D BO convergence curve(s) for independent optimization
+    elif baseline == "bs_independent":
+        colors = plt.cm.tab10.colors
+        log = eval_results["optimization"]["convergence_log"]
+        for idx, (key, ys) in enumerate(sorted(log.items())):
+            rewards = [-y for y in ys]
+            ax.plot(range(1, len(rewards) + 1), rewards, linewidth=1.0,
+                    color=colors[idx % len(colors)], label=key)
+        ax.set_xlabel("BO call")
+        ax.set_ylabel("Best reward so far")
+        ax.set_title("bs_independent BO convergence (per round, warehouse)")
+        ax.legend(fontsize=7, loc="best")
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[INFO] Saved sweep plot: {output_path}")
 
 
 # ============================================================================
@@ -657,11 +751,13 @@ def evaluate_action_fn(
     action_fn: Callable,
     eval_seed: int,
     eval_episodes: int,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the final evaluation of a fixed policy on the held-out eval seed
     and returns a dict matching the schema produced by RL's
-    ``EvaluationRunner.run()``.
+    ``EvaluationRunner.run()``. If ``viz_dir`` is provided, also writes
+    per-episode rollout visualizations to ``viz_dir``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
@@ -669,6 +765,8 @@ def evaluate_action_fn(
         eval_seed (int): Held-out root seed for the final evaluation
             (default 123 across all RL and baseline runs).
         eval_episodes (int): Number of evaluation episodes.
+        viz_dir (Optional[Path]): Optional directory to write per-episode
+            rollout visualizations into.
 
     Returns:
         eval_results (Dict[str, Any]): Top-level dict including
@@ -678,7 +776,11 @@ def evaluate_action_fn(
     # Create the evaluation environment and run the rollout
     env = make_eval_env(env_config, eval_seed, eval_episodes)
     episodes = run_rollout(env, action_fn, eval_episodes, collect_step_info=True)
-    
+
+    # If a visualization directory is provided, save per-episode rollout visualizations
+    if viz_dir is not None:
+        generate_visualizations(episodes, str(viz_dir))
+
     # Aggregate costs and create the evaluation results dictionary
     agg = aggregate_costs(episodes)
     eval_results = {
@@ -704,6 +806,7 @@ def run_random_baseline(
     seed_manager: SeedManager,
     eval_seed: int,
     eval_episodes: int,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the random baseline that samples uniform random orders in
@@ -719,7 +822,9 @@ def run_random_baseline(
         seed_manager (SeedManager): Per-run seed manager.
         eval_seed (int): Fixed eval seed.
         eval_episodes (int): Number of evaluation episodes.
-    
+        viz_dir (Optional[Path]): Optional parent directory for the
+            ``Random_Best/`` rollout visualizations.
+
     Returns:
         result (Dict[str, Any]): Eval results dict to be written to
             ``eval_results_best.yaml``.
@@ -729,10 +834,16 @@ def run_random_baseline(
     # runs produce independent random policies
     rng = seed_manager.get_rng("train")
 
+    # Set the visualization directory for the random baseline
+    random_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['random']}_Best" if viz_dir is not None 
+        else None
+    )
+
     # Create the action function and run the evaluation
     action_fn = make_random_action_fn(rng)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes,
+        env_config, action_fn, eval_seed, eval_episodes, viz_dir=random_viz_dir,
     )
     return {
         "baseline": "random",
@@ -748,6 +859,7 @@ def run_constant_baseline(
     alpha_values: Optional[List[float]] = None,
     calibration_episodes: int = 50,
     sweep_episodes: Optional[int] = None,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the constant-order baseline that orders fixed per-(warehouse, SKU)
@@ -806,11 +918,17 @@ def run_constant_baseline(
     best_alpha = alpha_values[best_idx]
     best_quantities = np.round(best_alpha * mean_demand)
 
+    # Set the visualization directory for the constant baseline
+    constant_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['constant']}_Best_alpha={best_alpha:.2f}" 
+        if viz_dir is not None else None
+    )
+
     # Create the action function based on the best
     # constant quantities and run final evaluation
     action_fn = make_constant_action_fn(best_quantities, max_qty)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes,
+        env_config, action_fn, eval_seed, eval_episodes, viz_dir=constant_viz_dir,
     )
 
     # Create the results dictionary
@@ -844,6 +962,7 @@ def run_bs_newsvendor_baseline(
     eval_episodes: int,
     z_values: Optional[List[float]] = None,
     sweep_episodes: Optional[int] = None,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Newsvendor baseline that implements an oracle base-stock
@@ -887,11 +1006,17 @@ def run_bs_newsvendor_baseline(
     # Select the best z value
     best_z = z_values[best_idx]
 
+    # Set the visualization directory for the BSNewsvendor baseline
+    bs_newsvendor_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_newsvendor']}_Best_Z={best_z:.2f}" 
+        if viz_dir is not None else None
+    )
+
     # Create the action function based on the best
     # z value and run final evaluation
     action_fn = make_bs_newsvendor_action_fn(env_config, z=best_z)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes,
+        env_config, action_fn, eval_seed, eval_episodes, viz_dir=bs_newsvendor_viz_dir,
     )
 
     # Create the results dictionary
@@ -918,6 +1043,7 @@ def run_bs_adaptive_baseline(
     z_values: Optional[List[float]] = None,
     H_values: Optional[List[int]] = None,
     sweep_episodes: Optional[int] = None,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Adaptive baseline that implements a rolling-mean base-stock
@@ -971,11 +1097,17 @@ def run_bs_adaptive_baseline(
     # Select the best z and H values
     best_z, best_H = sweep_params[best_idx]
 
+    # Set the visualization directory for the BSAdaptive baseline
+    bs_adaptive_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_adaptive']}_Best_Z={best_z:.2f}_H={best_H:3d}" 
+        if viz_dir is not None else None
+    )
+
     # Create the action function based on the best 
     # z and H values and run final evaluation
     action_fn = make_bs_adaptive_action_fn(env_config, z=best_z, H=best_H)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes,
+        env_config, action_fn, eval_seed, eval_episodes, viz_dir=bs_adaptive_viz_dir,
     )
 
     # Create the results dictionary
@@ -1008,6 +1140,7 @@ def run_bs_optimized_baseline(
     n_random_starts: int = 50,
     n_obj_episodes: int = 50,
     upper_bound: float = 200.0,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Optimized baseline that implements simulation-optimized base-stock
@@ -1045,11 +1178,18 @@ def run_bs_optimized_baseline(
     # Extract the max order quantities for the action function
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
+    # Set the visualization directory for the BSOptimized baseline
+    bs_optimized_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_optimized']}_Best" 
+        if viz_dir is not None else None
+    )
+
     # Create the action function based on the optimal 
     # base-stock levels and run final evaluation
     action_fn = make_bs_optimized_action_fn(S_star, max_qty)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=bs_optimized_viz_dir,
     )
 
     # Create the results dictionary
@@ -1082,6 +1222,7 @@ def run_bs_independent_baseline(
     n_obj_episodes: int = 50,
     upper_bound: float = 200.0,
     calibration_episodes: int = 50,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Independent baseline that implements per-warehouse independent 
@@ -1141,11 +1282,18 @@ def run_bs_independent_baseline(
     # Extract the max order quantities for the action function
     max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
+    # Set the visualization directory for the BSIndependent baseline
+    bs_independent_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_independent']}_Best" 
+        if viz_dir is not None else None
+    )
+
     # Create the action function based on the optimal 
     # base-stock levels and run final evaluation
     action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=bs_independent_viz_dir,
     )
 
     # Create the results dictionary
@@ -1455,10 +1603,13 @@ def run_single_baseline(
     eval_episodes: int,
     experiment_dir: Path,
     skip_if_done: bool = True,
+    viz_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs one ``(baseline, root_seed)`` pair and writes
-    ``eval_results_best.yaml`` into ``experiment_dir``.
+    ``eval_results_best.yaml`` into ``experiment_dir``. If ``viz_dir`` is
+    provided, also writes the sweep/BO-convergence plot and per-episode
+    rollout visualizations under ``viz_dir``.
 
     Args:
         baseline (str): Baseline key in :data:`BASELINE_REGISTRY`.
@@ -1469,6 +1620,8 @@ def run_single_baseline(
         experiment_dir (Path): Directory to write into.
         skip_if_done (bool): If ``True`` and a valid
             ``eval_results_best.yaml`` already exists, skip and return it.
+        viz_dir (Optional[Path]): Optional directory for sweep and per-episode
+            visualizations.
 
     Returns:
         eval_results (Dict[str, Any]): The result dict written to disk.
@@ -1531,6 +1684,7 @@ def run_single_baseline(
         seed_manager=seed_manager,
         eval_seed=eval_seed,
         eval_episodes=eval_episodes,
+        viz_dir=viz_dir,
     )
 
     # Add the root seed, eval seed, and display name to the eval results
@@ -1542,7 +1696,14 @@ def run_single_baseline(
     with open(eval_results_file, "w", encoding="utf-8") as f:
         yaml.safe_dump(eval_results, f, default_flow_style=False, sort_keys=False)
     print(f"[INFO] Saved: {eval_results_file}")
-    
+
+    # Save the sweep/BO-convergence plot directly under viz_dir
+    if viz_dir is not None:
+        plot_baseline_sweep(
+            eval_results, 
+            viz_dir / f"{BASELINE_DISPLAY_NAMES[baseline]}_sweep.png"
+        )
+
     # Print the eval results
     print(
         f"\n[INFO] {BASELINE_DISPLAY_NAMES[baseline]} "
@@ -1557,34 +1718,37 @@ def run_baselines_across_seeds(
     n_seeds: int,
     eval_seed: int,
     eval_episodes: int,
-    seed_dir: Path,
+    experiment_name: str,
+    storage_dir: Path,
     baselines: Optional[List[str]] = None,
     skip_if_done: bool = True,
     aggregate: bool = True,
-) -> Optional[Dict[str, Any]]:
+) -> None:
     """
     Runs each given ``(baseline, root_seed)`` pair sequentially and then optionally
-    aggregates the seed evaluation results.
+    aggregates and plots the seed evaluation results.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
         n_seeds (int): Number of seeds. Root seeds are ``100, 200, ...``.
         eval_seed (int): Fixed eval seed shared with RL runs.
         eval_episodes (int): Number of evaluation episodes.
-        seed_dir (Path): Parent directory of each seed evaluation directory.
+        experiment_name (str): Top-level experiment folder name.
+        storage_dir (Path): Parent directory containing ``experiment_name``.
         baselines (Optional[List[str]]): Subset of baselines to run.
         skip_if_done (bool): Skip pairs that already have a complete
             ``eval_results_best.yaml``.
         aggregate (bool): If True, run :func:`aggregate_seed_evaluation`
             after the loop.
-
-    Returns:
-        summary (Optional[Dict[str, Any]]): Aggregator summary or None.
     """
 
     # If no baselines are provided, run all registered baselines
     if baselines is None:
         baselines = list(BASELINE_NAMES)
+
+    # Create the seed evaluation directory
+    seed_dir = Path(storage_dir) / experiment_name / "seed_evaluation"
+    seed_dir.mkdir(parents=True, exist_ok=True)
 
     for baseline in baselines:
         # If the baseline is not registered, raise an error
@@ -1593,7 +1757,7 @@ def run_baselines_across_seeds(
                 f"Unknown baseline {baseline!r}. "
                 f"Choose from: {sorted(BASELINE_REGISTRY.keys())}"
             )
-        
+
         # Get the display name of the baseline and create the seed baseline directory
         baseline_display_name = BASELINE_DISPLAY_NAMES[baseline]
         seed_baseline_dir = seed_dir / baseline_display_name
@@ -1615,13 +1779,13 @@ def run_baselines_across_seeds(
                 skip_if_done=skip_if_done,
             )
 
-    # If aggregate is True, aggregate the seed evaluation results
+    # If aggregate is True, aggregate and plot the seed evaluation results
     if aggregate:
-        summary = aggregate_seed_evaluation(seed_dir)
-        return summary
-    
-    summary = None
-    return summary
+        aggregate_and_plot_seed_evaluation(
+            mode="baseline",
+            name=experiment_name,
+            storage_dir=str(storage_dir),
+        )
 
 
 # ============================================================================
@@ -1631,22 +1795,6 @@ def run_baselines_across_seeds(
 def parse_args() -> argparse.Namespace:
     """
     Parses and validates CLI arguments.
-
-    Available modes (mirror the RL pipeline -- ``run_experiment.py``):
-
-        - ``--mode single``: runs one ``(baseline, root_seed)`` pair and
-            writes ``eval_results_best.yaml``. This is the atomic unit of
-            work, called per worker by ``scripts/run_baselines.sh`` and
-            usable directly for local one-off runs.
-        - ``--mode all-seeds``: runs every ``(baseline, root_seed)`` pair
-            sequentially in one process and then calls the aggregator.
-            Used for local non-SLURM execution; the SLURM launcher fans
-            this out into parallel ``--mode single`` workers instead.
-
-    SLURM helpers (:func:`find_missing_baseline_tasks`, :data:`BASELINE_NAMES`,
-    and :func:`aggregate_seed_evaluation`) are imported directly by
-    ``scripts/run_baselines.sh`` via ``python -c`` snippets, exactly like
-    ``run_seed_evaluation.sh`` does for the RL pipeline.
     """
 
     # Create parser
@@ -1722,6 +1870,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Per-run root seed, e.g. 100, 200, ... (--mode single only).",
     )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Save the baseline's sweep/BO-convergence plot and per-episode "
+            "rollout visualizations under <experiment_dir>/visualizations/. "
+            "Only valid for --mode single.",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -1747,12 +1902,16 @@ def parse_args() -> argparse.Namespace:
             )
         if args.n_seeds < 1:
             parser.error("--n-seeds must be >= 1")
+        if args.visualize:
+            parser.error(
+                "--visualize is only valid for --mode single."
+            )
     else:
         parser.error(
             "Invalid mode: {args.mode}. "
             "Please use either --mode single or --mode all-seeds."
         )
-    
+
     return args
 
 def main():
@@ -1766,32 +1925,40 @@ def main():
 
     # Generate an experiment name if not provided
     experiment_name = args.experiment_name or generate_baseline_experiment_name(env_config)
-    
+
     # Create the experiment directory
     experiment_dir = Path(args.storage_dir) / experiment_name
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
-    # If in single mode, run the single specified baseline with the specified root seed
+    # If in single mode, create a baseline-specific directory and
+    # run the single baseline with the specified root seed
     if args.mode == "single":
+        baseline = args.baselines[0]
+        display_name = BASELINE_DISPLAY_NAMES[baseline]
+        baseline_dir = experiment_dir / display_name
+        viz_dir = (
+            experiment_dir / "visualizations" / display_name
+            if args.visualize else None
+        )
         run_single_baseline(
-            baseline=args.baselines[0],
+            baseline=baseline,
             env_config=env_config,
             root_seed=args.root_seed,
             eval_seed=args.eval_seed,
             eval_episodes=args.eval_episodes,
-            experiment_dir=experiment_dir,
+            experiment_dir=baseline_dir,
+            viz_dir=viz_dir,
         )
 
     # If in all-seeds mode, run every baseline with every seed
     elif args.mode == "all-seeds":
-        seed_dir = experiment_dir / "seed_evaluation"
-        seed_dir.mkdir(parents=True, exist_ok=True)
         run_baselines_across_seeds(
             env_config=env_config,
             n_seeds=args.n_seeds,
             eval_seed=args.eval_seed,
             eval_episodes=args.eval_episodes,
-            seed_dir=seed_dir,
+            experiment_name=experiment_name,
+            storage_dir=Path(args.storage_dir),
             baselines=args.baselines,
             aggregate=True,
         )

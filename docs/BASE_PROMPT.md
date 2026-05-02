@@ -176,7 +176,8 @@ marl-sc/
 ├── scripts/                 # SLURM/shell scripts for running experiments
 │   ├── run_experiment.sh    # Single experiment
 │   ├── run_experiment_array.sh  # Batch array experiments
-│   ├── run_baselines.sh     # Baseline policies
+│   ├── run_all_baselines.sh # Baseline seed evaluation (parallel SLURM)
+│   ├── run_single_baseline.sh # Single baseline (with --visualize)
 │   └── run_evaluation.sh    # Evaluation
 ├── src/
 │   ├── algorithms/          # IPPO, MAPPO wrappers, model registry

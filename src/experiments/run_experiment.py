@@ -49,6 +49,7 @@ from src.experiments.utils.experiment_utils import (
 from src.experiments.utils.seed_evaluation import (
     build_seed_evaluation_configs,
     evaluate_config_across_seeds,
+    plot_combined_training_curves,
     save_combined_seed_evaluation_summary,
     print_seed_evaluation_table,
 )
@@ -544,6 +545,7 @@ def run_seed_evaluation(
     if len(configs_to_eval) > 1 and tune_name is not None:
         seed_eval_dir = Path("experiment_outputs/Tuning") / tune_name / "seed_evaluation"
         save_combined_seed_evaluation_summary(seed_eval_dir, all_config_stats)
+        plot_combined_training_curves(seed_eval_dir)
 
     return all_config_stats
 

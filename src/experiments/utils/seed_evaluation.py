@@ -4,10 +4,10 @@ training-curve plotting, disk-based aggregation, and the
 ``aggregate_and_plot_seed_evaluation`` entry point used by the parallel SLURM path.
 
 The sequential orchestrator (``run_seed_evaluation`` in ``run_experiment.py``)
-calls ``build_seed_evaluation_configs``, ``evaluate_config_across_seeds``, and
-``save_combined_seed_evaluation_summary`` directly. The parallel path invokes
-``aggregate_and_plot_seed_evaluation`` from the aggregate SLURM phase after all
-worker tasks have finished.
+calls ``build_seed_evaluation_configs``, ``evaluate_config_across_seeds``,
+``save_combined_seed_evaluation_summary``, and ``plot_combined_training_curves`` directly.
+The parallel path invokes aggregate_and_plot_seed_evaluation`` from the aggregate SLURM
+phase after all worker tasks have finished.
 """
 
 from __future__ import annotations
@@ -462,15 +462,15 @@ def aggregate_and_plot_seed_evaluation(
 ) -> None:
     """
     Locates the seed evaluation directory, runs the disk-based aggregation
-    (summary table + YAML), and generates the training-curve plots.
+    (summary table + YAML), and generates the seed-evaluation plots.
 
     Functions as the entry point for the aggregate phase of the parallel SLURM
-    seed evaluation. 
+    seed evaluation.
 
     Args:
-        mode (str): ``"tune"`` or ``"single"``.
-        name (str): Tune experiment name or single-run experiment name.
-        storage_dir (Optional[str]): Base directory where the folder with ``name`` lives
+        mode (str): ``"tune"``, ``"single"``, or ``"baseline"``.
+        name (str): Tune / single-run / baseline experiment name.
+        storage_dir (Optional[str]): Base directory where the folder with ``name`` lives.
     """
 
     # If in tune mode, locate the experiment directory and dispatch
@@ -487,9 +487,19 @@ def aggregate_and_plot_seed_evaluation(
         experiment_dir = find_experiment_dir(storage_dir, name)
         _aggregate_and_plot_single(experiment_dir)
 
-    # If mode is not single or tune, raise an error
+    # If in baseline mode, locate the experiment directory and dispatch
+    elif mode == "baseline":
+        if storage_dir is None:
+            storage_dir = "experiment_outputs/Runs"
+        experiment_dir = find_experiment_dir(storage_dir, name)
+        _aggregate_and_plot_baseline(experiment_dir)
+
+    # If mode is not single, tune, or baseline, raise an error
     else:
-        raise ValueError(f"Unknown seed-eval mode: {mode!r} (expected 'tune' or 'single')")
+        raise ValueError(
+            f"Unknown seed-eval mode: {mode!r} "
+            f"(expected 'tune', 'single', or 'baseline')"
+        )
 
 def _aggregate_and_plot_tune(experiment_dir: Path) -> None:
     """
@@ -533,6 +543,54 @@ def _aggregate_and_plot_tune(experiment_dir: Path) -> None:
     # Aggregate across all trainable configs at the top level
     all_config_stats.sort(key=lambda c: c["mean"], reverse=True)
     save_combined_seed_evaluation_summary(seed_dir, all_config_stats)
+    plot_combined_training_curves(seed_dir)
+
+def _aggregate_and_plot_baseline(experiment_dir: Path) -> None:
+    """
+    Aggregates a baseline seed evaluation directory by computing per-baseline
+    statistics, writing the combined summary, and plotting each baseline as a
+    horizontal mean line with a +/- 1 std band (no training curves since
+    baselines do not train).
+
+    Args:
+        experiment_dir (Path): Path to the baseline experiment directory.
+    """
+
+    # Get the seed evaluation directory
+    seed_dir = experiment_dir / "seed_evaluation"
+    if not seed_dir.exists():
+        raise FileNotFoundError(
+            f"No seed_evaluation/ directory in {experiment_dir}"
+        )
+
+    # Loop over each baseline subfolder and aggregate seed evaluation results
+    all_config_stats: List[dict] = []
+    for config_dir in sorted(seed_dir.iterdir()):
+        # Skip if not a directory or if the plots directory
+        if not config_dir.is_dir() or config_dir.name == "seed_evaluation_plots":
+            continue
+
+        # Aggregate the seed evaluation results for the current baseline
+        try:
+            cfg_summary = aggregate_seed_evaluation(config_dir)
+        except ValueError as e:
+            print(f"[WARN] Skipping {config_dir.name}: {e}")
+            continue
+        all_config_stats.extend(cfg_summary.get("configs", []))
+
+        # Plot the baseline as a horizontal mean line + std band
+        seed_plots_dir = config_dir / "seed_evaluation_plots"
+        seed_plots_dir.mkdir(parents=True, exist_ok=True)
+        config_stats = cfg_summary.get("configs", [])
+        if config_stats:
+            _plot_baseline_curves(
+                config_stats, output_path=seed_plots_dir / "seed_eval_curves.png",
+            )
+
+    # Aggregate across all baselines at the top level
+    all_config_stats.sort(key=lambda c: c["mean"], reverse=True)
+    save_combined_seed_evaluation_summary(seed_dir, all_config_stats)
+    plot_combined_baseline_curves(all_config_stats, seed_dir)
 
 def _aggregate_and_plot_single(experiment_dir: Path) -> None:
     """
@@ -684,6 +742,9 @@ def find_missing_seed_evaluation_tasks(
     """
     Returns the SLURM array task IDs whose ``eval_results_best.yaml`` is
     missing or unreadable.
+
+    Used for RL experiments only (tune and single modes). The baseline counterpart
+    is ``find_missing_baseline_tasks`` in ``run_baselines.py``.
 
     Args:
         mode (str): ``"tune"`` or ``"single"``.
@@ -944,10 +1005,7 @@ def save_combined_seed_evaluation_summary(
     all_config_stats: List[dict],
 ) -> None:
     """
-    Writes the combined ``seed_evaluation_summary.yaml`` across all tune configs
-    and plots the combined training curves.
-
-    Used only in tune mode when multiple configs have been evaluated.
+    Writes the combined ``seed_evaluation_summary.yaml`` across all configs.
 
     Args:
         seed_dir (Path): Path to the ``seed_evaluation/`` directory that
@@ -976,16 +1034,51 @@ def save_combined_seed_evaluation_summary(
         yaml.safe_dump(overall_summary, f, default_flow_style=False, sort_keys=False)
     print(f"[INFO] Overall summary saved to: {eval_summary_file}")
 
-    # Load training metrics from all seed eval subfolders and plot combined curves
+def plot_combined_training_curves(seed_dir: Path) -> None:
+    """
+    Loads ``training_metrics.yaml`` from every per-config subfolder under
+    ``seed_dir`` and plots combined training curves across all configs.
+
+    Used in tune mode after :func:`save_combined_seed_evaluation_summary`.
+
+    Args:
+        seed_dir (Path): Path to the ``seed_evaluation/`` directory that
+            contains the per-config subfolders.
+    """
+
+    # Load training metrics from all per-config subfolders
+    seed_dir = Path(seed_dir)
     all_curve_metrics: Dict[str, List[List[dict]]] = {}
     for sub in sorted(seed_dir.iterdir()):
         if sub.is_dir() and sub.name != "seed_evaluation_plots":
             sub_metrics = load_training_metrics_from_disk(sub)
             all_curve_metrics.update(sub_metrics)
+
+    # Plot combined curves if any metrics were loaded
     if all_curve_metrics:
         seed_plots_dir = seed_dir / "seed_evaluation_plots"
         seed_plots_dir.mkdir(parents=True, exist_ok=True)
         plot_seed_evaluation_curves(all_curve_metrics, seed_plots_dir)
+
+def plot_combined_baseline_curves(all_metrics: List[dict], seed_dir: Path) -> None:
+    """
+    Plots combined baseline curves across all configs using the per-config stats.
+
+    Args:
+        all_metrics (List[dict]): List of per-baseline statistics dicts.
+        seed_dir (Path): Path to the ``seed_evaluation/`` directory that
+            contains the per-config subfolders.
+    """
+
+    # Create the seed evaluation plots directory and plot the baseline curves
+    if all_metrics:
+        seed_plots_dir = seed_dir / "seed_evaluation_plots"
+        seed_plots_dir.mkdir(parents=True, exist_ok=True)
+        _plot_baseline_curves(
+            all_metrics,
+            output_path=seed_plots_dir / "seed_eval_curves.png",
+        )
+        print(f"[INFO] Seed evaluation plots saved to: {seed_plots_dir}")
 
 
 # ============================================================================
@@ -1061,7 +1154,7 @@ def _plot_metric_curves(
 
     # Plot mean +/- std curve for each config
     fig, ax = plt.subplots(figsize=(12, 6))
-    for idx, (config_name, seed_runs) in enumerate[tuple[str, List[List[dict]]]](sorted(all_metrics.items())):
+    for idx, (config_name, seed_runs) in enumerate(sorted(all_metrics.items())):
         iterations, means, stds = _compute_curve_stats_across_seeds(seed_runs, key=metric_key)
         if len(iterations) == 0:
             continue
@@ -1073,6 +1166,40 @@ def _plot_metric_curves(
     ax.set_xlabel("Training Iteration")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+def _plot_baseline_curves(
+    config_stats: List[dict],
+    output_path: Path,
+) -> None:
+    """
+    Plots each baseline as a horizontal mean line with a +/- 1 std band,
+    color-cycled to match :func:`_plot_metric_curves`.
+
+    Args:
+        config_stats (List[dict]): Per-baseline stats dicts as returned by
+            :func:`compute_seed_statistics`.
+        output_path (Path): Path to save the plot.
+    """
+
+    # Set the colors for the plots
+    colors = plt.cm.tab10.colors
+
+    # Plot horizontal mean line + std band for each baseline
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for idx, cfg in enumerate(sorted(config_stats, key=lambda c: c["name"])):
+        color = colors[idx % len(colors)]
+        mean = cfg["mean"]
+        std = cfg["std"]
+        ax.axhline(mean, label=cfg["name"], linewidth=1.5, color=color)
+        ax.axhspan(mean - std, mean + std, alpha=0.2, color=color)
+    ax.set_ylabel("Eval Return (mean +/- std)")
+    ax.set_title("Seed Evaluation — Baseline Eval Return")
+    ax.set_xticks([])
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()

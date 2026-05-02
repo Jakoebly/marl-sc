@@ -21,7 +21,7 @@
 # ============================================================================
 
 # Usage (run directly on login node -- not via sbatch):
-#   ./scripts/run_baselines.sh --name <Name> [opts]
+#   ./scripts/run_all_baselines.sh --name <Name> [opts]
 #
 # Options:
 #   --name <Name>           Experiment / output folder name (required).
@@ -43,10 +43,11 @@
 
 # The aggregate phase scans for missing pairs (via find_missing_baseline_tasks)
 # and either re-submits them (self-heal) or runs the final aggregator
-# (aggregate_seed_evaluation) which writes seed_evaluation_summary.yaml.
+# (aggregate_and_plot_seed_evaluation in baseline mode) which writes
+# seed_evaluation_summary.yaml and seed_eval_curves.png.
 
 # The aggregate phase is self-healing: if some (baseline, seed) pairs are
-# still missing, it re-submits only those array indices and chains a new 
+# still missing, it re-submits only those array indices and chains a new
 # aggregate behind them.
 
 NAME=""
@@ -166,7 +167,7 @@ fi
 # SHARED SETUP: shared settings for worker and aggregate phases
 # ============================================================================
 
-# Load the Python distribution, change to the project directory, 
+# Load the Python distribution, change to the project directory,
 # and activate the virtual environment
 module load miniforge/25.11.0-0
 cd /home/jakobeh/projects/marl-sc
@@ -259,10 +260,11 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
   fi
 
   # ---------- Step 3 ----------
-  # Final aggregation
+  # Final aggregation + plotting (writes seed_evaluation_summary.yaml and
+  # seed_eval_curves.png under <EXPERIMENT_DIR>/seed_evaluation/...).
   python -c "
-from src.experiments.utils.seed_evaluation import aggregate_seed_evaluation
-aggregate_seed_evaluation('${SEED_DIR}')
+from src.experiments.utils.seed_evaluation import aggregate_and_plot_seed_evaluation
+aggregate_and_plot_seed_evaluation(mode='baseline', name='${EXPERIMENT_NAME}', storage_dir='${STORAGE_DIR}')
 "
   exit $?
 fi
@@ -305,26 +307,34 @@ print(BASELINE_DISPLAY_NAMES["${BASELINE_NAME}"])
 PY
 )"
 
-# Set the seed evaluation directory
-SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation"
+# Set the seed evaluation directory and the per-seed experiment directory
 SEED_BASELINE_DIR="${SEED_DIR}/${BASELINE_DISPLAY_NAME}"
-
-# Set the seed experiment name as the experiment name plus the root seed
 SEED_EXPERIMENT_NAME="${BASELINE_DISPLAY_NAME}_Seed${ROOT_SEED}"
+SEED_EXPERIMENT_DIR="${SEED_BASELINE_DIR}/${SEED_EXPERIMENT_NAME}"
 
 echo "Task ${ID} -> Baseline #${BASELINE_IDX} (${BASELINE_DISPLAY_NAME}), Seed #${SEED_IDX} (root_seed=${ROOT_SEED})"
 
 
 # --------------------------------------------------
-# Run the baseline
+# Run the baseline (no visualization, fixed layout under seed_evaluation/)
 # --------------------------------------------------
 
-python src/experiments/run_baselines.py \
-  --mode single \
-  --baselines "${BASELINE_NAME}" \
-  --root-seed ${ROOT_SEED} \
-  --env-config "${ENV_CONFIG}" \
-  --storage-dir "${SEED_BASELINE_DIR}" \
-  --experiment-name "${SEED_EXPERIMENT_NAME}" \
-  --eval-seed ${EVAL_SEED} \
-  --eval-episodes ${EVAL_EPISODES}
+# We bypass the run_baselines.py CLI here because --mode single auto-nests
+# results under <DisplayName>/, which would conflict with the seed-eval layout.
+# Instead, we call run_single_baseline() directly with an explicit experiment_dir.
+python -c "
+from pathlib import Path
+
+from src.config.loader import load_environment_config
+from src.experiments.run_baselines import run_single_baseline
+
+env_config = load_environment_config('${ENV_CONFIG}')
+run_single_baseline(
+    baseline='${BASELINE_NAME}',
+    env_config=env_config,
+    root_seed=${ROOT_SEED},
+    eval_seed=${EVAL_SEED},
+    eval_episodes=${EVAL_EPISODES},
+    experiment_dir=Path('${SEED_EXPERIMENT_DIR}'),
+)
+"
