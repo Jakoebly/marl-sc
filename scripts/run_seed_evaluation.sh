@@ -71,7 +71,7 @@
 # both pointing back at this same script with the appropriate --phase.
 #
 # The aggregate phase is self-healing: if some (config, seed) pairs are
-# still missing eval_results_best.yaml, it re-submits only those array
+# still missing eval_results_final.yaml, it re-submits only those array
 # indices and chains a new aggregate behind them. Workers auto-resume from
 # the latest periodic checkpoint when one is present.
 
@@ -345,7 +345,7 @@ if [ "$PHASE" = "aggregate" ]; then
   echo "Running seed evaluation aggregation for: ${NAME} (mode=${MODE}, heal_round=${HEAL_ROUND})"
 
   # ---------- Step 1 ----------
-  # Detect any (config, seed) pairs whose eval_results_best.yaml is
+  # Detect any (config, seed) pairs whose eval_results_final.yaml is
   # missing or malformed. These are the tasks we need to re-submit.
   # Use a sentinel prefix so we can safely strip any import-time noise that
   # leaks to stdout from Ray/PyTorch/etc.

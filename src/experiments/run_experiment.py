@@ -37,6 +37,9 @@ from src.experiments.utils.ray_tune import (
 )
 from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 from src.experiments.utils.experiment_utils import (
+    DEFAULT_TUNE_STORAGE_DIR,
+    SEED_EVAL_SUBDIR,
+    TUNE_BEST_TRIALS_FILENAME,
     save_run_metadata,
     save_tune_config_to_experiment_dir,
     load_root_seed_from_metadata,
@@ -543,7 +546,7 @@ def run_seed_evaluation(
 
     # If multiple configs (tune mode), save an overall summary + combined plot
     if len(configs_to_eval) > 1 and tune_name is not None:
-        seed_eval_dir = Path("experiment_outputs/Tuning") / tune_name / "seed_evaluation"
+        seed_eval_dir = Path(DEFAULT_TUNE_STORAGE_DIR) / tune_name / SEED_EVAL_SUBDIR
         save_combined_seed_evaluation_summary(seed_eval_dir, all_config_stats)
         plot_combined_training_curves(seed_eval_dir)
 
@@ -603,7 +606,7 @@ def _run_post_tune_analysis(
         # Update best trial results with the evaluation reward from the best checkpoint
         eval_reward = eval_result.get("evaluation", {}).get("episode_return_mean")
         if eval_reward is not None:
-            results_yaml_path = Path(analysis.experiment_path) / "best_trial_results.yaml"
+            results_yaml_path = Path(analysis.experiment_path) / TUNE_BEST_TRIALS_FILENAME
             if results_yaml_path.exists():
                 with open(results_yaml_path, "r") as f:
                     saved = yaml.safe_load(f)

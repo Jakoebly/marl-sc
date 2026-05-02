@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from src.config.loader import load_environment_config, load_algorithm_config, load_tune_config
 from src.config.schema import TUNE_SEARCH_SPACE_SECTIONS
+from src.experiments.utils.experiment_utils import TUNE_BEST_TRIALS_FILENAME
 
 
 def create_tune_config(
@@ -797,7 +798,7 @@ def print_and_save_best_results(
     }
 
     # Save to YAML
-    best_results_path = output_path / "best_trial_results.yaml"
+    best_results_path = output_path / TUNE_BEST_TRIALS_FILENAME
     with open(best_results_path, "w") as f:
         yaml.dump(best_results, f, default_flow_style=False, sort_keys=False)
 

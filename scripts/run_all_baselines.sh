@@ -199,7 +199,7 @@ if [ "$PHASE" = "aggregate" ]; then
   echo "Running baseline seed-eval aggregation for: ${NAME} (heal_round=${HEAL_ROUND})"
 
   # ---------- Step 1 ----------
-  # Detect any (baseline, seed) pairs whose eval_results_best.yaml is
+  # Detect any (baseline, seed) pairs whose eval_results_final.yaml is
   # missing or malformed. Use a sentinel-prefixed line so we can grep
   # it out of import-time noise from Ray/PyTorch/etc.
   MISSING_RAW=$(python -c "

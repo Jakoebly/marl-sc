@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
+# Directory Constants
+# ============================================================================
+
+DEFAULT_RUN_STORAGE_DIR = "experiment_outputs/Runs"
+DEFAULT_TUNE_STORAGE_DIR = "experiment_outputs/Tuning"
+SEED_EVAL_SUBDIR = "seed_evaluation"
+SEED_EVAL_PLOTS_SUBDIR = "seed_evaluation_plots"
+SEED_EVAL_SUMMARY_FILENAME = "seed_evaluation_summary.yaml"
+TUNE_BEST_TRIALS_FILENAME = "best_trial_results.yaml"
+
+
+# ============================================================================
 # Directory and Loading Helpers
 # ============================================================================
 
@@ -152,8 +164,8 @@ def find_checkpoint_dir(
     Resolves the checkpoint directory under an experiment run folder.
 
     If ``checkpoint_number`` is given, uses ``checkpoint_<n>`` or zero-padded Ray Tune
-    naming when the unpadded folder is missing. Otherwise prefers ``checkpoint_best``,
-    then ``checkpoint_final``, then the last sorted ``checkpoint_*`` directory, or
+    naming when the unpadded folder is missing. Otherwise prefers ``checkpoint_final``,
+    then ``checkpoint_best``, then the last sorted ``checkpoint_*`` directory, or
     ``checkpoint_final`` as a fallback name (may not exist yet).
 
     Args:
@@ -172,15 +184,15 @@ def find_checkpoint_dir(
             if (experiment_dir / padded).is_dir():
                 checkpoint_folder = padded
     
-    # If no checkpoint number is provided, use the best checkpoint directory first
-    elif (experiment_dir / "checkpoint_best").is_dir():
-        checkpoint_folder = "checkpoint_best"
-    
-    # If no best checkpoint directory is found, use the final checkpoint directory
+    # If no checkpoint number is provided, use the final checkpoint directory first
     elif (experiment_dir / "checkpoint_final").is_dir():
         checkpoint_folder = "checkpoint_final"
-    
-    # If no best or final checkpoint directory is found, use the last sorted checkpoint
+
+    # If no final checkpoint directory is found, fall back to the best checkpoint directory
+    elif (experiment_dir / "checkpoint_best").is_dir():
+        checkpoint_folder = "checkpoint_best"
+
+    # If no final or best checkpoint directory is found, use the last sorted checkpoint
     # directory
     else:
         tune_chkpts = sorted(
@@ -368,13 +380,13 @@ def load_and_truncate_training_metrics(
 
     return metrics, best_metric_value, best_iteration
 
-def _find_missing_seed_eval_files(
+def find_missing_seed_eval_files(
     configs: List[Tuple[int, str, Path]],
     n_seeds: int,
 ) -> List[int]:
     """
     Scans a list of (config_idx, config_name, config_storage) triples and
-    returns the SLURM array task IDs whose ``eval_results_best.yaml`` is
+    returns the SLURM array task IDs whose ``eval_results_final.yaml`` is
     missing or unreadable.
 
     Args:
@@ -393,7 +405,7 @@ def _find_missing_seed_eval_files(
             # Get the eval results file for the current (config, seed) pair
             root_seed = seed_idx * 100
             seed_experiment_dir = config_storage / f"{config_name}_Seed{root_seed}"
-            eval_file = seed_experiment_dir / "eval_results_best.yaml"
+            eval_file = seed_experiment_dir / "eval_results_final.yaml"
             task_id = config_idx * n_seeds + (seed_idx - 1)
 
             # If the eval results file does not exist, add the task ID to the missing list

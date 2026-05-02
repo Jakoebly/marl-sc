@@ -123,8 +123,8 @@ def parse_args():
         type=str,
         help="Checkpoint identifier to evaluate (e.g. '50' for checkpoint_50, "
              "'000000' for checkpoint_000000). "
-             "Only used with --experiment-name. If omitted, defaults to checkpoint_best "
-             "(falls back to checkpoint_final if checkpoint_best does not exist)."
+             "Only used with --experiment-name. If omitted, defaults to checkpoint_final "
+             "(falls back to checkpoint_best if checkpoint_final does not exist)."
     )
     parser.add_argument(
         "--eval-episodes",

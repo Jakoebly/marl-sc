@@ -37,11 +37,13 @@ from src.experiments.utils.args import (
     DEFAULT_EVAL_SEED,
 )
 from src.experiments.utils.experiment_utils import (
+    DEFAULT_RUN_STORAGE_DIR,
+    SEED_EVAL_SUBDIR,
     generate_baseline_experiment_name,
     save_env_config,
 )
 from src.experiments.utils.seed_evaluation import (
-    _find_missing_seed_eval_files,
+    find_missing_seed_eval_files,
     aggregate_and_plot_seed_evaluation,
 )
 from src.experiments.utils.visualization import generate_visualizations
@@ -58,12 +60,12 @@ def find_missing_baseline_tasks(
     baselines: Optional[List[str]] = None,
 ) -> List[int]:
     """
-    Returns SLURM array task IDs whose ``eval_results_best.yaml`` is
+    Returns SLURM array task IDs whose ``eval_results_final.yaml`` is
     missing or unreadable. Used by the self-healing mechanism of the
     aggregate phase in ``scripts/run_all_baselines.sh``.
 
     A task is considered complete when its expected run directory contains
-    an ``eval_results_best.yaml`` with a numeric ``episode_return_mean``.
+    an ``eval_results_final.yaml`` with a numeric ``episode_return_mean``.
 
     Args:
         storage_dir (Path): Parent directory of ``<DisplayName>_Seed<N>/``.
@@ -88,7 +90,7 @@ def find_missing_baseline_tasks(
         configs.append((baseline_idx, baseline_display_name, config_storage))
 
     # Check file-existence for each (config_idx, config_name, config_storage) tuple
-    missing = _find_missing_seed_eval_files(configs, n_seeds)
+    missing = find_missing_seed_eval_files(configs, n_seeds)
 
     return missing
 
@@ -827,7 +829,7 @@ def run_random_baseline(
 
     Returns:
         result (Dict[str, Any]): Eval results dict to be written to
-            ``eval_results_best.yaml``.
+            ``eval_results_final.yaml``.
     """
 
     # Get an action RNG from the seed manager's 'train' slot so different seed
@@ -1607,7 +1609,7 @@ def run_single_baseline(
 ) -> Dict[str, Any]:
     """
     Runs one ``(baseline, root_seed)`` pair and writes
-    ``eval_results_best.yaml`` into ``experiment_dir``. If ``viz_dir`` is
+    ``eval_results_final.yaml`` into ``experiment_dir``. If ``viz_dir`` is
     provided, also writes the sweep/BO-convergence plot and per-episode
     rollout visualizations under ``viz_dir``.
 
@@ -1619,7 +1621,7 @@ def run_single_baseline(
         eval_episodes (int): Number of evaluation episodes.
         experiment_dir (Path): Directory to write into.
         skip_if_done (bool): If ``True`` and a valid
-            ``eval_results_best.yaml`` already exists, skip and return it.
+            ``eval_results_final.yaml`` already exists, skip and return it.
         viz_dir (Optional[Path]): Optional directory for sweep and per-episode
             visualizations.
 
@@ -1642,7 +1644,7 @@ def run_single_baseline(
     save_env_config(env_config, experiment_dir)
 
     # Create the eval results file
-    eval_results_file = experiment_dir / "eval_results_best.yaml"
+    eval_results_file = experiment_dir / "eval_results_final.yaml"
 
     # If skip_if_done is True and the eval results file exists, return the existing results
     if skip_if_done and eval_results_file.exists():
@@ -1651,7 +1653,7 @@ def run_single_baseline(
                 existing = yaml.safe_load(f) or {}
             if isinstance(existing.get("episode_return_mean"), (int, float)):
                 print(
-                    f"[SKIP] {experiment_dir.name}: eval_results_best.yaml already complete "
+                    f"[SKIP] {experiment_dir.name}: eval_results_final.yaml already complete "
                     f"(episode_return_mean={existing['episode_return_mean']:.4f})"
                 )
                 return existing
@@ -1737,7 +1739,7 @@ def run_baselines_across_seeds(
         storage_dir (Path): Parent directory containing ``experiment_name``.
         baselines (Optional[List[str]]): Subset of baselines to run.
         skip_if_done (bool): Skip pairs that already have a complete
-            ``eval_results_best.yaml``.
+            ``eval_results_final.yaml``.
         aggregate (bool): If True, run :func:`aggregate_seed_evaluation`
             after the loop.
     """
@@ -1747,7 +1749,7 @@ def run_baselines_across_seeds(
         baselines = list(BASELINE_NAMES)
 
     # Create the seed evaluation directory
-    seed_dir = Path(storage_dir) / experiment_name / "seed_evaluation"
+    seed_dir = Path(storage_dir) / experiment_name / SEED_EVAL_SUBDIR
     seed_dir.mkdir(parents=True, exist_ok=True)
 
     for baseline in baselines:
@@ -1823,9 +1825,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage-dir",
         type=str,
-        default="./experiment_outputs/Runs",
-        help="Parent directory for the experiment folder "
-            "(default: ./experiment_outputs/Runs).",
+        default=DEFAULT_RUN_STORAGE_DIR,
+        help=f"Parent directory for the experiment folder "
+            f"(default: {DEFAULT_RUN_STORAGE_DIR}).",
     )
     parser.add_argument(
         "--experiment-name",

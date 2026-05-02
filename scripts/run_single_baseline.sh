@@ -37,7 +37,7 @@
 #   --eval-seed <N>         Held-out eval root seed (default: 123).
 #
 # Output layout (always nested under the baseline's display name):
-#   <storage_dir>/<Name>/<DisplayName>/eval_results_best.yaml
+#   <storage_dir>/<Name>/<DisplayName>/eval_results_final.yaml
 #   <storage_dir>/<Name>/visualizations/<DisplayName>/sweep.png
 #   <storage_dir>/<Name>/visualizations/<DisplayName>/<DisplayName>_Best_*/
 
