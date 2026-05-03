@@ -136,14 +136,30 @@ This grid answers three questions:
 
 ## Baselines
 
-| Baseline | Description | Status |
-|----------|-------------|--------|
-| **Constant order** | Sweep a constant order quantity per SKU (grid search over per-SKU constants) | Needs per-SKU sweep |
-| **Oracle base-stock** | Newsvendor-style base-stock using true demand parameters (z-factor per SKU) | Needs per-SKU sweep |
-| **Adaptive/reactive base-stock** | Capped base-stock that estimates demand from recent observations (moving average of last K fulfilled orders). No knowledge of true demand parameters. | Needs implementation |
-| **Factored policy (per-WH-SKU)** | Each (warehouse, SKU) pair has its own network with per-SKU-only observations and a single action output. Under parameter sharing, a single network shared across all pairs. Scalable but loses inter-SKU information. | Phase 3 comparison |
+### Heuristic and Optimization Baselines
 
-The per-SKU baselines are critical: current baselines use one parameter for all SKUs and are misleadingly bad on heterogeneous settings.
+The non-RL baselines are implemented in `src/experiments/run_baselines.py` and run as multi-seed evaluations using the same statistical/output protocol as the RL seed-evaluation pipeline. All base-stock baselines use the standard order-up-to decision rule `order[w,k] = clip(S[w,k] - inventory[w,k] - pipeline[w,k], 0, max_qty)`.
+
+| Baseline | Description | Sweep / Optimization |
+|----------|-------------|----------------------|
+| **Random** | Uniform random orders in `[-1, 1]` per (warehouse, SKU) at every step. Lower-bound sanity check. | None |
+| **ConstantOrder** | Per-(warehouse, SKU) constant order quantity calibrated from observed home-region demand in pilot episodes, scaled by a shared multiplier `alpha`. | Sweep over `alpha` |
+| **BS-Newsvendor** | Oracle base-stock using *true* demand parameters: `S = L · E[D] + z · sqrt(L · E[D])` with Poisson approximation. Per-(warehouse, SKU) levels. | Sweep over safety factor `z` |
+| **BS-Adaptive** | Rolling-mean base-stock using *observed* demand history (no knowledge of true demand parameters): `S = L · D_mean + z · sqrt(L · D_var)` over the last `H` observations. Orders zero before any demand is observed. | Sweep over `z` and window `H` |
+| **BS-Optimized** | Joint simulation-optimized base-stock: Gaussian-process Bayesian optimization over all `(n_warehouses × n_skus)` base-stock parameters jointly, with the BO objective averaged over training-mode rollouts. | Joint BO (`n_calls=300`) |
+| **BS-Independent** | Per-warehouse independent BO with iterated best response: each warehouse's base-stock vector is optimized while holding the others fixed, cycling through warehouses for `n_rounds`. Initialized from a newsvendor formula on calibrated mean demand. | Iterated-BR BO (`n_rounds=3`, `n_calls_per_wh=100`) |
+
+The per-(warehouse, SKU) base-stock granularity is critical: pilot baselines that used a single shared parameter across all SKUs were misleadingly bad on heterogeneous settings. BS-Optimized and BS-Independent serve as strong simulation-optimized references that do not require analytical demand assumptions.
+
+### RL Baseline: CPPO (Centralized PPO)
+
+`src/algorithms/cppo.py` implements a single-agent PPO that controls all warehouses simultaneously. The environment is wrapped in `CentralizedEnvWrapper`, which exposes the concatenated global observation, splits the joint action vector into per-warehouse sub-actions, and aggregates per-warehouse rewards into a single scalar.
+
+**Why include it:** CPPO removes every MARL challenge — non-stationarity, partial observability, credit assignment — and serves as an upper-bound RL reference for what a centralized controller with full information can achieve. The gap between CPPO and the best MAPPO-PS configuration quantifies the cost of decentralized execution and parameter sharing under heterogeneity.
+
+### Factored Policy (Per-WH-SKU) — Phase 3 Comparison
+
+A separate RL reference (not implemented in `run_baselines.py`): each (warehouse, SKU) pair has its own network with per-SKU-only observations and a single scalar action output. Under parameter sharing, a single network is shared across all pairs. Scalable but loses inter-SKU information. Used in Phase 3 to address "why not just decompose per SKU?" and to motivate the SKU attention architecture.
 
 ---
 
@@ -298,11 +314,13 @@ Test agent vs. team reward on `env_combined_hetero` only (the hardest setting). 
 
 **Goal:** Build the remaining infrastructure needed for the full study.
 
-| Step | What |
-|------|------|
-| 0.5.1 | Implement **per-SKU baselines**: sweep a separate constant (or z-factor) for each SKU independently. Grid search over `(z_sku0, z_sku1, ..., z_sku4)` for the base-stock heuristic. |
-| 0.5.2 | Implement **adaptive/reactive baseline**: capped base-stock policy that estimates demand from recent observations (moving average of last K fulfilled orders) and orders up to a base-stock level. No knowledge of true demand parameters. |
-| 0.5.3 | Create the **4 heterogeneous environment configs** (all 5-SKU): SKU hetero, demand hetero, cost asymmetry (2EU+1US), combined. |
+| Step | What | Status |
+|------|------|--------|
+| 0.5.1 | Implement **heuristic baselines** (Random, ConstantOrder, BS-Newsvendor) with per-(warehouse, SKU) sweeps in `src/experiments/run_baselines.py`. | Done |
+| 0.5.2 | Implement **adaptive baseline** (BS-Adaptive): rolling-mean base-stock from observed demand history; sweep over `z` and window `H`. | Done |
+| 0.5.3 | Implement **simulation-optimized baselines** (BS-Optimized joint BO; BS-Independent iterated-BR BO) for strong reference policies that do not require analytical demand assumptions. | Done |
+| 0.5.4 | Implement **CPPO** centralized single-agent PPO wrapper as RL upper-bound baseline (`src/algorithms/cppo.py`). | Done |
+| 0.5.5 | Create the **4 heterogeneous environment configs** (all 5-SKU): SKU hetero, demand hetero, cost asymmetry (2EU+1US), combined. | Not started |
 
 ### Phase 1: Diagnostic — "What Breaks and Why?"
 
@@ -450,8 +468,10 @@ The pilot was for internal go/no-go. It is NOT a formal paper section, but a con
 | IPPO critic size diagnostic (512 vs 1024 vs 512×512) | Done — all equivalent |
 | Seed evaluation of top-10 IPPO trials | Pending |
 | **MAPPO-PS tune on symmetric 3WH5SKU** | **Next step** |
-| Per-SKU baselines | Not started |
-| Adaptive/reactive baseline | Not started |
+| Heuristic baselines (Random, ConstantOrder, BS-Newsvendor) | Done |
+| Adaptive baseline (BS-Adaptive) | Done |
+| Simulation-optimized baselines (BS-Optimized, BS-Independent) | Done |
+| CPPO centralized RL baseline | Done |
 | Heterogeneous environment configs (5-SKU) | Not started |
 | Phase 1 diagnostic experiments | Not started |
 | Phase 2 intervention implementations | Not started |

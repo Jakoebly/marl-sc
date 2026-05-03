@@ -16,5 +16,3 @@ rm -f /home/jakobeh/projects/marl-sc/experiment_outputs/WorkingConfig_Phase1.4/I
 sacct -j <JobID> --format=JobID,State,ExitCode | grep FAILED
 # e.g. shows tasks 3, 11, 17 failed
 sbatch --array=3,11,17 scripts/run_experiment_batch.sh --name MyFolder
-
-Hallo, von Claude
