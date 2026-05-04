@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import yaml
 
 from src.config.loader import (
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
-# Directory Constants
+# Constants
 # ============================================================================
 
 DEFAULT_RUN_STORAGE_DIR = "experiment_outputs/Runs"
@@ -37,7 +38,6 @@ SEED_EVAL_SUBDIR = "seed_evaluation"
 SEED_EVAL_PLOTS_SUBDIR = "seed_evaluation_plots"
 SEED_EVAL_SUMMARY_FILENAME = "seed_evaluation_summary.yaml"
 TUNE_BEST_TRIALS_FILENAME = "best_trial_results.yaml"
-
 
 # ============================================================================
 # Directory and Loading Helpers
@@ -525,6 +525,52 @@ def save_training_metrics(
     metrics_path = Path(checkpoint_dir) / "training_metrics.yaml"
     with open(metrics_path, "w", encoding="utf-8") as f:
         yaml.dump(metrics, f, default_flow_style=False, sort_keys=False)
+
+def save_episodes(
+    episodes_data: List[Dict[str, Any]],
+    output_path: str | Path,
+) -> None:
+    """
+    Serializes a list of rollout episode dicts to a single ``.npz`` file.
+
+    Per-step arrays are stacked along a new leading episode axis; scalar
+    metadata (``n_skus``, ``max_expected_lead_time``, ...) is stored once on
+    the assumption that it is identical across episodes; ``feature_config``
+    is JSON-encoded as a 0-d string array.
+
+    Args:
+        episodes_data (List[Dict[str, Any]]): Episode dicts as returned by
+            ``Algorithm.rollout``.
+        output_path (str | Path): Destination ``.npz`` path.
+    """
+
+    # Return early if no episodes data is provided
+    if not episodes_data:
+        return
+
+    # Partition the keys of the first episode into arrays vs scalar data
+    first = episodes_data[0]
+    array_keys = [
+        k for k, v in first.items()
+        if isinstance(v, np.ndarray) and v.ndim > 0
+    ]
+    scalar_keys = [
+        k for k, v in first.items()
+        if k not in array_keys and k != "feature_config"
+    ]
+
+    # Stack arrays across episodes and copy scalars once
+    out: Dict[str, np.ndarray] = {}
+    for k in array_keys:
+        out[k] = np.stack([ep[k] for ep in episodes_data], axis=0)
+    for k in scalar_keys:
+        out[k] = np.asarray(first[k])
+    if "feature_config" in first:
+        out["feature_config_json"] = np.asarray(json.dumps(first["feature_config"]))
+    out["n_episodes"] = np.asarray(len(episodes_data))
+
+    # Save the episodes data to the output path
+    np.savez_compressed(output_path, **out)
 
 def save_run_metadata(
     output_dir: str,

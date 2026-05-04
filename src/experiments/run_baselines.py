@@ -46,7 +46,7 @@ from src.experiments.utils.seed_evaluation import (
     find_missing_seed_eval_files,
     aggregate_and_plot_seed_evaluation,
 )
-from src.experiments.utils.visualization import generate_visualizations
+from src.visualization.utils.eval_rollout_plots import generate_visualizations
 from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
 
 

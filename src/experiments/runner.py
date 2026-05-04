@@ -568,8 +568,12 @@ class EvaluationRunner:
             visualization_dir = self.experiment_dir / "visualizations" / viz_subfolder
 
             # Generate and save visualizations
-            from src.experiments.utils.visualization import generate_visualizations
+            from src.visualization.utils.eval_rollout_plots import generate_visualizations
+            from src.experiments.utils.experiment_utils import save_episodes
             generate_visualizations(episodes_data, str(visualization_dir))
+
+            # Save the raw rollout arrays to the experiment directory
+            save_episodes(episodes_data, self.experiment_dir / "episodes_data.npz")
 
             # Build a lightweight result dict from rollout data
             total_rewards = [ep["rewards"].sum() for ep in episodes_data]

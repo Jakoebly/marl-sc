@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from src.environment.envs.multi_env import InventoryEnvironment
-from src.experiments.utils.visualization import (
+from src.visualization.utils.eval_rollout_plots import (
     generate_visualizations,
     plot_inventory,
     plot_orders,
