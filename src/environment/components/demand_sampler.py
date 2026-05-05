@@ -101,6 +101,11 @@ class PoissonDemandSampler(BaseDemandSampler):
             self.lambda_orders = float(component_config.params["lambda_orders"])
             self.probability_skus = float(component_config.params["probability_skus"])
             self.lambda_quantity = float(component_config.params["lambda_quantity"])
+
+        # Get the per-SKU minimum quantity floor
+        self.min_quantity_per_sku = int(
+            component_config.params.get("min_quantity_per_sku", 1)
+        )
     
     def sample(self, timestep: int) -> List[Order]:
         """
@@ -111,8 +116,8 @@ class PoissonDemandSampler(BaseDemandSampler):
             1. Sample the number of orders for the region (~Poisson(lambda_orders[r]))
             2. For each order:
                 2.1 Include each SKU independently via a Bernoulli trial with probability_skus[r]
-                2.2 Sample quantities for each selected SKU s (~Poisson(lambda_quantity[r, s]), min 1)
-
+                2.2 Sample quantities for each selected SKU s (~Poisson(lambda_quantity[r, s])),
+                    clamped to at least ``min_quantity_per_sku``.
         If parameters are scalar instead of arrays, the same value is used for all regions/SKUs.
 
         Args:
@@ -150,10 +155,16 @@ class PoissonDemandSampler(BaseDemandSampler):
                 if len(sku_indices) > 0:
                     if self.per_region:
                         lambda_quantity_rs = self.lambda_quantity[region_id, sku_indices]
-                        quantities = np.maximum(1, self._rng.poisson(lambda_quantity_rs))
+                        quantities = np.maximum(
+                            self.min_quantity_per_sku, 
+                            self._rng.poisson(lambda_quantity_rs)
+                        )
                     else:
                         # Assign quantities to selected SKUs
-                        quantities = np.maximum(1, self._rng.poisson(self.lambda_quantity, size=len(sku_indices)))
+                        quantities = np.maximum(
+                            self.min_quantity_per_sku, 
+                            self._rng.poisson(self.lambda_quantity, size=len(sku_indices))
+                        )
 
                     sku_demands[sku_indices] = quantities
                 

@@ -41,6 +41,7 @@ from src.experiments.utils.experiment_utils import (
     SEED_EVAL_SUBDIR,
     generate_baseline_experiment_name,
     save_env_config,
+    save_episodes,
 )
 from src.experiments.utils.seed_evaluation import (
     find_missing_seed_eval_files,
@@ -350,12 +351,26 @@ def run_rollout(
                         value.copy() if isinstance(value, np.ndarray) else value
                     )
 
+            # Record raw actions in [-1, 1] per (warehouse, SKU)
+            actions_array = np.stack(
+                [actions[a] for a in env.agents], axis=0
+            ).astype(np.float32)
+            episode_data["actions_raw"].append(actions_array)
+
             # Record per-warehouse rewards and check if the episode is done
             rewards_array = np.array([rewards[a] for a in env.agents])
-            episode_data.setdefault("rewards", []).append(rewards_array)
+            episode_data["rewards"].append(rewards_array)
+
+            # Check if the episode is done
             done = all(truncs.values()) or all(terms.values())
 
+        # Stack lists into arrays and append env metadata in the same shape as
+        # the RL rollout in :mod:`src.algorithms.base` (skipping NN-only fields
+        # like ``actor_mu``/``actor_sigma`` and the obs-feature metadata).
         episode_dict = {k: np.array(v) for k, v in episode_data.items()}
+        episode_dict["n_skus"] = env.n_skus
+        episode_dict["max_expected_lead_time"] = env.max_expected_lead_time
+        episode_dict["home_regions"] = env.home_regions.copy()
         all_episodes.append(episode_dict)
 
     # Disable per-step info collection
@@ -754,12 +769,17 @@ def evaluate_action_fn(
     eval_seed: int,
     eval_episodes: int,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the final evaluation of a fixed policy on the held-out eval seed
     and returns a dict matching the schema produced by RL's
     ``EvaluationRunner.run()``. If ``viz_dir`` is provided, also writes
-    per-episode rollout visualizations to ``viz_dir``.
+    per-episode rollout visualizations to ``viz_dir``. If ``experiment_dir``
+    is provided, also persists the raw rollout arrays as
+    ``episodes_data.npz`` next to ``eval_results_final.yaml`` so the
+    plotting notebook can re-plot without re-running evaluation, matching
+    the format produced by the RL path in ``EvaluationRunner.run()``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
@@ -769,6 +789,8 @@ def evaluate_action_fn(
         eval_episodes (int): Number of evaluation episodes.
         viz_dir (Optional[Path]): Optional directory to write per-episode
             rollout visualizations into.
+        experiment_dir (Optional[Path]): Optional per-seed run directory.
+            When provided, ``episodes_data.npz`` is written here.
 
     Returns:
         eval_results (Dict[str, Any]): Top-level dict including
@@ -782,6 +804,10 @@ def evaluate_action_fn(
     # If a visualization directory is provided, save per-episode rollout visualizations
     if viz_dir is not None:
         generate_visualizations(episodes, str(viz_dir))
+
+    # If an experiment directory is provided, save the episode data
+    if experiment_dir is not None:
+        save_episodes(episodes, Path(experiment_dir) / "episodes_data.npz")
 
     # Aggregate costs and create the evaluation results dictionary
     agg = aggregate_costs(episodes)
@@ -809,6 +835,7 @@ def run_random_baseline(
     eval_seed: int,
     eval_episodes: int,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the random baseline that samples uniform random orders in
@@ -845,7 +872,8 @@ def run_random_baseline(
     # Create the action function and run the evaluation
     action_fn = make_random_action_fn(rng)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes, viz_dir=random_viz_dir,
+        env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=random_viz_dir, experiment_dir=experiment_dir,
     )
     return {
         "baseline": "random",
@@ -862,6 +890,7 @@ def run_constant_baseline(
     calibration_episodes: int = 50,
     sweep_episodes: Optional[int] = None,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the constant-order baseline that orders fixed per-(warehouse, SKU)
@@ -930,7 +959,8 @@ def run_constant_baseline(
     # constant quantities and run final evaluation
     action_fn = make_constant_action_fn(best_quantities, max_qty)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes, viz_dir=constant_viz_dir,
+        env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=constant_viz_dir, experiment_dir=experiment_dir,
     )
 
     # Create the results dictionary
@@ -965,6 +995,7 @@ def run_bs_newsvendor_baseline(
     z_values: Optional[List[float]] = None,
     sweep_episodes: Optional[int] = None,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Newsvendor baseline that implements an oracle base-stock
@@ -1018,7 +1049,8 @@ def run_bs_newsvendor_baseline(
     # z value and run final evaluation
     action_fn = make_bs_newsvendor_action_fn(env_config, z=best_z)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes, viz_dir=bs_newsvendor_viz_dir,
+        env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=bs_newsvendor_viz_dir, experiment_dir=experiment_dir,
     )
 
     # Create the results dictionary
@@ -1046,6 +1078,7 @@ def run_bs_adaptive_baseline(
     H_values: Optional[List[int]] = None,
     sweep_episodes: Optional[int] = None,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Adaptive baseline that implements a rolling-mean base-stock
@@ -1109,7 +1142,8 @@ def run_bs_adaptive_baseline(
     # z and H values and run final evaluation
     action_fn = make_bs_adaptive_action_fn(env_config, z=best_z, H=best_H)
     eval_results = evaluate_action_fn(
-        env_config, action_fn, eval_seed, eval_episodes, viz_dir=bs_adaptive_viz_dir,
+        env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=bs_adaptive_viz_dir, experiment_dir=experiment_dir,
     )
 
     # Create the results dictionary
@@ -1143,6 +1177,7 @@ def run_bs_optimized_baseline(
     n_obj_episodes: int = 50,
     upper_bound: float = 200.0,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Optimized baseline that implements simulation-optimized base-stock
@@ -1191,7 +1226,7 @@ def run_bs_optimized_baseline(
     action_fn = make_bs_optimized_action_fn(S_star, max_qty)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
-        viz_dir=bs_optimized_viz_dir,
+        viz_dir=bs_optimized_viz_dir, experiment_dir=experiment_dir,
     )
 
     # Create the results dictionary
@@ -1225,6 +1260,7 @@ def run_bs_independent_baseline(
     upper_bound: float = 200.0,
     calibration_episodes: int = 50,
     viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Runs the BS-Independent baseline that implements per-warehouse independent 
@@ -1295,7 +1331,7 @@ def run_bs_independent_baseline(
     action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
-        viz_dir=bs_independent_viz_dir,
+        viz_dir=bs_independent_viz_dir, experiment_dir=experiment_dir,
     )
 
     # Create the results dictionary
@@ -1687,6 +1723,7 @@ def run_single_baseline(
         eval_seed=eval_seed,
         eval_episodes=eval_episodes,
         viz_dir=viz_dir,
+        experiment_dir=experiment_dir,
     )
 
     # Add the root seed, eval seed, and display name to the eval results

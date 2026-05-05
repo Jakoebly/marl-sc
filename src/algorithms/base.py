@@ -262,6 +262,7 @@ class BaseAlgorithmWrapper(ABC):
             episode_data["feature_config"] = env.feature_config.model_dump()
             episode_data["include_warehouse_id"] = env.include_warehouse_id
             episode_data["rolling_window"] = env.rolling_window
+            episode_data["home_regions"] = env.home_regions.copy()
             all_episodes.append(episode_data)
 
         # Disable step info collection after rollout

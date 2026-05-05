@@ -104,6 +104,40 @@ In heterogeneous SKU settings, a static `max_quantity_adjustment` may not fit al
 
 This is a design choice, not a main intervention. Mention briefly in the paper.
 
+### Demand Sampler Floor for Heterogeneous λ_qty
+
+The Poisson demand sampler historically enforced `quantity = max(1, Poisson(λ_qty))` for any SKU that the Bernoulli inclusion step had flagged as belonging to an order. This avoided the semantic inconsistency of "SKU is in the order but with quantity 0" — a SKU that was Bernoulli-included would always contribute at least one unit.
+
+Under the symmetric environment (λ_qty = 5), the floor adds `e^{-5} ≈ 0.007` (0.13%) to the effective per-SKU mean — negligible. Under the SKU-heterogeneous regime, where realizing "demand inversely proportional to weight" requires λ_qty values well below 1 for the heaviest SKUs, the floor inflates the effective mean substantially:
+
+| λ_qty  | E[Poisson(λ)] | E[max(1, Poisson(λ))] = λ + e^{-λ} | bias |
+|--------|---------------|-------------------------------------|------|
+| 5.000  | 5.000         | 5.007                               | +0.13% |
+| 1.667  | 1.667         | 1.856                               | +11% |
+| 1.000  | 1.000         | 1.368                               | +37% |
+| 0.500  | 0.500         | 1.107                               | +121% |
+| 0.167  | 0.167         | 1.013                               | +507% |
+
+For the heaviest SKU lambdas in `env_sku_hetero` and `env_combined_hetero` (λ ≈ 0.167), the intended inverse weight–demand relationship is destroyed: every Bernoulli-included heavy SKU contributes ~1 unit regardless of how small its λ was meant to be, and `weight × E[qty]` is dominated by the floor rather than by the calibration.
+
+**Resolution.** A configurable `min_quantity_per_sku` parameter is added to `PoissonDemandSampler.params`, defaulting to `1` for backward compatibility with existing pilot configs. All five 5-SKU environments (symmetric and the four heterogeneous variants) set `min_quantity_per_sku: 0`, removing the floor. Bernoulli-included SKUs whose Poisson draw is zero contribute no demand for that order; orders that end up with all-zero quantities are still emitted to keep order counts consistent across the floor-on/floor-off comparison and are gracefully handled by the demand allocator (no shipments scheduled).
+
+**Effect on the symmetric environment.** For λ_qty = 5, the per-step expected number of SKU-instances whose quantity changes from 1 to 0 is approximately `n_regions × λ_orders × n_skus × prob_skus × e^{-λ_qty} ≈ 3 × 4 × 5 × 0.667 × 0.0067 ≈ 0.27`. Over a 100-step episode, this is roughly 27 demand units out of ~20,000 (0.13%), which is well below seed-to-seed noise. The Phase 0 symmetric tune's best hyperparameters are not invalidated; a single-seed re-evaluation of the top-1 trial on the floor-removed sampler is performed as a sanity check before launching Phase 1.
+
+**Effect on heterogeneous environments.** The intended `w × E[qty | included]` profile is realized exactly. With `lambda_qty = [5/w_k for k in skus]` and weights `[0.3, 1, 3, 10, 30]`:
+
+| SKU | weight w | λ_qty = 5/w | w · E[qty\|incl] (after) |
+|----|---|---|---|
+| 0 | 0.3  | 16.67 | 5.00 |
+| 1 | 1.0  | 5.00  | 5.00 |
+| 2 | 3.0  | 1.67  | 5.00 |
+| 3 | 10.0 | 0.50  | 5.00 |
+| 4 | 30.0 | 0.167 | 5.00 |
+
+so the network-level weighted demand is `3 × 4 × 0.667 × 5 × 5 = 200.1` weight-units/step — identical to the symmetric environment by design. This budget invariance also extends to `env_demand_hetero` (`lambda_orders = [7, 4, 1]` with uniform weights and λ_qty = 5: `(7+4+1) × 0.667 × 5 × 5 = 200.1`) and to `env_cost_hetero` (demand process unchanged). Across all five 5-SKU environments, total expected weighted network throughput per step is held at 200 weight-units, isolating heterogeneity in the targeted dimension only.
+
+This change is documented as an environment-level design decision (added to the Design Decisions Made table) and applied uniformly across all 5-SKU configurations. The 3WH2SKU pilot configs retain the floor for backward compatibility.
+
 ---
 
 ## Algorithms
@@ -279,6 +313,8 @@ Test agent vs. team reward on `env_combined_hetero` only (the hardest setting). 
 | Normalization | `meanstd_custom` (searched via tune) | Per-feature-dimension normalization; per-agent variant is an intervention |
 | Feature config | `inventory_aggregate`, `rolling_demand_mean` fixed on; `stockout` fixed off; `demand_variability` + 8 others searched | Based on IPPO tune evidence (always on/off in top-10 trials) |
 | Demand distribution | Poisson only | Standard in stochastic inventory literature; isolates heterogeneity from demand model complexity |
+| Demand sampler floor | `min_quantity_per_sku: 0` for all 5-SKU envs (symmetric + heterogeneous); legacy floor of 1 retained for 3WH2SKU pilot | Floor inflates effective mean by `e^{-λ}`, which is negligible at λ=5 (0.13%) but ≥100% at λ≤0.5; preserving the floor would destroy the intended inverse weight–demand relationship in `env_sku_hetero` and `env_combined_hetero` |
+| Network-weighted demand budget | 200 weight-units/step (matched across symmetric, demand-hetero, sku-hetero, cost-hetero envs) | Eliminates throughput-magnitude as a confound when attributing performance differences to heterogeneity dimensions |
 | SKU correlations | Not included | Independent Poisson per SKU; correlations mentioned as future work |
 | GRU / framestacking | Not in main study | MLP with temporal features sufficient; optional brief GRU comparison post-Phase 2 |
 | Data generator | Used only for parameter justification in appendix; not in experiment pipeline | Demand generation incomplete; domain randomization is scope creep |

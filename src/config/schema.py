@@ -185,8 +185,10 @@ class DemandSamplerPoisson(BaseModel):
     """Configuration for Poisson demand sampler."""
 
     type: Literal["poisson"]
-    params: Dict[Literal["lambda_orders", "probability_skus", "lambda_quantity"],
-        Union[PositiveFloat, List[PositiveFloat], List[List[PositiveFloat]]]]
+    params: Dict[
+        Literal["lambda_orders", "probability_skus", "lambda_quantity", "min_quantity_per_sku"],
+        Union[PositiveFloat, NonNegativeInt, List[PositiveFloat], List[List[PositiveFloat]]],
+    ]
     model_config = ConfigDict(extra="forbid")
 
     # Type and shape of poisson parameters
@@ -196,6 +198,16 @@ class DemandSamplerPoisson(BaseModel):
         for key in ("lambda_orders", "probability_skus", "lambda_quantity"):
             if key not in v:
                 raise ValueError(f"poisson params must contain '{key}'")
+        if "min_quantity_per_sku" in v:
+            mqs = v["min_quantity_per_sku"]
+            if isinstance(mqs, bool) or not isinstance(mqs, int):
+                raise ValueError(
+                    f"poisson params.min_quantity_per_sku must be a non-negative integer, got {mqs!r}"
+                )
+            if mqs < 0:
+                raise ValueError(
+                    f"poisson params.min_quantity_per_sku must be >= 0, got {mqs}"
+                )
 
         lo, ps, lq = v["lambda_orders"], v["probability_skus"], v["lambda_quantity"]
 
