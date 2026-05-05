@@ -492,6 +492,51 @@ def run_sweep(
 # Action function factories
 # ============================================================================
 
+def _qty_to_action(env: InventoryEnvironment, wh_idx: int, qty: np.ndarray) -> np.ndarray:
+    """
+    Maps a desired per-SKU order quantity for one warehouse back to the
+    normalized ``[-1, 1]`` action expected by the env to invert the env's
+    own ``_rescale_actions_to_quantities`` for the configured action space.
+
+    Supported action spaces:
+        - ``direct``: ``action = 2 * clip(qty, 0, max_order_qty) / max_order_qty - 1``.
+        - ``demand_centered``: subtract observed home demand, clip the
+          adjustment to ``[-max_quantity_adjustment, +max_quantity_adjustment]``,
+          and divide by ``max_quantity_adjustment``.
+
+    Args:
+        env (InventoryEnvironment): Live env (read for action-space params and,
+            in ``demand_centered``, current ``_incoming_demand_home``).
+        wh_idx (int): Warehouse index.
+        qty (np.ndarray): Desired order quantities per SKU, shape ``(n_skus,)``.
+
+    Returns:
+        action (np.ndarray): Normalized action in ``[-1, 1]``, shape ``(n_skus,)``.
+    """
+
+    # If the action space is direct, clip the quantity to the max 
+    # order quantities and return the normalized action
+    if env.action_space_type == "direct":
+        max_qty = env.max_order_quantities
+        clipped = np.clip(qty, 0.0, max_qty)
+        action = (2.0 * clipped / max_qty - 1.0).astype(np.float32)
+        return action
+
+    # If the action space is demand-centered, clip the quantity to the max 
+    # quantity adjustment, add the incoming demand and return the normalized action
+    if env.action_space_type == "demand_centered":
+        max_adj = env.max_quantity_adjustment
+        demand = env._incoming_demand_home[wh_idx].astype(float)
+        adjustment = np.clip(qty - demand, -max_adj, max_adj)
+        action = (adjustment / max_adj).astype(np.float32)
+        return action
+
+    # Raise an error if the action space is not supported
+    raise ValueError(
+        f"Baselines support action_space.type in ('direct', 'demand_centered'), "
+        f"got '{env.action_space_type}'."
+    )
+
 def make_random_action_fn(rng: np.random.Generator) -> Callable:
     """
     Returns an action function that samples uniform random orders in
@@ -515,39 +560,24 @@ def make_random_action_fn(rng: np.random.Generator) -> Callable:
 
     return action_fn
 
-def make_constant_action_fn(
-    quantities: np.ndarray,
-    max_order_quantities: np.ndarray,
-) -> Callable:
+def make_constant_action_fn(quantities: np.ndarray) -> Callable:
     """
     Returns an action function that orders fixed per-(warehouse, SKU)
     quantities at each timestep, regardless of the current state.
 
-    Requires a ``"direct"`` action space so the mapping from order quantity
-    to normalized ``[-1, 1]`` action is a simple linear rescaling.
-
     Args:
         quantities (np.ndarray): Fixed order quantities per (warehouse, SKU).
             Shape: ``(n_warehouses, n_skus)``.
-        max_order_quantities (np.ndarray): Maximum order quantities per SKU.
 
     Returns:
         action_fn (Callable): Action function in ``[-1, 1]`` per agent.
     """
 
-    # Precompute constant actions for each warehouse-SKU pair
-    clipped = np.clip(quantities, 0.0, max_order_quantities)
-    constant_actions = {}
-    for wh_idx in range(quantities.shape[0]):
-        action = (2.0 * clipped[wh_idx] / max_order_quantities - 1.0).astype(np.float32)
-        constant_actions[wh_idx] = action
-
-    # Define the action function    
+    # Define the action function
     def action_fn(env, obs):
-        actions = {
-            agent_id: constant_actions[wh_idx]
-            for wh_idx, agent_id in enumerate(env.agents)
-        }
+        actions = {}
+        for wh_idx, agent_id in enumerate(env.agents):
+            actions[agent_id] = _qty_to_action(env, wh_idx, quantities[wh_idx])
         return actions
 
     return action_fn
@@ -597,9 +627,6 @@ def make_bs_newsvendor_action_fn(env_config: EnvironmentConfig, z: float) -> Cal
     distances = np.array(env_config.cost_structure.distances)
     home_regions = np.argmin(distances, axis=1)
 
-    # Extract max order quantities (baselines assume "direct" action space)
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
     # Compute base-stock heuristic
     base_stock = np.zeros((n_warehouses, n_skus))
     for wh in range(n_warehouses):
@@ -617,13 +644,11 @@ def make_bs_newsvendor_action_fn(env_config: EnvironmentConfig, z: float) -> Cal
         pipeline = env._compute_pending_matrix().astype(float)
         actions = {}
         for wh_idx, agent_id in enumerate(env.agents):
-            qty = np.clip(
+            qty = np.maximum(
                 base_stock[wh_idx] - inventory[wh_idx] - pipeline[wh_idx],
                 0.0,
-                max_qty,
             )
-            action = 2.0 * qty / max_qty - 1.0
-            actions[agent_id] = action.astype(np.float32)
+            actions[agent_id] = _qty_to_action(env, wh_idx, qty)
         return actions
 
     return action_fn
@@ -647,8 +672,9 @@ def make_bs_adaptive_action_fn(
            the start of the episode).
         3. Derive a base-stock level per (warehouse, SKU):
            ``S[w,k] = L[w,k] * D_mean + z * sqrt(L[w,k] * D_var)``
-        4. Order ``max(0, S - on_hand - pipeline)``, clipped to
-           ``max_order_quantities``.
+        4. Order ``max(0, S - on_hand - pipeline)``, then convert to a
+           normalized ``[-1, 1]`` action via :func:`_qty_to_action` for the
+           configured action space (``direct`` or ``demand_centered``).
 
     At ``t = 0`` (no demand observed yet) the policy orders zero.
 
@@ -661,13 +687,12 @@ def make_bs_adaptive_action_fn(
         action_fn (Callable): Action function in ``[-1, 1]`` per agent.
     """
 
-    # Extract number of SKUs, lead times, and max order quantities
+    # Extract number of SKUs and lead times
     n_skus = env_config.n_skus
     lead_times = np.array(
         env_config.components.lead_time_sampler.params.expected_lead_times,
         dtype=float,
     ) # Shape: (n_warehouses, n_skus)
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
      # Define mutable states to be shared across calls within an episode
     demand_buffer: List[np.ndarray] = []
@@ -699,26 +724,21 @@ def make_bs_adaptive_action_fn(
         # Compute base-stock level: S = L * D_mean + z * sqrt(L * D_var)
         base_stock = lead_times * D_mean + z * np.sqrt(lead_times * D_var)
 
-        # Order = max(0, S - inventory - pipeline), clipped
+        # Order = max(0, S - inventory - pipeline)
         inventory = env.inventory
         pipeline = env._compute_pending_matrix().astype(float)
         actions = {}
         for wh_idx, agent_id in enumerate(env.agents):
-            qty = np.clip(
+            qty = np.maximum(
                 base_stock[wh_idx] - inventory[wh_idx] - pipeline[wh_idx],
                 0.0,
-                max_qty,
             )
-            action = 2.0 * qty / max_qty - 1.0
-            actions[agent_id] = action.astype(np.float32)
+            actions[agent_id] = _qty_to_action(env, wh_idx, qty)
         return actions
 
     return action_fn
 
-def make_bs_optimized_action_fn(
-    base_stock_levels: np.ndarray,
-    max_order_quantities: np.ndarray,
-) -> Callable:
+def make_bs_optimized_action_fn(base_stock_levels: np.ndarray) -> Callable:
     """
     Returns an action function implementing a fixed base-stock policy with
     *given* base-stock levels ``S``. At each step the policy orders:
@@ -731,15 +751,13 @@ def make_bs_optimized_action_fn(
     Args:
         base_stock_levels (np.ndarray): Target base-stock levels per
             (warehouse, SKU). Shape: ``(n_warehouses, n_skus)``.
-        max_order_quantities (np.ndarray): Maximum order quantities per SKU.
 
     Returns:
         action_fn (Callable): Action function in ``[-1, 1]`` per agent.
     """
 
-    # Copy the base-stock levels and max order quantities
+    # Copy the base-stock levels
     S = base_stock_levels.copy()
-    max_qty = max_order_quantities.copy()
 
     # Define the action function
     def action_fn(env, obs):
@@ -747,13 +765,11 @@ def make_bs_optimized_action_fn(
         pipeline = env._compute_pending_matrix().astype(float)
         actions = {}
         for wh_idx, agent_id in enumerate(env.agents):
-            qty = np.clip(
+            qty = np.maximum(
                 S[wh_idx] - inventory[wh_idx] - pipeline[wh_idx],
                 0.0,
-                max_qty,
             )
-            action = 2.0 * qty / max_qty - 1.0
-            actions[agent_id] = action.astype(np.float32)
+            actions[agent_id] = _qty_to_action(env, wh_idx, qty)
         return actions
 
     return action_fn
@@ -928,9 +944,6 @@ def run_constant_baseline(
         env_config, calibration_seed, calibration_episodes,
     )
 
-    # Extract max order quantities for the action function
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
     # Run the sweep
     print(f"  Sweeping alpha grid of ({len(alpha_values)} values, "
           f"{sweep_episodes} eps each, sweep_seed={sweep_seed})...")
@@ -940,7 +953,7 @@ def run_constant_baseline(
         num_episodes=sweep_episodes,
         sweep_values=alpha_values,
         make_action_fn=lambda alpha: make_constant_action_fn(
-            np.round(alpha * mean_demand), max_qty,
+            np.round(alpha * mean_demand),
         ),
         label_fn=lambda alpha: f"alpha={alpha:.2f}",
     )
@@ -957,7 +970,7 @@ def run_constant_baseline(
 
     # Create the action function based on the best
     # constant quantities and run final evaluation
-    action_fn = make_constant_action_fn(best_quantities, max_qty)
+    action_fn = make_constant_action_fn(best_quantities)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
         viz_dir=constant_viz_dir, experiment_dir=experiment_dir,
@@ -1212,18 +1225,15 @@ def run_bs_optimized_baseline(
         upper_bound=upper_bound,
     )
 
-    # Extract the max order quantities for the action function
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
     # Set the visualization directory for the BSOptimized baseline
     bs_optimized_viz_dir = (
-        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_optimized']}_Best" 
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_optimized']}_Best"
         if viz_dir is not None else None
     )
 
-    # Create the action function based on the optimal 
+    # Create the action function based on the optimal
     # base-stock levels and run final evaluation
-    action_fn = make_bs_optimized_action_fn(S_star, max_qty)
+    action_fn = make_bs_optimized_action_fn(S_star)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
         viz_dir=bs_optimized_viz_dir, experiment_dir=experiment_dir,
@@ -1317,18 +1327,15 @@ def run_bs_independent_baseline(
         upper_bound=upper_bound,
     )
 
-    # Extract the max order quantities for the action function
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
-
     # Set the visualization directory for the BSIndependent baseline
     bs_independent_viz_dir = (
-        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_independent']}_Best" 
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_independent']}_Best"
         if viz_dir is not None else None
     )
 
-    # Create the action function based on the optimal 
+    # Create the action function based on the optimal
     # base-stock levels and run final evaluation
-    action_fn = make_bs_optimized_action_fn(S_indep, max_qty)
+    action_fn = make_bs_optimized_action_fn(S_indep)
     eval_results = evaluate_action_fn(
         env_config, action_fn, eval_seed, eval_episodes,
         viz_dir=bs_independent_viz_dir, experiment_dir=experiment_dir,
@@ -1391,20 +1398,19 @@ def run_bs_joint_optimization(
 
     from skopt import gp_minimize
 
-    # Extract the number of warehouses, SKUs, and max order quantities
+    # Extract the number of warehouses and SKUs
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
     n_params = n_warehouses * n_skus
 
-    # Initialize the call count 
+    # Initialize the call count
     call_count = [0]
 
     # Define the objective function for the BO
     def objective(S_flat: List[float]) -> float:
          # Reshape base-stock levels and create action function
         S = np.array(S_flat).reshape(n_warehouses, n_skus)
-        action_fn = make_bs_optimized_action_fn(S, max_qty)
+        action_fn = make_bs_optimized_action_fn(S)
 
         # Run the objective function rollout
         env = make_train_env(env_config, optimization_seed)
@@ -1497,10 +1503,9 @@ def run_bs_independent_optimization(
 
     from skopt import gp_minimize
 
-    # Extract the number of warehouses, SKUs, and max order quantities
+    # Extract the number of warehouses and SKUs
     n_warehouses = env_config.n_warehouses
     n_skus = env_config.n_skus
-    max_qty = np.array(env_config.action_space.params.max_order_quantities, dtype=float)
 
     # Get independent child seeds for each (round, wh) BO call so the GP
     # search and rollout sampling are independent across calls
@@ -1539,7 +1544,7 @@ def run_bs_independent_optimization(
                 S_candidate[wh_target] = np.array(s_wh_flat)
 
                 # Create the action function
-                action_fn = make_bs_optimized_action_fn(S_candidate, max_qty)
+                action_fn = make_bs_optimized_action_fn(S_candidate)
 
                 # Run the objective function rollout
                 env = make_train_env(env_config, wh_seed)
@@ -1696,10 +1701,11 @@ def run_single_baseline(
         except (OSError, yaml.YAMLError):
             pass
 
-    # If the action space type is not direct, raise an error
-    if env_config.action_space.type != "direct":
+    # Baselines support 'direct' and 'demand_centered' action spaces
+    if env_config.action_space.type not in ("direct", "demand_centered"):
         raise ValueError(
-            f"Baselines require action_space.type='direct', got "
+            f"Baselines require action_space.type in "
+            f"('direct', 'demand_centered'), got "
             f"'{env_config.action_space.type}'."
         )
 
