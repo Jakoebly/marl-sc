@@ -3,7 +3,7 @@ environment:
   action_space:
     type: direct
     params:
-      max_quantity_adjustment:
+      max_order_quantities:
         - 40
         - 40
         - 40
