@@ -355,12 +355,11 @@ def run_rollout(
             actions_array = np.stack(
                 [actions[a] for a in env.agents], axis=0
             ).astype(np.float32)
-            episode_data["actions_raw"].append(actions_array)
+            episode_data.setdefault("actions_raw", []).append(actions_array)
 
             # Record per-warehouse rewards and check if the episode is done
             rewards_array = np.array([rewards[a] for a in env.agents])
-            episode_data["rewards"].append(rewards_array)
-
+            episode_data.setdefault("rewards", []).append(rewards_array)
             # Check if the episode is done
             done = all(truncs.values()) or all(terms.values())
 
