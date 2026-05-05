@@ -52,7 +52,7 @@
 
 NAME=""
 STORAGE_DIR="experiment_outputs/Runs"
-ENV_CONFIG="./config_files/environments/env_symmetric_3WH5SKU.yaml"
+ENV_CONFIG="./config_files/environments/BASELINES_env_symmetric_3WH5SKU.yaml"
 N_SEEDS=5
 EVAL_EPISODES=100
 EVAL_SEED=123
