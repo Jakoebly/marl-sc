@@ -1,0 +1,49 @@
+%%%%%%
+% Needs further changes to match the template 
+% -> should we just use the template to create the page and include the pdf?
+%%%
+
+\newcommand{\UniversitaetLogoBreite}{19mm}
+\newcommand{\UniversitaetLogoHoehe}{1cm}
+
+\textblockorigin{20mm}{43.5mm} % Ursprung für Positionierung
+
+\begin{textblock*}{\UniversitaetLogoBreite}[1,0](\textwidth+2cm, -23.5mm)%
+    \raggedleft\includegraphics{./resources/Universitaet_Logo_RGB.pdf}%
+\end{textblock*}
+
+
+\begin{textblock*}{\textwidth}[0,0](0cm, 0cm)%
+{\fontsize{24pt}{26pt}\selectfont\textbf{\Title}}
+
+\vspace*{12pt}
+{\fontsize{18pt}{27pt}\selectfont\textbf{\Subtitle}}
+\end{textblock*}
+
+\vspace*{92.2mm}
+\fontsize{15pt}{17.5pt}\selectfont%
+\ThesisType for the Attainment of the Degree\\
+\Degree\\
+at the TUM School of Management\\
+of the Technische Universität München
+
+\renewcommand{\baselinestretch}{1.47}
+\normalsize\selectfont
+\vspace*{17.1mm}
+\textbf{Examiner}\tab
+\begin{minipage}[t]{\textwidth-\CurrentLineWidth}
+\Supervisor\\
+\Chair\strut
+\end{minipage}
+
+\vspace*{4.3mm}
+\textbf{Submitted by}\tab
+\begin{minipage}[t]{\textwidth-\CurrentLineWidth}
+\SubmittedBy
+\end{minipage}
+
+\vspace*{-1mm}
+\textbf{Submitted on}\tab 
+\begin{minipage}[t]{\textwidth-\CurrentLineWidth}
+Munich, 01.01.1976\strut
+\end{minipage}

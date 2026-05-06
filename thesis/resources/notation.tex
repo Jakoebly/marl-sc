@@ -1,0 +1,17 @@
+% creates a new glossary
+\newglossary[nlg]{notation}{not}{ntn}{Notation}
+
+% helper command to define new notation items
+\newcommand{\newnotation}[4]{
+	\newglossaryentry{#1}{
+		type=notation,% glossary type
+		name={#2}, % actual notation (e.g. $\mathcal{S}$)
+		description={#3}, %
+		sort={#4} % string representation to determine the position in glossary overview (e.g. S)
+	}
+}
+
+%% list of notation items
+\newnotation{setOfArcs}{\ensuremath{\mathcal{A}}}{set of arcs}{A}
+\newnotation{setOfVertices}{\ensuremath{\mathcal{C}}}{set of vertices}{V}
+\newnotation{distanceOfArc}{\ensuremath{d_{ij}}}{distance of arc from i to j}{d}

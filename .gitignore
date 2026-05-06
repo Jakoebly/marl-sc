@@ -89,3 +89,15 @@ src/data/notebooks/outputs/*
 # =========================
 pip-wheel-metadata/
 
+# =========================
+# Latex
+# =========================
+thesis/**/*.aux
+thesis/**/*.log
+thesis/**/*.out
+thesis/**/*.fdb_latexmk
+thesis/**/*.fls
+thesis/**/*.synctex.gz
+thesis/**/*.bbl
+thesis/**/*.blg
+thesis/**/*.pdf

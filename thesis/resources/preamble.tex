@@ -1,0 +1,103 @@
+\documentclass[%
+    fontsize=11pt,
+    twoside=off,
+    bibliography=totoc % add references to table of content
+]{scrbook} % document-class: KOMA-Script Book
+\usepackage{scrlayer-scrpage}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+
+% Pseudo code
+\usepackage[ruled, noend, linesnumbered]{algorithm2e}
+\SetKw{Continue}{continue}
+
+% Layout
+\usepackage[scaled]{helvet}% Helvetica as font
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[onehalfspacing]{setspace} % 1.5 spacing
+\usepackage{relsize}
+\usepackage[absolute]{textpos}
+\usepackage{tabto} % tabs
+
+% Figures
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{etoolbox}
+\usepackage{placeins}
+\usepackage{float}
+
+% Numbering
+\usepackage{chngcntr}
+\counterwithout{figure}{chapter}
+\counterwithout{table}{chapter}
+\counterwithout{footnote}{chapter}
+\counterwithout{equation}{chapter}
+
+% Tables
+\usepackage{longtable}
+\usepackage{threeparttable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{makecell}
+
+% Math
+\usepackage{amsmath, amsthm, amssymb, amsfonts}
+\usepackage{calc}
+\usepackage{accents}
+\newcommand{\ubar}[1]{\underaccent{\bar}{#1}}
+
+% Bibliography
+\usepackage{natbib}
+\apptocmd{\thebibliography}{\raggedright}{}{}% prevent underfull hbox
+
+\bibpunct[, ]{(}{)}{,}{a}{}{,} % Use INFORMS style
+\def\bibfont{\small}
+\def\bibsep{\smallskipamount}
+\def\bibhang{24pt}
+\def\newblock{\ }
+\def\BIBand{and}
+\bibliographystyle{./resources/informs2014}
+
+% Abstract
+\newenvironment{abstract}{%
+  \titlepage%
+  \null\vfil%
+  \begin{center}\normalfont\usekomafont{disposition}Abstract\end{center}%
+}{%
+  \par%
+  \vfil\null%
+  \endtitlepage%
+}
+
+% Misc
+\usepackage{pdfpages}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage{eurosym}
+\usepackage[super]{nth}
+\usepackage{lipsum}
+
+% Glossaries
+\usepackage[acronym,nopostdot]{glossaries}
+
+% TikZ
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usetikzlibrary{positioning}
+\usetikzlibrary{patterns}
+\usetikzlibrary{matrix}
+\usetikzlibrary{external}
+\usetikzlibrary{arrows}
+\usetikzlibrary{shapes}
+\usepackage{pgfplots,color}
+\pgfplotsset{compat=1.8}
+
+
+% Debugging:
+%\usepackage{showframe} % Layout-Boxen anzeigen
+%\usepackage{layout} % Layout-Informationen
+%\usepackage{printlen} % Längenwerte ausgeben

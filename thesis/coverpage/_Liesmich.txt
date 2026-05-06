@@ -1,0 +1,65 @@
+﻿TUM-Vorlage "Deckblatt für Wissenschaftliche Arbeiten" für LaTeX
+================================================================
+
+Rechteinhaber:
+    Technische Universität München
+    https://www.tum.de
+
+Gestaltung:
+    ediundsepp Gestaltungsgesellschaft, München
+    http://www.ediundsepp.de
+
+Technische Umsetzung:
+    eWorks GmbH, Frankfurt am Main
+    http://www.eworks.de
+
+
+Grundsätzliches
+---------------
+
+Alle Textdateien verwenden als Zeichenkodierung UTF-8. Die PDF-Erstellung
+wurde mit der LaTeX-Distribution "TeX Live 2015" unter Microsoft Windows 8.1
+getestet. Im Folgenden wird mit "Wurzelverzeichnis" das Verzeichnis
+bezeichnet, indem sich diese Datei "_Liesmich.txt" befindet.
+
+Ein gutes Nachschlagewerk ist das LaTeX Wikibook:
+    https://en.wikibooks.org/wiki/LaTeX
+
+
+Dateien und Verzeichnisse
+-------------------------
+
+Datei "_Liesmich.txt": Diese Datei.
+
+Datei "Deckblatt.tex":
+
+    Die Vorlage für das Deckblatt einer wissenschaftlichen Arbeit. Die hier
+    mit "\newcommand" definierten Befehle müssen für die Verwendung angepasst
+    werden.
+
+    WICHTIG: Es dürfen keine anderen Änderungen inhaltlicher Art oder
+    Anpassungen an der Gestaltung vorgenommen werden!
+
+Verzeichnis "Ressourcen":
+
+    Der Ordner "Ressourcen" enthält alle für die Erstellung eines Deckblattes
+    benötigten Dateien.
+
+
+Dokumenterstellung
+------------------
+
+Um ein PDF aus der Datei "Deckblatt.tex" (die Dateiendung ".tex" ist optional)
+zu erstellen, führe folgenden Befehl im Wurzelverzeichnis aus:
+
+    latexmk -pdf Deckblatt.tex
+
+Wenn keine Fehler auftreten sind liegt anschließend im Wurzelverzeichnis eine
+PDF-Datei namens "Deckblatt.pdf".
+
+Bei der Dokumenterzeugung fallen einige temporäre Dateien an, die die
+Erstellung beschleunigen. Sobald eine finale Fassung des Dokuments vorliegt
+oder falls referenzierte Dateien nicht als geändert erkannt werden, kann man
+sie mit dem folgenden Befehl entfernen:
+
+    latexmk -c

@@ -1,0 +1,37 @@
+%%%%%
+% Thesis template from the Professorship of Business Analytics \& Intelligent Systems
+%%%
+\input{./resources/preamble.tex}
+% glossaries
+\input{./resources/abbreviations}
+\input{./resources/notation}
+\makeglossaries
+
+\input{./resources/thesis-config.tex} % <- update this file
+\input{./resources/commands.tex}
+\input{./resources/layout.tex}
+
+% Title, Abstract & Lists -----------------------------------------------------
+\begin{document}
+\includepdf[pages=-]{./coverpage/Deckblatt.pdf} % <- change and compile the corresponding tex file
+\pagenumbering{roman}
+\input{./contents/abstract.tex}
+\tableofcontents
+\listoffigures
+\listoftables
+\printglossary[type=\acronymtype,title=Abbreviations,nonumberlist]
+% Contents --------------------------------------------------------------------
+\input{./contents/01_Introduction.tex}
+\input{./contents/02_Background_and_Related_Work.tex}
+\input{./contents/03_Problem_Formulation.tex}
+\input{./contents/methodology.tex}
+\input{./contents/results.tex}
+\input{./contents/conclusion.tex}
+
+% Appendix --------------------------------------------------------------------
+\newpage
+\input{./contents/appendix.tex}
+\bibliography{./resources/literature}
+\input{./resources/declaration.tex}
+
+\end{document}

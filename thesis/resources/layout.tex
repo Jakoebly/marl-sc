@@ -1,0 +1,153 @@
+\KOMAoptions{parskip=false}
+
+%% Margins -----------------------------
+\usepackage[a4paper,
+    head=\baselineskip,
+    top=25.8mm,
+    bottom=24.8mm,
+    inner=40mm,
+    outer=21mm
+]{geometry}
+
+% Footers -----------------------------
+\setlength{\footheight}{11.7mm}
+\clearscrheadfoot
+\ifoot*{\Title\vfill}
+\ofoot*{\pagemark\vfill}
+\setkomafont{pageheadfoot}{\fontsize{9pt}{13pt}\normalfont}
+\setkomafont{pagefoot}{\bfseries}
+\setkomafont{pagenumber}{\normalfont}
+\pagestyle{scrheadings}
+
+% Footnotes ---------------------------
+%  only use if really necessary - most likely, you want should use a reference instead
+%\KOMAoptions{%
+%    footnotes=multiple % mehrere Fußnoten werden durch Zeichen getrennt
+%}
+%\setfootnoterule[.6pt]{5.08cm}
+%\renewcommand{\footnoterule}{\hrule width 5.08cm height .6pt \vspace*{3.9mm}}
+%\setlength{\footnotesep}{2mm}
+%\deffootnote{2mm}{2mm}{%
+%    \makebox[2mm][l]{\textsuperscript{\thefootnotemark}}%
+%}
+%\setkomafont{footnoterule}{\fontsize{9pt}{20pt}\selectfont}
+
+
+% Headings ----------------------------
+\KOMAoptions{%
+    open=any,
+    numbers=noendperiod, % no punctation after numbers
+    headings=small
+}
+
+\makeatletter
+\g@addto@macro{\@afterheading}{\vspace{-\parskip}} % remove \parskip after headings
+\renewcommand*{\chapterheadstartvskip}{\vspace{\@tempskipa}\vspace{-3pt}} % correct space between headlines
+\makeatother
+
+\setkomafont{disposition}{\normalfont\sffamily}
+
+\setkomafont{chapter}{\normalfont\fontsize{19pt}{22pt}\selectfont}
+\RedeclareSectionCommand[%
+  beforeskip=0pt,
+  afterskip=29pt
+]{chapter}
+\renewcommand*{\chapterformat}{\thechapter.\enskip} % add punctation after chapter numbers
+
+\setkomafont{section}{\fontsize{15pt}{17pt}\selectfont}
+\RedeclareSectionCommand[%
+  beforeskip=0pt,
+  afterskip=24.1pt
+]{section}
+\renewcommand*{\sectionformat}{\makebox[13mm][l]{\thesection.\enskip}}
+
+\setkomafont{subsection}{\bfseries\fontsize{12pt}{13pt}\selectfont}
+\RedeclareSectionCommand[%
+  beforeskip=0pt,
+  afterskip=1pt
+]{subsection}
+\renewcommand*{\subsectionformat}{\makebox[13mm][l]{\thesubsection.\enskip}}
+
+\setkomafont{subsubsection}{\itshape\fontsize{11pt}{12pt}\selectfont}
+%\RedeclareSectionCommand[%
+%  beforeskip=0pt,
+%  afterskip=1pt
+%]{subsubsection}
+\renewcommand*{\subsubsectionformat}{\makebox[13mm][l]{\thesubsubsection.\enskip}}
+
+% Lists
+\setlist[description]{%
+    labelindent=!,
+    leftmargin=1em,
+    labelwidth=!,
+    parsep=0.5\parskip,
+    partopsep=0mm,
+    labelsep=1em,
+}
+
+%% List of ... -------------------------
+\KOMAoptions{%
+%    toc=flat, % keine Einrückungen im Inhaltsverzeichnis
+    toc=chapterentrydotfill, % Punkte bis zur Seitennummer bei Kapiteln
+    listof=entryprefix, % Präfix für Einträge in Abbildungs- und Tabellenverzeichnis
+%    listof=nochaptergap, % Kein Abstand für Kapiteleinträge in extra Verzeichnissen
+}
+
+\makeatletter
+\renewcommand{\@dotsep}{.3} % Abstand der Füllpunkte
+
+% "chapteratlist" für Inhaltsverzeichnis auswerten:
+\renewcommand*{\addchaptertocentry}[2]{%
+  \iftocfeature{toc}{chapteratlist}{}{%
+    \addtocontents{toc}{\protect\vspace{-5pt}}% extra Abstand vor Kapitelüberschriften in Inhaltsverzeichnis entfernen
+  }%
+  % Originaldefinition aus scrbook.cls:
+  \addtocentrydefault{chapter}{#1}{#2}%
+  \if@chaptertolists
+    \doforeachtocfile{%
+      \iftocfeature{\@currext}{chapteratlist}{%
+        \addxcontentsline{\@currext}{chapteratlist}[{#1}]{#2}%
+      }{}%
+    }%
+    \@ifundefined{float@addtolists}{}{\scr@float@addtolists@warning}%
+  \fi%
+}
+\makeatother
+
+\AfterTOCHead[toc]{\protect\vspace{.8ex}} % Abstand zwischen Überschrift und Inhaltsverzeichnis
+\setuptoc{toc}{noparskipfake} % Angleichung der Abstände nach Inhaltsverzeichnisüberschrift an andere Überschriften
+\unsettoc{toc}{chapteratlist} % kein Abstand vor Kapiteleinträgen im Inhaltsverzeichnis, funktioniert nur durch obige Redefinition von \addchaptertocentry
+
+% Figures and Tables
+\AfterTOCHead[lof]{\protect\vspace{-.1ex}\doublespacing} % Abstand zwischen Überschrift und Abbildungsverzeichnis, doppelter Zeilenabstand
+\setuptoc{lof}{noparskipfake} % Angleichung der Abstände nach Abbildungsverzeichnisüberschrift an andere Überschriften
+
+\AfterTOCHead[lot]{\protect\vspace{-.1ex}\doublespacing} % Abstand zwischen Überschrift und Tabellenverzeichnis, doppelter Zeilenabstand
+\setuptoc{lot}{noparskipfake} % Angleichung der Abstände nach Tabellenverzeichnisüberschrift an andere Überschriften
+
+% Caption
+\DeclareCaptionFormat{WissenschaftlicheArbeiten}{\fontsize{10pt}{11pt}\selectfont#1 #2#3\par}
+\DeclareCaptionLabelFormat{WissenschaftlicheArbeiten}{\bfseries\selectfont#1 #2}
+\captionsetup[table]{%
+    format=WissenschaftlicheArbeiten,
+    labelformat=WissenschaftlicheArbeiten,
+    labelsep=none,
+    singlelinecheck=off,
+    justification=centering,
+    skip=3pt,
+    tablewithin=none
+}
+\captionsetup[figure]{%
+    format=WissenschaftlicheArbeiten,
+    labelformat=WissenschaftlicheArbeiten,
+    labelsep=none,
+    singlelinecheck=off,
+    justification=raggedright,
+    skip=6.6mm,
+    figurewithin=none
+}
+
+% Tables
+\renewcommand{\arraystretch}{1.0} % Skalierung der Tabellen
+\newcolumntype{M}{X<{\vspace{4pt}}} % Spaltentyp mit Abstand rechts
+\newcolumntype{C}[1]{>{\centering\arraybackslash}m{#1}}

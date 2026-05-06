@@ -1,0 +1,20 @@
+\chapter{Introduction}
+\label{chap:intro}
+\pagenumbering{arabic}
+
+
+\section{Heterogeneous Distribution Networks / Motivation} 
+
+\section{Research Question and Contributions} 
+\paragraph{\textbf{Primary RQ}}
+\textit{In multi-warehouse inventory networks with empirically realistic heterogeneity in demand, SKU portfolios, and cost geography, what specific failure modes do parameter-sharing MARL algorithms exhibit, and what targeted architectural interventions enable a single shared policy to learn effectively across heterogeneous agents and product lines?}
+
+\paragraph{\textbf{RQ1}} 
+\textit{What specific, characterizable failure modes does MAPPO with parameter sharing exhibit under (a) demand heterogeneity, (b) SKU heterogeneity, (c) cost-geographic asymmetry, and (d) their combination, and to what extent are these failures architectural rather than attributable to hyperparameter choices?}
+
+\paragraph{\textbf{RQ2}}  
+\textit{Which architectural interventions (per-agent observation normalization, entity- and cost-aware features, SKU-level attention, and reward-component balancing) address each identified failure mode, and how do they compose into a combined intervention that closes the gap to per-(WH, SKU)-tuned simulation-optimized baselines?}
+
+\paragraph{\textbf{RQ3}}  
+\textit{Do the resulting intervention combinations preserve their gains when scaled to larger networks (5–7 warehouses) and when transferred zero-shot to real-world-inspired instances?}
+
