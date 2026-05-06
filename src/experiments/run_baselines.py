@@ -48,7 +48,7 @@ from src.experiments.utils.seed_evaluation import (
     aggregate_and_plot_seed_evaluation,
 )
 from src.visualization.utils.eval_rollout_plots import generate_visualizations
-from src.utils.seed_manager import EXPERIMENT_SEEDS, SeedManager
+from src.utils.seed_manager import SeedManager, EXPERIMENT_SEEDS
 
 
 # ============================================================================
@@ -812,6 +812,14 @@ def evaluate_action_fn(
             ``episode_return_mean`` and per-component cost statistics.
     """
 
+    # Apply the same SeedManager('eval') derivation that EvaluationRunner uses
+    # (runner.py:479) so the baseline eval env is seeded with the same int as
+    # the RL post-training benchmark when both are invoked with the same eval_seed.
+    eval_seed = SeedManager(
+        root_seed=int(eval_seed),
+        seed_registry=EXPERIMENT_SEEDS,
+    ).get_seed_int('eval')
+    
     # Create the evaluation environment and run the rollout
     env = make_eval_env(env_config, eval_seed, eval_episodes)
     episodes = run_rollout(env, action_fn, eval_episodes, collect_step_info=True)
