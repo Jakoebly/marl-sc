@@ -92,6 +92,7 @@ pip-wheel-metadata/
 # =========================
 # Latex
 # =========================
+thesis/build/
 thesis/**/*.aux
 thesis/**/*.log
 thesis/**/*.out
@@ -101,3 +102,4 @@ thesis/**/*.synctex.gz
 thesis/**/*.bbl
 thesis/**/*.blg
 thesis/**/*.pdf
+!thesis/coverpage/*.pdf
