@@ -23,12 +23,14 @@
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment
+# PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
+PROJECT_ROOT="/home/lumechs/projects/marl-sc"
 module load miniforge/25.11.0-0                 
-cd /home/jakobeh/projects/marl-sc               
+cd "$PROJECT_ROOT"              
 source ~/projects/marl-sc/.venv/bin/activate    
 
 # Set the Python path, unbuffer the output, and set the Python hash seed
-export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 
@@ -48,7 +50,7 @@ source scripts/lib/start_ray.sh
 # ============================================================================
 
 # Set output directory and experiment name
-STORAGE_DIR="/home/jakobeh/projects/marl-sc/experiment_outputs/Tuning"
+STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
 EXPERIMENT_NAME="IPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO_NEW"
 
 # Run tune experiment.
