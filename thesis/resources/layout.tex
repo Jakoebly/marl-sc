@@ -11,7 +11,7 @@
 
 % Footers -----------------------------
 \setlength{\footheight}{11.7mm}
-\clearscrheadfoot
+\clearpairofpagestyles
 \ifoot*{\Title\vfill}
 \ofoot*{\pagemark\vfill}
 \setkomafont{pageheadfoot}{\fontsize{9pt}{13pt}\normalfont}
@@ -98,14 +98,14 @@
 
 % "chapteratlist" für Inhaltsverzeichnis auswerten:
 \renewcommand*{\addchaptertocentry}[2]{%
-  \iftocfeature{toc}{chapteratlist}{}{%
+  \Iftocfeature{toc}{chapteratlist}{}{%
     \addtocontents{toc}{\protect\vspace{-5pt}}% extra Abstand vor Kapitelüberschriften in Inhaltsverzeichnis entfernen
   }%
   % Originaldefinition aus scrbook.cls:
   \addtocentrydefault{chapter}{#1}{#2}%
   \if@chaptertolists
     \doforeachtocfile{%
-      \iftocfeature{\@currext}{chapteratlist}{%
+      \Iftocfeature{\@currext}{chapteratlist}{%
         \addxcontentsline{\@currext}{chapteratlist}[{#1}]{#2}%
       }{}%
     }%

@@ -1,0 +1,37 @@
+\babel@toc {english}{}\relax 
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Heterogeneous Distribution Networks / Motivation}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Research Question and Contributions}{1}{section.1.2}%
+\contentsline {paragraph}{\nonumberline \textbf {Primary RQ}}{1}{paragraph*.8}%
+\contentsline {paragraph}{\nonumberline \textbf {RQ1}}{1}{paragraph*.9}%
+\contentsline {paragraph}{\nonumberline \textbf {RQ2}}{1}{paragraph*.10}%
+\contentsline {paragraph}{\nonumberline \textbf {RQ3}}{1}{paragraph*.11}%
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {2}Background and Related Work}{2}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Inventory Management}{2}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Reinforcement Learning}{2}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Single-Agent Reinforcement Learning}{2}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Multi-Agent Reinforcement Learning}{2}{subsection.2.2.2}%
+\contentsline {section}{\numberline {2.3}Reinforcement Learning for Inventory Management}{2}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Single-Agent Reinforcement Learning for Inventory Control}{2}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Multi-Agent Reinforcement Learning for Inventory Control}{2}{subsection.2.3.2}%
+\contentsline {section}{\numberline {2.4}Heterogeneity in Multi-Agent Reinforcement Learning}{2}{section.2.4}%
+\contentsline {section}{\numberline {2.5}Research Gaps}{2}{section.2.5}%
+\contentsline {paragraph}{\nonumberline \textbf {G1. Studied inventory control problems are in most cases symmetric.}}{2}{paragraph*.12}%
+\contentsline {paragraph}{\nonumberline \textbf {G2. No framework links heterogeneity types to failure modes.}}{2}{paragraph*.13}%
+\contentsline {paragraph}{\nonumberline \textbf {G3. Existing remedies are untargeted.}}{3}{paragraph*.14}%
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {3}Problem Formulation}{4}{chapter.3}%
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {4}Methodology}{5}{chapter.4}%
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {5}Results}{6}{chapter.5}%
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {6}Conclusion}{7}{chapter.6}%
+\def \@chapapp {\appendixname }
+\vspace {-5pt}
+\contentsline {chapter}{\numberline {A}Appendix A}{8}{chapter.A}%
+\vspace {-5pt}
+\contentsline {chapter}{\nonumberline Bibliography}{9}{chapter*.15}%
+\providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file 

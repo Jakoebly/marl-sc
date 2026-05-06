@@ -5,8 +5,8 @@
 %%%
 \input{./resources/preamble.tex}
 % glossaries
-\input{./resources/abbreviations}
-\input{./resources/notation}
+\input{./contents/Abbreviations}
+\input{./contents/Notation}
 \makeglossaries
 
 \input{./resources/thesis-config.tex} % <- update this file
@@ -17,23 +17,26 @@
 \begin{document}
 \includepdf[pages=-]{./coverpage/Deckblatt.pdf} % <- change and compile the corresponding tex file
 \pagenumbering{roman}
-\input{./contents/abstract.tex}
+\input{./contents/00_Abstract.tex}
 \tableofcontents
 \listoffigures
 \listoftables
 \printglossary[type=\acronymtype,title=Abbreviations,nonumberlist]
+\glsaddall[types={notation}]
+\printglossary[type=notation,title=Notation,nonumberlist]
+
 % Contents --------------------------------------------------------------------
 \input{./contents/01_Introduction.tex}
 \input{./contents/02_Background_and_Related_Work.tex}
 \input{./contents/03_Problem_Formulation.tex}
-\input{./contents/methodology.tex}
-\input{./contents/results.tex}
-\input{./contents/conclusion.tex}
+\input{./contents/04_Methodology.tex}
+\input{./contents/05_Results.tex}
+\input{./contents/06_Conclusion.tex}
 
 % Appendix --------------------------------------------------------------------
 \newpage
-\input{./contents/appendix.tex}
-\bibliography{./resources/literature}
+\input{./contents/Appendix.tex}
+\bibliography{contents/Literature}
 \input{./resources/declaration.tex}
 
 \end{document}
