@@ -479,7 +479,8 @@ def resume_tune_experiment(
 def run_seed_evaluation(
     n_seeds: int = 5,
     top_k: int = 10,
-    eval_episodes: int = DEFAULT_EVAL_EPISODES,
+    intra_eval_episodes: int = DEFAULT_EVAL_EPISODES,
+    final_eval_episodes: int = DEFAULT_EVAL_EPISODES,
     eval_seed: int = DEFAULT_EVAL_SEED,
     env_config_path: Optional[str] = None,
     algorithm_config_path: Optional[str] = None,
@@ -502,9 +503,10 @@ def run_seed_evaluation(
     Args:
         n_seeds (int): Number of seeds (root seeds will be 100, 200, ..., N*100).
         top_k (int): Number of top trials to evaluate (tune mode).
-        eval_episodes (int): Episodes for both intra-training evaluation
-            (overrides ``algorithm.shared.num_eval_episodes``) and the final
-            deterministic evaluation.
+        intra_eval_episodes (int): Episodes for intra-training evaluation
+            (overrides ``algorithm.shared.num_eval_episodes``).
+        final_eval_episodes (int): Episodes for the post-training benchmark
+            evaluation.
         eval_seed (int): Fixed root seed used for all final evaluations
             (default: ``DEFAULT_EVAL_SEED``).
         env_config_path (Optional[str]): Path to environment config (single mode).
@@ -538,7 +540,8 @@ def run_seed_evaluation(
         stats = evaluate_config_across_seeds(
             cfg=cfg,
             n_seeds=n_seeds,
-            eval_episodes=eval_episodes,
+            intra_eval_episodes=intra_eval_episodes,
+            final_eval_episodes=final_eval_episodes,
             eval_seed=eval_seed,
             num_iterations=num_iterations,
             eval_interval=eval_interval,
@@ -820,9 +823,21 @@ def _dispatch_experiment(args: Namespace):
 
     # Run seed evaluation if mode is "seed-eval"
     elif args.mode == "seed-eval":
+        legacy_eval = args.eval_episodes
+        intra_eval = (
+            args.intra_eval_episodes
+            if args.intra_eval_episodes is not None
+            else (legacy_eval if legacy_eval is not None else DEFAULT_EVAL_EPISODES)
+        )
+        final_eval = (
+            args.final_eval_episodes
+            if args.final_eval_episodes is not None
+            else (legacy_eval if legacy_eval is not None else DEFAULT_EVAL_EPISODES)
+        )
         run_seed_evaluation(
             n_seeds=args.n_seeds,
-            eval_episodes=args.eval_episodes or DEFAULT_EVAL_EPISODES,
+            intra_eval_episodes=intra_eval,
+            final_eval_episodes=final_eval,
             eval_seed=args.eval_seed,
             wandb_project=args.wandb_project,
             num_iterations=args.num_iterations,

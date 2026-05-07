@@ -129,7 +129,10 @@ def parse_args():
     parser.add_argument(
         "--eval-episodes",
         type=int,
-        help="Number of evaluation episodes (overrides config default)"
+        help="Evaluate mode: number of rollout episodes. Seed-eval mode: if "
+             "--intra-eval-episodes / --final-eval-episodes are omitted, sets "
+             "both intra-training and final benchmark episode counts; otherwise "
+             "ignored for those dimensions."
     )
     parser.add_argument(
         "--visualize",
@@ -178,9 +181,23 @@ def parse_args():
         type=int,
         default=None,
         help="Override the algorithm config's intra-training eval interval "
-             "(seed-eval mode). When provided, --eval-episodes also overrides "
-             "the algorithm config's num_eval_episodes so that intra-training "
-             "and final evaluation use the same episode count."
+             "(seed-eval mode). Pair with --intra-eval-episodes (or --eval-episodes) "
+             "to override num_eval_episodes for intra-training eval."
+    )
+    parser.add_argument(
+        "--intra-eval-episodes",
+        type=int,
+        default=None,
+        help="Seed-eval mode: intra-training evaluation episodes "
+             f"(algorithm.shared.num_eval_episodes). Default: --eval-episodes if set, "
+             f"else {DEFAULT_EVAL_EPISODES}."
+    )
+    parser.add_argument(
+        "--final-eval-episodes",
+        type=int,
+        default=None,
+        help="Seed-eval mode: post-training benchmark episodes. Default: "
+             f"--eval-episodes if set, else {DEFAULT_EVAL_EPISODES}."
     )
 
     # Parse arguments

@@ -52,7 +52,7 @@
 #   --n-seeds <N>             Number of seeds (default: 5)
 #   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>      Override training iterations
-#   --final_eval-episodes <N> Evaluation episodes for both intra-training and 
+#   --final-eval-episodes <N> Evaluation episodes for both intra-training and 
 #                             final evaluation (default: 100)
 #   --intra-eval-episodes <N> Evaluation episodes for intra-training 
 #                             evaluations (default: 50)
@@ -91,7 +91,7 @@ N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
 FINAL_EVAL_EPISODES=100
-INTRA_EVAL_EPISODES=100
+INTRA_EVAL_EPISODES=50
 EVAL_INTERVAL=1
 EVAL_SEED=123
 CHECKPOINT_FREQ=25
@@ -127,7 +127,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
       NUM_ITERATIONS="$2"; shift 2 ;;
     --final-eval-episodes)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --final-eval-episodes requires a value" >&2; exit 1; }
       FINAL_EVAL_EPISODES="$2"; shift 2 ;;
     --intra-eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --intra-eval-episodes requires a value" >&2; exit 1; }

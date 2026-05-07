@@ -59,8 +59,8 @@
 #   --n-seeds <N>             Number of seeds (default: 5)
 #   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>      Override training iterations
-#   --eval-episodes <N>       Evaluation episodes for both intra-training and
-#                             final evaluation (default: 100)
+#   --final-eval-episodes <N> Post-training benchmark episodes (default: 100)
+#   --intra-eval-episodes <N> Intra-training eval episodes (default: 50)
 #   --eval-interval <N>       Intra-training eval interval (default: 1)
 #   --eval-seed <N>           Root seed for the final evaluation; shared by
 #                             all (config, seed) pairs so paired comparisons
@@ -77,7 +77,8 @@ EXPERIMENT_NAME=""
 TUNE_NAME=""
 N_SEEDS=5
 TOP_K=10
-EVAL_EPISODES=100
+FINAL_EVAL_EPISODES=100
+INTRA_EVAL_EPISODES=50
 EVAL_INTERVAL=1
 NUM_ITERATIONS=""
 USE_WANDB=false
@@ -109,9 +110,12 @@ while [[ $# -gt 0 ]]; do
     --top-k)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --top-k requires a value" >&2; exit 1; }
       TOP_K="$2"; shift 2 ;;
-    --eval-episodes)
-      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
-      EVAL_EPISODES="$2"; shift 2 ;;
+    --final-eval-episodes)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --final-eval-episodes requires a value" >&2; exit 1; }
+      FINAL_EVAL_EPISODES="$2"; shift 2 ;;
+    --intra-eval-episodes)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --intra-eval-episodes requires a value" >&2; exit 1; }
+      INTRA_EVAL_EPISODES="$2"; shift 2 ;;
     --eval-interval)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-interval requires a value" >&2; exit 1; }
       EVAL_INTERVAL="$2"; shift 2 ;;
@@ -152,7 +156,8 @@ fi
 # Print the arguments
 echo "MODE=${MODE}"
 echo "N_SEEDS=${N_SEEDS}"
-echo "EVAL_EPISODES=${EVAL_EPISODES}"
+echo "FINAL_EVAL_EPISODES=${FINAL_EVAL_EPISODES}"
+echo "INTRA_EVAL_EPISODES=${INTRA_EVAL_EPISODES}"
 echo "EVAL_INTERVAL=${EVAL_INTERVAL}"
 echo "EVAL_SEED=${EVAL_SEED}"
 
@@ -189,7 +194,8 @@ CMD=(
   python src/experiments/run_experiment.py
   --mode seed-eval
   --n-seeds "$N_SEEDS"
-  --eval-episodes "$EVAL_EPISODES"
+  --final-eval-episodes "$FINAL_EVAL_EPISODES"
+  --intra-eval-episodes "$INTRA_EVAL_EPISODES"
   --eval-interval "$EVAL_INTERVAL"
   --eval-seed "$EVAL_SEED"
 )

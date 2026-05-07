@@ -254,7 +254,8 @@ def _build_single_mode_config(
 def evaluate_config_across_seeds(
     cfg: Dict[str, Any],
     n_seeds: int,
-    eval_episodes: int,
+    intra_eval_episodes: int,
+    final_eval_episodes: int,
     eval_seed: int,
     num_iterations: Optional[int] = None,
     eval_interval: Optional[int] = None,
@@ -271,9 +272,10 @@ def evaluate_config_across_seeds(
             ``env_config_path``, ``algorithm_config_path``, and ``storage_dir``.
         n_seeds (int): Number of seeds to train (root seeds will be
             100, 200, ..., N*100).
-        eval_episodes (int): Episodes for both intra-training evaluation
-            (overrides ``algorithm.shared.num_eval_episodes``) and the final
-            deterministic evaluation.
+        intra_eval_episodes (int): Episodes for intra-training evaluation
+            (overrides ``algorithm.shared.num_eval_episodes``).
+        final_eval_episodes (int): Episodes for the post-training benchmark
+            evaluation.
         eval_seed (int): Fixed root seed used for all final evaluations.
         num_iterations (Optional[int]): Override training iterations
             (``None`` keeps config default).
@@ -340,7 +342,7 @@ def evaluate_config_across_seeds(
             wandb_project=wandb_project,
             num_iterations=num_iterations,
             eval_interval=eval_interval,
-            num_eval_episodes=eval_episodes,
+            num_eval_episodes=intra_eval_episodes,
         )
 
         # Evaluate with fixed eval seed
@@ -350,7 +352,7 @@ def evaluate_config_across_seeds(
         eval_result = run_evaluation(
             checkpoint_dir=checkpoint_dir,
             experiment_dir=str(seed_experiment_dir),
-            eval_episodes=eval_episodes,
+            eval_episodes=final_eval_episodes,
             root_seed=eval_seed,
         )
         mean_return = eval_result.get("evaluation", {}).get(
@@ -419,8 +421,7 @@ def _run_single_seed_eval(
             via ``algorithm.shared.eval_interval`` (``None`` keeps config default).
         num_eval_episodes (Optional[int]): Override intra-training eval episode
             count via ``algorithm.shared.num_eval_episodes`` (``None`` keeps
-            config default). Used to keep intra-training and final-eval
-            episode counts in sync for low-noise plot points.
+            config default).
 
     Returns:
         Dict[str, Any]: Training result dictionary.
