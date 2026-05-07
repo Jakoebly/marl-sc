@@ -50,7 +50,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
         self.eval_seed = eval_seed
 
         # Create factory function that creates new environment instances
-        env_factory = self.create_env_factory(self.env_cnofig)
+        env_factory = self.create_env_factory(self.env_config)
         
         # Register the factory
         register_env(self.env_name, env_factory)
