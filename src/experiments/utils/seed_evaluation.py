@@ -257,6 +257,7 @@ def evaluate_config_across_seeds(
     eval_episodes: int,
     eval_seed: int,
     num_iterations: Optional[int] = None,
+    eval_interval: Optional[int] = None,
     wandb_project: Optional[str] = None,
 ) -> dict:
     """
@@ -270,10 +271,14 @@ def evaluate_config_across_seeds(
             ``env_config_path``, ``algorithm_config_path``, and ``storage_dir``.
         n_seeds (int): Number of seeds to train (root seeds will be
             100, 200, ..., N*100).
-        eval_episodes (int): Episodes for the final deterministic evaluation.
+        eval_episodes (int): Episodes for both intra-training evaluation
+            (overrides ``algorithm.shared.num_eval_episodes``) and the final
+            deterministic evaluation.
         eval_seed (int): Fixed root seed used for all final evaluations.
         num_iterations (Optional[int]): Override training iterations
             (``None`` keeps config default).
+        eval_interval (Optional[int]): Override intra-training eval interval
+            via ``algorithm.shared.eval_interval`` (``None`` keeps config default).
         wandb_project (Optional[str]): Optional WandB project name.
 
     Returns:
@@ -334,6 +339,8 @@ def evaluate_config_across_seeds(
             eval_seed=eval_seed,
             wandb_project=wandb_project,
             num_iterations=num_iterations,
+            eval_interval=eval_interval,
+            num_eval_episodes=eval_episodes,
         )
 
         # Evaluate with fixed eval seed
@@ -383,6 +390,8 @@ def _run_single_seed_eval(
     eval_seed: Optional[int] = None,
     wandb_project: Optional[str] = None,
     num_iterations: Optional[int] = None,
+    eval_interval: Optional[int] = None,
+    num_eval_episodes: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Runs a single training run for seed evaluation.
@@ -406,6 +415,12 @@ def _run_single_seed_eval(
         wandb_project (Optional[str]): WandB project name.
         num_iterations (Optional[int]): Override training iterations
             (``None`` keeps config default).
+        eval_interval (Optional[int]): Override intra-training eval interval
+            via ``algorithm.shared.eval_interval`` (``None`` keeps config default).
+        num_eval_episodes (Optional[int]): Override intra-training eval episode
+            count via ``algorithm.shared.num_eval_episodes`` (``None`` keeps
+            config default). Used to keep intra-training and final-eval
+            episode counts in sync for low-noise plot points.
 
     Returns:
         Dict[str, Any]: Training result dictionary.
@@ -421,6 +436,12 @@ def _run_single_seed_eval(
     # Override training iterations if set
     if num_iterations is not None:
         algorithm_config.shared.num_iterations = num_iterations
+
+    # Override intra-training eval interval / episodes if set
+    if eval_interval is not None:
+        algorithm_config.shared.eval_interval = eval_interval
+    if num_eval_episodes is not None:
+        algorithm_config.shared.num_eval_episodes = num_eval_episodes
 
     # Setup WandB to log metrics
     wandb_config, _ = setup_wandb(

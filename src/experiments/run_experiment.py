@@ -486,6 +486,7 @@ def run_seed_evaluation(
     storage_dir: Optional[str] = None,
     experiment_name: Optional[str] = None,
     num_iterations: Optional[int] = None,
+    eval_interval: Optional[int] = None,
     tune_name: Optional[str] = None,
     wandb_project: Optional[str] = None,
 ):
@@ -501,7 +502,9 @@ def run_seed_evaluation(
     Args:
         n_seeds (int): Number of seeds (root seeds will be 100, 200, ..., N*100).
         top_k (int): Number of top trials to evaluate (tune mode).
-        eval_episodes (int): Episodes for final deterministic evaluation.
+        eval_episodes (int): Episodes for both intra-training evaluation
+            (overrides ``algorithm.shared.num_eval_episodes``) and the final
+            deterministic evaluation.
         eval_seed (int): Fixed root seed used for all final evaluations
             (default: ``DEFAULT_EVAL_SEED``).
         env_config_path (Optional[str]): Path to environment config (single mode).
@@ -510,6 +513,8 @@ def run_seed_evaluation(
         experiment_name (Optional[str]): Experiment name (single mode).
         num_iterations (Optional[int]): Override training iterations
             (``None`` keeps config default).
+        eval_interval (Optional[int]): Override intra-training eval interval
+            via ``algorithm.shared.eval_interval`` (``None`` keeps config default).
         tune_name (Optional[str]): Name of a completed tune experiment (tune mode).
         wandb_project (Optional[str]): Optional WandB project name.
 
@@ -536,6 +541,7 @@ def run_seed_evaluation(
             eval_episodes=eval_episodes,
             eval_seed=eval_seed,
             num_iterations=num_iterations,
+            eval_interval=eval_interval,
             wandb_project=wandb_project,
         )
         all_config_stats.append(stats)
@@ -820,6 +826,7 @@ def _dispatch_experiment(args: Namespace):
             eval_seed=args.eval_seed,
             wandb_project=args.wandb_project,
             num_iterations=args.num_iterations,
+            eval_interval=args.eval_interval,
             env_config_path=args.env_config,
             algorithm_config_path=args.algorithm_config,
             storage_dir=args.storage_dir,

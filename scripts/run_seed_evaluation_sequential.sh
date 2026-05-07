@@ -59,7 +59,9 @@
 #   --n-seeds <N>             Number of seeds (default: 5)
 #   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>      Override training iterations
-#   --eval-episodes <N>       Final eval episodes (default: 100)
+#   --eval-episodes <N>       Evaluation episodes for both intra-training and
+#                             final evaluation (default: 100)
+#   --eval-interval <N>       Intra-training eval interval (default: 1)
 #   --eval-seed <N>           Root seed for the final evaluation; shared by
 #                             all (config, seed) pairs so paired comparisons
 #                             across seed runs see identical eval episodes
@@ -76,6 +78,7 @@ TUNE_NAME=""
 N_SEEDS=5
 TOP_K=10
 EVAL_EPISODES=100
+EVAL_INTERVAL=1
 NUM_ITERATIONS=""
 USE_WANDB=false
 
@@ -109,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
       EVAL_EPISODES="$2"; shift 2 ;;
+    --eval-interval)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-interval requires a value" >&2; exit 1; }
+      EVAL_INTERVAL="$2"; shift 2 ;;
     --num-iterations)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
       NUM_ITERATIONS="$2"; shift 2 ;;
@@ -147,6 +153,7 @@ fi
 echo "MODE=${MODE}"
 echo "N_SEEDS=${N_SEEDS}"
 echo "EVAL_EPISODES=${EVAL_EPISODES}"
+echo "EVAL_INTERVAL=${EVAL_INTERVAL}"
 echo "EVAL_SEED=${EVAL_SEED}"
 
 # ============================================================================
@@ -183,6 +190,7 @@ CMD=(
   --mode seed-eval
   --n-seeds "$N_SEEDS"
   --eval-episodes "$EVAL_EPISODES"
+  --eval-interval "$EVAL_INTERVAL"
   --eval-seed "$EVAL_SEED"
 )
 if [ "$MODE" = "tune" ]; then

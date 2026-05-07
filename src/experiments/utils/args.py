@@ -173,6 +173,15 @@ def parse_args():
         default=None,
         help="Override number of training iterations (seed-eval mode)"
     )
+    parser.add_argument(
+        "--eval-interval",
+        type=int,
+        default=None,
+        help="Override the algorithm config's intra-training eval interval "
+             "(seed-eval mode). When provided, --eval-episodes also overrides "
+             "the algorithm config's num_eval_episodes so that intra-training "
+             "and final evaluation use the same episode count."
+    )
 
     # Parse arguments
     args = parser.parse_args()

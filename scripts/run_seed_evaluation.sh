@@ -51,7 +51,9 @@
 #   --n-seeds <N>             Number of seeds (default: 5)
 #   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>      Override training iterations
-#   --eval-episodes <N>       Final eval episodes (default: 100)
+#   --eval-episodes <N>       Evaluation episodes for both intra-training and 
+#                             final evaluation (default: 100)
+#   --eval-interval <N>       Intra-training eval interval (default: 1)
 #   --eval-seed <N>           Root seed for the final evaluation; shared by
 #                             all (config, seed) pairs so paired comparisons
 #                             across seed runs see identical eval episodes
@@ -86,6 +88,7 @@ N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
 EVAL_EPISODES=100
+EVAL_INTERVAL=1
 EVAL_SEED=123
 CHECKPOINT_FREQ=25
 PHASE=""
@@ -122,6 +125,9 @@ while [[ $# -gt 0 ]]; do
     --eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
       EVAL_EPISODES="$2"; shift 2 ;;
+    --eval-interval)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-interval requires a value" >&2; exit 1; }
+      EVAL_INTERVAL="$2"; shift 2 ;;
     --eval-seed)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-seed requires a value" >&2; exit 1; }
       EVAL_SEED="$2"; shift 2 ;;
@@ -275,7 +281,7 @@ except FileNotFoundError as e:
   MAX_CONCURRENT=$(( TOTAL_TASKS < 15 ? TOTAL_TASKS : 15 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
   if [ -n "$NUM_ITERATIONS" ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --num-iterations ${NUM_ITERATIONS}"
   fi
@@ -382,7 +388,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
       if [ -n "$NUM_ITERATIONS" ]; then
         HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
       fi
@@ -626,6 +632,14 @@ if num_iterations:
 checkpoint_freq = int("${CHECKPOINT_FREQ}")
 if checkpoint_freq > 0:
     algo_cfg["algorithm"]["shared"]["checkpoint_freq"] = checkpoint_freq
+
+# Override the eval interval and eval episodes if provided 
+eval_interval = int("${EVAL_INTERVAL}")
+eval_episodes = int("${EVAL_EPISODES}")
+if eval_interval is not None:
+    algo_cfg["algorithm"]["shared"]["eval_interval"] = eval_interval
+if eval_episodes is not None:
+    algo_cfg["algorithm"]["shared"]["num_eval_episodes"] = eval_episodes
 
 # Set the number of env runners and envs per env runner to 0 and 1 respectively	
 algo_cfg["algorithm"]["shared"]["num_env_runners"] = 0
