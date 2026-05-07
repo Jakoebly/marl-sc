@@ -52,8 +52,10 @@
 #   --n-seeds <N>             Number of seeds (default: 5)
 #   --top-k <K>               Top-K trials to evaluate (tune mode, default: 10)
 #   --num-iterations <N>      Override training iterations
-#   --eval-episodes <N>       Evaluation episodes for both intra-training and 
+#   --final_eval-episodes <N> Evaluation episodes for both intra-training and 
 #                             final evaluation (default: 100)
+#   --intra-eval-episodes <N> Evaluation episodes for intra-training 
+#                             evaluations (default: 50)
 #   --eval-interval <N>       Intra-training eval interval (default: 1)
 #   --eval-seed <N>           Root seed for the final evaluation; shared by
 #                             all (config, seed) pairs so paired comparisons
@@ -88,7 +90,8 @@ ALGO_CONFIG=""
 N_SEEDS=5
 TOP_K=10
 NUM_ITERATIONS=""
-EVAL_EPISODES=100
+FINAL_EVAL_EPISODES=100
+INTRA_EVAL_EPISODES=100
 EVAL_INTERVAL=1
 EVAL_SEED=123
 CHECKPOINT_FREQ=25
@@ -123,9 +126,12 @@ while [[ $# -gt 0 ]]; do
     --num-iterations)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --num-iterations requires a value" >&2; exit 1; }
       NUM_ITERATIONS="$2"; shift 2 ;;
-    --eval-episodes)
+    --final-eval-episodes)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-episodes requires a value" >&2; exit 1; }
-      EVAL_EPISODES="$2"; shift 2 ;;
+      FINAL_EVAL_EPISODES="$2"; shift 2 ;;
+    --intra-eval-episodes)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --intra-eval-episodes requires a value" >&2; exit 1; }
+      INTRA_EVAL_EPISODES="$2"; shift 2 ;;
     --eval-interval)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --eval-interval requires a value" >&2; exit 1; }
       EVAL_INTERVAL="$2"; shift 2 ;;
@@ -282,7 +288,7 @@ except FileNotFoundError as e:
   MAX_CONCURRENT=$(( TOTAL_TASKS < 15 ? TOTAL_TASKS : 15 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+  FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --final-eval-episodes ${FINAL_EVAL_EPISODES} --intra-eval-episodes ${INTRA_EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
   if [ -n "$NUM_ITERATIONS" ]; then
     FORWARD_ARGS="${FORWARD_ARGS} --num-iterations ${NUM_ITERATIONS}"
   fi
@@ -391,7 +397,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --eval-episodes ${EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --final-eval-episodes ${FINAL_EVAL_EPISODES} --intra-eval-episodes ${INTRA_EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
       if [ -n "$NUM_ITERATIONS" ]; then
         HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
       fi
@@ -638,7 +644,7 @@ if checkpoint_freq > 0:
 
 # Override the eval interval and eval episodes if provided 
 eval_interval = int("${EVAL_INTERVAL}")
-eval_episodes = int("${EVAL_EPISODES}")
+eval_episodes = int("${INTRA_EVAL_EPISODES}")
 if eval_interval is not None:
     algo_cfg["algorithm"]["shared"]["eval_interval"] = eval_interval
 if eval_episodes is not None:
@@ -705,5 +711,5 @@ python src/experiments/run_experiment.py \
     --mode evaluate \
     --storage-dir "${SEED_DIR}" \
     --experiment-name "${SEED_EXPERIMENT_NAME}" \
-    --eval-episodes ${EVAL_EPISODES} \
+    --eval-episodes ${FINAL_EVAL_EPISODES} \
     --root-seed ${EVAL_SEED}
