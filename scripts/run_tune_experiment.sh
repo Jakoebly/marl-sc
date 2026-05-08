@@ -51,7 +51,7 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="IPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO_NEW"
+EXPERIMENT_NAME="CPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
 
 # Run tune experiment.
 python src/experiments/run_experiment.py \
