@@ -1,5 +1,8 @@
 # Thesis Scope and Experiment Roadmap
 
+Together with CODEBASE.md, this is the primary reference for thesis writing. 
+
+
 ## Working Title Options
 
 *"Architectural Interventions for Multi-Agent Reinforcement Learning in Heterogeneous Supply Chain Inventory Management"*
