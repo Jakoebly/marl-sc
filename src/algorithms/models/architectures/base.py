@@ -6,7 +6,7 @@ import torch.nn as nn
 
 class NetworkArchitecture(ABC):
     """Implements a base class for network architecture building blocks.
-    All architecture implementations (MLP, GRU, CNN, etc.) should inherit
+    All architecture implementations (MLP / GRU) should inherit
     from this class and implement the build() method.
     """
     

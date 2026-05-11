@@ -30,7 +30,7 @@ class BaseRLModule(TorchRLModule):
         Builds a network module from architecture config.
         
         Args:
-            architecture_type (str): Architecture name (e.g., "mlp", "gru", "cnn")
+            architecture_type (str): Architecture name (e.g., "mlp", "gru")
             input_dim (int): Input dimension
             output_dim (int): Output dimension
             architecture_config (Dict[str, Any]): Architecture-specific config dict
@@ -38,7 +38,7 @@ class BaseRLModule(TorchRLModule):
             name (str): Optional name prefix for layers (for debugging)
             
         Returns:
-            nn.Module: PyTorch module (Sequential for MLP/CNN, ModuleDict for GRU)
+            nn.Module: PyTorch module (Sequential for MLP, ModuleDict for GRU)
         """
 
         # Get the architecture class and instance

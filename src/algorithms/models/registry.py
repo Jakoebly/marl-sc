@@ -11,8 +11,9 @@ def register_architecture(name: str, architecture_class: Type['NetworkArchitectu
     """Registers a network architecture.
     
     Args:
-        name (str): Architecture name (e.g., "mlp", "gru", "cnn")
-        architecture_class (Type[NetworkArchitecture]): Architecture class inheriting from NetworkArchitecture
+        name (str): Architecture name (e.g., "mlp", "gru")
+        architecture_class (Type[NetworkArchitecture]): Architecture class inheriting 
+            from NetworkArchitecture
     """
 
     ARCHITECTURE_REGISTRY[name] = architecture_class
@@ -40,9 +41,8 @@ def get_architecture(name: str) -> Type['NetworkArchitecture']:
 
 
 # Register all architectures
-from .architectures import MLPArchitecture, GRUArchitecture, CNNArchitecture
+from .architectures import MLPArchitecture, GRUArchitecture
 
 register_architecture("mlp", MLPArchitecture)
 register_architecture("gru", GRUArchitecture)
-register_architecture("cnn", CNNArchitecture)
 

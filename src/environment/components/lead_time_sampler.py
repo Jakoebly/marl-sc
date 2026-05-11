@@ -73,8 +73,8 @@ class BaseLeadTimeSampler(StochasticComponent):
 
 class FixedLeadTimeSampler(BaseLeadTimeSampler):
     """
-    Implements a deterministic lead time sampler. Returns the config-specified expected lead
-    times on every call to sample().
+    Implements a deterministic lead time sampler. Returns the config-specified expected
+    lead times on every call to sample().
     """
     
     def __init__(self, context: EnvironmentContext, component_config: LeadTimeSamplerConfig):

@@ -635,10 +635,15 @@ class FeatureConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_mandatory_features(self):
-        if not self.inventory:
-            raise ValueError("inventory must always be enabled")
-        if not self.pipeline:
-            raise ValueError("pipeline must always be enabled")
+        mandatory_features = (
+            "inventory",
+            "inventory_aggregate",
+            "pipeline",
+            "rolling_demand_mean",
+        )
+        for feature in mandatory_features:
+            if not getattr(self, feature):
+                raise ValueError(f"{feature} must always be enabled")
         return self
 
     @model_validator(mode="after")
