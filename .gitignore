@@ -41,6 +41,10 @@ data_files/*
 !data_files/.gitkeep
 data_files/processed/
 docs/*
+docs/archive/
+!docs/SCOPE.md
+!docs/IMPLEMENTATION.md
+!docs/SYSTEM_MODEL.md
 
 # =========================
 # Config secrets (if any)
