@@ -1,546 +1,551 @@
-# Thesis Scope and Experiment Roadmap
+# Thesis Scope and Experimental Program
 
-Together with CODEBASE.md, this is the primary reference for thesis writing. 
+This document describes the thesis scope, the contribution claims, and the experimental plan that supports them.
 
-
-## Working Title Options
-
-*"Architectural Interventions for Multi-Agent Reinforcement Learning in Heterogeneous Supply Chain Inventory Management"*
-
-*"Beyond Symmetry: Diagnosing and Addressing MARL Fragility in Heterogeneous Distribution Networks"*
+For what the system models and how its components behave, see [SYSTEM_MODEL.md](SYSTEM_MODEL.md). For runtime wiring, configuration, and implementation details, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ---
 
-## Research Question Options
+## 1. Working Title
 
-1. When warehouses differ in demand volume, SKU portfolios, and cost structures, vanilla MARL algorithms with parameter sharing learn pathological policies (e.g., abandoning entire product categories). What architectural modifications to the observation space, network structure, and reward signal enable effective policy learning under heterogeneity?
+There are multiple current options: 
 
-2. Standard MARL approaches (IPPO/MAPPO) that achieve near-optimal performance in symmetric multi-warehouse inventory settings exhibit systematic failure modes when real-world heterogeneity is introduced. What breaks, why, and what targeted architectural interventions can restore performance?
+1. *Architectural Interventions for Multi-Agent Reinforcement Learning in Heterogeneous Supply Chain Inventory Management*
+2. *Beyond Symmetry: Diagnosing and Addressing MARL Fragility in Heterogeneous Distribution Networks*
+3. *Matching Architectural Interventions to Heterogeneity Types in Multi-Warehouse Reinforcement Learning*
 
 ---
 
-## Core Contributions
+## 2. Research Questions
 
-### Options 1:
-1. **Diagnostic:** Systematic characterization of how three types of heterogeneity (SKU weight, demand volume, cost/geographic asymmetry) cause specific failure modes in MAPPO with parameter sharing. Includes the 2×2 information sharing analysis (IPPO/MAPPO × PS/no-PS) showing how centralized training and parameter sharing interact with heterogeneity.
-2. **Interventions:** A set of targeted architectural modifications — per-agent normalization, cost-aware observations, SKU attention, entity embeddings, reward component balancing — that address these failure modes. The **per-SKU attention architecture** is the main architectural contribution.
-3. **Empirical evaluation:** Comprehensive experiments on 5-SKU instances with 4 heterogeneity configurations, including ablation studies, information sharing analysis, and scalability tests. Culminates in a practitioner-oriented **guidelines matrix** showing which intervention helps which heterogeneity type and by how much.
+The thesis is organised around two research questions:
 
-### Options 2:
-1. **Fills gap in literature:** The MARL-for-supply-chain literature overwhelmingly tests on symmetric or simplistic settings. Papers like IMARL (2025) propose new algorithms but test on synthetic topologies without systematically studying what makes the problem hard. No paper I am aware of provides a diagnostic framework that maps heterogeneity types to failure modes to interventions.
-2. **Useful for practitioners:** A supply chain manager reading your paper can say: "My network has demand heterogeneity and SKU weight variation — the paper says I should use interventions X and Y." This prescriptive value is rare in the MARL literature.
-3. **Methodological novelty without a fundamentally new algorithm:** You are not proposing "yet another MARL algorithm" — you are proposing a diagnostic-prescriptive framework backed by systematic experiments
+- **RQ1 (Diagnostic).** While cooperative multi-agent reinforcement learning with parameter sharing achieves strong results on symmetric multi-warehouse environments, real-world supply chain settings are inherently heterogeneous. Under such heterogeneity, does parameter-shared multi-agent PPO degrade relative to a symmetric baseline of matched network throughput and if so, what failure modes explain the gap? Can environment-specific hyperparameter tuning recover this lost performance?
 
-### Options 3:
-1. **A diagnostic framework** that systematically identifies how three key heterogeneity dimensions — demand, SKU characteristics, and cost structure — individually and jointly degrade MARL performance in inventory management, and characterizes the failure modes (reward dominance, feature scale mismatch, credit assignment breakdown).
-2. **A modular toolkit** of four architectural interventions (entity embeddings, SKU attention, cost-aware observations with reward balancing, and curriculum transfer) that target specific failure modes, along with evidence for which intervention addresses which heterogeneity type.
-3. **Empirical evidence** that targeted intervention combinations can restore MARL performance to within the heuristic baseline range even in highly heterogeneous settings, whereas untargeted approaches (e.g., just increasing network size) fail.
-4. **A prescriptive guideline for practitioners** on which interventions to apply given the characteristics of their supply chain network.
+- **RQ2 (Prescriptive).** Parameter sharing imposes a single inductive bias across all agents, which becomes a liability when agents operate in heterogeneous conditions. Which architectural modifications relax this constraint sufficiently to recover performance and are the same modifications effective across all heterogeneity types or does each heterogeneity type demand a distinct architectural response?
 
-
-## Key Takeaways
-
-> *"In multi-agent supply chain management with parameter sharing, heterogeneity in SKU characteristics creates specific, diagnosable failure modes — most notably, agents learn to abandon high-cost product categories entirely. Standard remedies (hyperparameter re-tuning, reward rebalancing) are insufficient. We show that a combination of per-agent observation normalization, cost-aware features, and SKU-level attention enables MAPPO to learn effective differentiated policies across heterogeneous products and warehouses, closing the gap to per-SKU-tuned heuristic baselines by X%."*
-
-> *Heterogeneity does not uniformly degrade MARL — different types of heterogeneity break different aspects of learning, and the intervention that fixes one failure mode can be irrelevant or harmful for another. For example, SKU-level attention dramatically helps when SKUs have different weights/demand scales but provides negligible benefit when the only asymmetry is geographic. Conversely, reward component balancing is critical for SKU heterogeneity but unnecessary for pure demand heterogeneity. This means practitioners cannot rely on a single "robust" architecture — they need to diagnose their network's heterogeneity profile and apply matched interventions.*
 ---
 
-## Environment Setup
+## 3. Contributions and Takeaways
 
-### Base Environment
+### 3.1 Core Contributions
 
-- **Topology:** Single-echelon, 3 warehouses, 3 regions, 5 SKUs
-- **Symmetric baseline for tuning:** `env_symmetric_3WH5SKU.yaml`
-- **Demand:** Poisson (standard in stochastic inventory management literature)
-- **Lead times:** Fixed at 3 timesteps
-- **Action space:** `demand_centered` with `max_quantity_adjustment` per SKU
-- **Reward scope:** `agent` (each warehouse receives its own cost as reward)
+The thesis makes four contributions to the literature on multi-agent reinforcement learning for inventory control.
+
+- **C1. An extensible benchmark that brings MARL inventory control closer to operational practice.** The thesis contributes a simulation environment that additionally supports controlled heterogeneity across multiple network dimensions and adopts an order-level multi-SKU demand model. The result is a richer evaluation setting in which heterogeneity-driven phenomena can be studied systematically.
+
+- **C2. A diagnostic characterisation of MARL failure modes under heterogeneity.** The thesis quantifies the performance degradation of cooperative parameter-shared MARL across distinct heterogeneity types, identifies the specific failure modes responsible, and demonstrates that hyperparameter tuning alone is insufficient to close the gap. The result is a precise account of where and how standard MARL breaks once the inventory setting moves beyond its symmetric idealisation.
+
+- **C3. A toolkit of architectural interventions and an analysis of their interactions.** The thesis introduces a set of architectural modifications that address the diagnosed failure modes, and reports both their individual efficacy and the effects of combining them. The result is a concrete set of remediation techniques for the research community together with empirical evidence on how those techniques compose.
+
+- **C4. A prescriptive decision rule for practitioners.** The thesis derives a decision matrix that maps an observed heterogeneity profile of an inventory network to a recommended combination of architectural modifications. The result is practitioner-facing guidance that converts the thesis's findings into a directly applicable design rule.
+
+### 3.2 Key Takeaways
+
+Two abstract-style summary statements are kept open so the writer can pick the framing that best matches the final results.
+
+> **(A)** *In cooperative parameter-shared multi-agent reinforcement learning for multi-warehouse inventory management, network heterogeneity produces distinct performance degradations that hyperparameter tuning alone does not close. The thesis characterises these degradations together with the architectural interventions that recover them and finds that the relationship between intervention and heterogeneity is non-uniform such that a modification that recovers one degradation can be neutral or even counterproductive for another.*
+
+> **(B)** *Heterogeneity does not uniformly degrade multi-agent reinforcement learning for inventory control. Different forms of heterogeneity break different aspects of learning, and no single architectural modification recovers all of them. The thesis shows that the modification which closes one performance gap can be irrelevant or harmful for another, and derives a heterogeneity-to-intervention map that provides practitioners with a diagnostic-first design rule.*
+
+---
+
+## 4. Out-of-Scope
+
+These items are explicitly excluded and will not be part of the thesis for the reasons given.
+
+| Excluded | Why |
+|---|---|
+| Multi-echelon networks (manufacturer → DC → retailer) | The thesis studies a single-echelon distribution network. Multi-echelon adds a structural heterogeneity dimension orthogonal to the three studied here and would dilute the diagnostic framework. Mentioned in future work. |
+| Correlated demand across SKUs | The Poisson model treats SKUs as independent within an order. Adding correlation would confound the SKU-heterogeneity axis with a separate generative-model axis. Mentioned in future work. |
+| Non-Poisson demand distributions | Poisson is the standard generative model in stochastic inventory control. Changing the distribution would confound heterogeneity effects with demand-process effects. Mentioned in future work. |
+| Stochastic lead times | Fixed lead times of 3 steps isolate the heterogeneity axes. Stochastic lead times are implemented in the codebase but not exercised in the main experiments. Mentioned in future work. |
+| Real-world demand data | The thesis uses synthetic Poisson demand throughout. The `real_world` data path is implemented but no current config uses it because the available demand data is of insufficient quality. Section E7.2 instead uses a real-world-inspired synthetic instance for transfer evaluation. |
+| Fixed shipment costs (inbound and outbound) | The codebase supports both fixed and variable shipment costs, but all main configs set fixed costs to zero. Including a fixed component would introduce an order-batching incentive that interacts with the lead-time decision and the SKU-mix decision. This would create a confound because the agent could improve performance by consolidating orders rather than by responding to the heterogeneity-driven failure modes the thesis studies. Mentioned in future work. |
+| Learned entity embeddings (`nn.Embedding` over warehouse or SKU indices) | At three warehouses and five SKUs there are too few distinct entities for a learned embedding space to outperform hand-coded static features. Interventions A1 and A2 instead inject identity information through static observation features. Learned embeddings become defensible at roughly ten or more entities and are mentioned in §12 as future work. |
+| HAPPO, MAA2C, MASIA, and other non-PPO MARL algorithms | The PPO family (IPPO, MAPPO, CPPO) is the standard MARL backbone for cooperative continuous control. Adding non-PPO baselines would diffuse the contribution because the thesis is about interventions on a fixed algorithmic backbone rather than a horse race across algorithms. A single non-PPO method may appear as an appendix sanity check. Mentioned in future work. |
+| Coupling regime as a research dimension | The cross-region outbound cost ratio is calibrated against real freight cost data at 10× and is treated as an environment property rather than a research axis. The multi-agent challenge in this thesis is generalization of a single shared policy across heterogeneous local contexts, which is non-trivial at any coupling strength. A single 3× regime is run as an appendix sensitivity check in E5 to confirm that the findings hold under stronger coupling. |
+| Curriculum learning as a primary intervention | Curriculum modifies the training trajectory rather than the policy representation. Promoting it to a primary intervention would dilute the architectural-contribution claim of C3. Curriculum is nevertheless run as a single sub-experiment in E3.7 against the best architectural combination so that the thesis can state whether curriculum adds value on top of the architecture. It is therefore not excluded from the study, only from the primary-contribution set. |
+| Entity-encoder critic at the main scale | At three warehouses the flat critic input is on the order of 162 dimensions, where the entity-encoder critic provides no measurable benefit over a flat MLP. The entity-encoder critic is introduced only in the scalability experiment E7.1 where the flat input becomes large. |
+
+---
+
+## 5. Environment Design
+
+### 5.1 Topology and Base Parameters
+
+The default symmetric environment uses the parameters listed below. The five environment variants in §5.2 inherit these values and perturb only the parameters that define the heterogeneity axis under study.
+
+- **Warehouses:** 3
+- **Regions:** 3 (one home region per warehouse)
+- **SKUs:** 5
+- **Action space:** `demand_centered` with per-SKU `max_quantity_adjustment = max(2, ⌈1.5 · max_w E[D]^{SKU}_w⌉)`, where the maximum is taken over warehouses and `E[D]^{SKU}_w` is the expected per-step home-region demand for SKU at warehouse `w`
+- **Initial inventory:** per-(warehouse, SKU), set to the analytical steady-state base stock `I_0^{SKU} = E[D]^{SKU} · L^{SKU} + z · √(E[D]^{SKU} · L^{SKU})` with `z = 3.09` (99.9th percentile of the standard normal)
+- **Distances:** warehouse-to-region distances, set to 50 km from each warehouse to its home region and 500 km from each warehouse to each non-home region
+- **Inbound variable cost:** 1.0 per unit weight, uniform across all (warehouse, SKU) pairs
+- **Outbound variable cost:** 0.05 per unit weight from each warehouse to its home region and 0.5 per unit weight from each warehouse to each non-home region
+- **λ_orders per region:** `[4, 4, 4]` (orders per region per step)
+- **probability_skus per region:** `[0.667, 0.667, 0.667]` (per-SKU Bernoulli inclusion probability inside each order)
+- **λ_quantity per (region, SKU):** 5 uniformly (Poisson rate for the per-SKU quantity inside an included order)
+- **SKU weights:** `[1, 1, 1, 1, 1]`
+- **Holding cost:** 1.0 per unit weight per timestep, uniform across all (warehouse, SKU) pairs
+- **Penalty cost:** 5.0 per unit of unmet demand, uniform across SKUs
 - **Episode length:** 100 timesteps
+- **Lead times:** fixed at 3 timesteps for all (warehouse, SKU) pairs
+- **Reward scope:** `agent`. Each warehouse receives the negative of its own per-step cost as reward.
 
-### Why 3 Warehouses
+#### Why 3 warehouses
 
-The paper's central contribution is about SKU heterogeneity and architectural interventions, not warehouse scaling. Three warehouses provide:
+Three is the smallest number that makes parameter sharing a non-trivial generalization problem because a shared policy must adapt to three distinct local contexts using only its observation. Three is also enough for the greedy demand allocator to produce non-trivial transshipment because each warehouse has one home region and two foreign regions to serve. Scaling to five and seven warehouses is tested in E7.1 as a scalability check and is not a research axis in the main study.
 
-- The minimum for parameter sharing to be non-trivial (shared network must adapt to 3 different local contexts)
-- Enough structure for demand allocation dynamics (home region vs. 2 foreign regions)
-- Computational efficiency for large HP search spaces
+#### Why 5 SKUs
 
-Warehouse scaling is tested in Phase 4 (5WH or 7WH).
+Five is the smallest portfolio that makes the per-SKU self-attention architecture a non-trivial mechanism. With two SKUs, self-attention degenerates to a learned weighted average that a flat MLP can match. With five, the attention has enough tokens to learn a non-trivial pattern over the SKUs about which to attend to, which to ignore, and how to weight their relationships. Five also spans a realistic light-to-heavy portfolio of items in the SKU-heterogeneity variant (§5.2).
 
-### Why 5 SKUs
+#### Why the action space is demand-centered and not direct
 
-- **Practical argument:** Five SKUs is the minimum to represent a meaningfully diverse product portfolio ranging from lightweight high-turnover items to heavy low-turnover items. Fewer than 5 makes the heterogeneity trivial (2 SKUs is just "heavy vs. light").
-- **Technical argument:** Self-attention over per-SKU feature groups requires enough "tokens" for the attention weights to be meaningful. With 2 SKUs, attention degenerates to a learned weighted average — a regular MLP can learn this. With 5 SKUs, the attention must learn a richer pattern: which SKUs to attend to, which to ignore, how to weight relationships. This is the regime where attention adds genuine value over a flat MLP.
+Both action-space types are continuous and bounded in `[-1, 1]`, and they differ in what the boundary values represent. A `direct` action space scales `[-1, 1]` linearly to `[0, max_order_quantities]`, so the agent must discover the appropriate ordering magnitude starting from a uniform-random initialization. A `demand_centered` action space scales `[-1, 1]` to `[-max_quantity_adjustment, +max_quantity_adjustment]` and adds the observed home-region demand. Under this mapping, `action = 0` corresponds to ordering exactly the observed demand. The thesis uses `demand_centered` for two reasons. First, the order-up-to-mean policy is a strong analytical baseline under stationary stochastic demand, so the agent's initial policy is informative rather than random, and the learning task reduces to estimating the deviation from demand-tracking. Second, the centering point automatically adapts to the demand level the warehouse currently observes, which keeps the action signal scale-comparable across heterogeneous demand regimes.
 
-### Heterogeneous Environment Configurations (all 5-SKU)
+#### Why this max_quantity_adjustment formula
 
-| Config | Demand | Geography | SKU Weights | SKU Demand |
-|--------|--------|-----------|-------------|------------|
-| `env_sku_hetero` | Symmetric | Symmetric | Varied (e.g., `[0.3, 1.0, 3.0, 10.0, 30.0]`) | `lambda_qty` inversely related to weight |
-| `env_demand_hetero` | `lambda_orders: [8, 4, 1]` | Symmetric | `[1, 1, 1, 1, 1]` | Uniform |
-| `env_cost_asymm` | Symmetric | 2EU+1US distances/costs | `[1, 1, 1, 1, 1]` | Uniform |
-| `env_combined_hetero` | Heterogeneous | 2EU+1US | Heterogeneous | Heterogeneous |
+The formula for determining the max_quantitiy_adjustment values is 
 
-### Coupling Strength
+```
+`max_quantity_adjustment = max(2, ⌈1.5 · max_w E[D]^{SKU}_w⌉)`
+```
 
-Create two cost regimes for heterogeneous experiments:
+This rule is chosen based on multiple observations. First, note that the lower bound `max_quantity_adjustment ≥ E[D]^{SKU}` is the necessary condition for the agent to be able to order zero units under the `demand_centered` mapping. Specifically, the order quantity is `observed_demand + action · max_quantity_adjustment` with `action ∈ [-1, 1]`. Setting this expression to zero gives `action = -observed_demand / max_quantity_adjustment`, which lies in `[-1, 1]` if and only if `max_quantity_adjustment ≥ observed_demand`. The configuration time then substitutes the realised `observed_demand` with the expected value `E[D]^{SKU}`, which yields the necessary condition stated above. Second, the factor 1.5 extends this minimum upward by 50% so the agent retains meaningful headroom for stockout recovery without making most of the action space unused. Third, the maximum over warehouses applies because `max_quantity_adjustment` is shared across all warehouses, so the binding case is the warehouse with the highest home-region expected demand. In the heterogeneous-demand variants this is the high-volume warehouse, while in the homogeneous-demand variants every warehouse is equivalent. Finally, the floor of 2 protects the heaviest SKUs in the SKU-heterogeneous variants, where `E[D]^{SKU}` can fall well below 1 and the unconstrained 1.5-times rule would leave the agent with insufficient integer-level granularity to control those SKUs.
 
-1. **Weak coupling (current):** outbound_variable home=0.05, away=0.50 (10x ratio). Transshipment is a last resort. Realistic for geographically dispersed networks.
-2. **Moderate coupling:** outbound_variable home=0.05, away=0.15 (3x ratio). Transshipment is viable but not free. Realistic for regionally clustered warehouses.
+#### Why this initial inventory
 
-The comparison becomes a finding: "Coupling strength moderates the benefit of centralized training (MAPPO vs IPPO)."
+The formula for determining the initial inventory is 
 
-### Parameter Justification
+```
+`I_0^{SKU} = E[D]^{SKU} · L^{SKU} + z · √(E[D]^{SKU} · L^{SKU})`
+```
 
-Use **Option A (parametric study framing)** in the main text:
+This is the standard newsvendor base-stock approximation for Poisson demand with a normal-CDF approximation of the safety-stock term. The first term tracks the expected lead-time demand. The second term adds safety stock proportional to the lead-time-demand standard deviation, which for Poisson is equal to the square root of the mean. The choice `z = 3.09` corresponds to a service-level target of approximately 99.9%, which is intentionally conservative. The reason is operational rather than statistical. A lower initial inventory would force the agent to spend the first lead-time worth of steps stocking up to its operating range. Such transient behavior is an artifact of the cold start rather than of the inventory policy and would dominate the reported per-episode return. A high initial inventory removes this artifact so the episode starts near the steady-state operating point, and the reported return reflects the policy's behavior in operation rather than its ability to recover from a cold start.
 
-> *"We study two cost regimes representing different network topologies: a dispersed network where cross-region fulfillment costs 10x more than local delivery (typical for continental-scale distribution), and a clustered network with a 3x cost differential (typical for regional distribution within a country). Cost magnitudes are calibrated such that holding, penalty, and shipping costs are of comparable magnitude under the optimal base-stock policy."*
+#### Why these distances, inbound variable costs, and outbound variable costs
 
-Use **Option B** in the appendix: reference the real-world industry data to show that the stylized parameters are in the right ballpark (e.g., "the ratio of cross-country to local shipping cost ranges from 3x to 15x in our industry dataset; we study 3x and 10x to span this range").
+The design principle for the symmetric environment is to use the simplest values that produce a clear home-versus-non-home cost differential while remaining consistent with a plausible real-world geography. Two distances suffice for this purpose. Each warehouse is placed 50 km from its home region and 500 km from each non-home region. The corresponding outbound variable costs are 0.05 per unit weight on home shipments and 0.5 per unit weight on non-home shipments, which gives a 10× home-versus-non-home ratio.
 
-### Per-SKU Action Scaling (for heterogeneous cases)
+The chosen distances are symmetric simplifications of a layout that could plausibly occur in practice rather than free parameters tuned to fit the experiment. Concretely, they correspond to a stylised continental layout in which the three (warehouse, home-region) pairs sit at the vertices of an approximately equilateral triangle of side 500 km, and inside each vertex the warehouse and its co-located home region are 50 km apart. Continental distribution networks frequently arrange three or more regional hubs at distances on the order of several hundred kilometres, and the local warehouse-to-served-region distance is commonly on the order of tens of kilometres. The chosen 50 km and 500 km therefore capture realistic local-haul and regional-haul distances in a maximally symmetric fashion.
 
-In heterogeneous SKU settings, a static `max_quantity_adjustment` may not fit all SKUs. Two options:
+The cost values 0.05 and 0.5 are similarly grounded in commercial freight data rather than chosen for convenience. The real-world data available in the repository shows variable per-weight transport cost on the order of 0.05 per unit at the local scale of around 50 km and on the order of 0.5 per unit at the regional scale of around 500 km. The resulting 10× ratio is therefore an empirical property of the modelled geography rather than a free design parameter. The implications of this ratio for the multi-agent learning problem are discussed in §5.3.
 
-- **Option A:** Per-SKU `max_quantity_adjustment` proportional to expected demand (e.g., `ceil(E[D] * 0.75)`)
-- **Option B:** Relative/percentage action space where `order = demand * (1 + a * max_pct_adjustment)`, naturally handling heterogeneous demand scales
+When warehouse `w` serves a non-home region `r`, the simulator treats the shipment as a direct transit over the longer distance and charges the corresponding outbound variable cost. There is no intermediate relay through the destination region's home warehouse. This is a deliberate modelling choice that preserves the home-versus-non-home cost differential without introducing multi-hop logistics inside the simulator.
 
-This is a design choice, not a main intervention. Mention briefly in the paper.
+The inbound variable cost is held uniform at 1.0 per unit weight across all (warehouse, SKU) pairs because inbound variability is not a heterogeneity axis the thesis studies. A value of 1.0 places inbound replenishment at the dominant per-unit cost when an order is fulfilled, which keeps the replenishment decision economically meaningful. The value is also of the same order of magnitude as the per-unit holding cost and as a single penalty event, so no single component dominates the reward signal in the symmetric baseline.
 
-### Demand Sampler Floor for Heterogeneous λ_qty
+#### Why these λ_orders, probability_skus, and λ_quantity per SKU values
 
-The Poisson demand sampler historically enforced `quantity = max(1, Poisson(λ_qty))` for any SKU that the Bernoulli inclusion step had flagged as belonging to an order. This avoided the semantic inconsistency of "SKU is in the order but with quantity 0" — a SKU that was Bernoulli-included would always contribute at least one unit.
+The order-level demand model introduces a three-level decomposition of customer demand rather than the single aggregate per-(region, SKU) demand rate used in most prior MARL inventory work. At every step the model draws (a) a number of customer orders per region according to `λ_orders`, (b) a per-SKU Bernoulli inclusion drawn with probability `probability_skus` that determines which SKUs appear in each order, and (c) a per-line Poisson quantity drawn with rate `λ_quantity` for each included SKU. The three demand parameters in the base configuration correspond directly to the three levels of this decomposition. This structural separation is what makes the benchmark order-level and ties directly to the C1 contribution.
 
-Under the symmetric environment (λ_qty = 5), the floor adds `e^{-5} ≈ 0.007` (0.13%) to the effective per-SKU mean — negligible. Under the SKU-heterogeneous regime, where realizing "demand inversely proportional to weight" requires λ_qty values well below 1 for the heaviest SKUs, the floor inflates the effective mean substantially:
+The specific numerical values `λ_orders = 4`, `probability_skus = 0.667`, and `λ_quantity = 5` are determined by two constraints. First, the joint product fixes the total expected weighted network throughput at the 200-unit target of §5.2: `3 · 4 · 0.667 · 5 · 1 · 5 ≈ 200.1`. Second, within that constraint the values are chosen so that the resulting per-(region, SKU) expected demand sits at approximately 13 units per step, computed as `4 · 0.667 · 5 ≈ 13.3`. This is the regime in which the Poisson approximation is statistically informative. At this rate the lead-time demand has mean 40 and standard deviation approximately 6.3, so demand fluctuates meaningfully from one lead-time cycle to the next. The system is therefore neither near-deterministic, which would make the inventory decision trivial, nor near-Gaussian, which would make individual integer-unit decisions invisible. The Poisson regime is also the regime in which the newsvendor approximation used for the initial inventory and for the base-stock baselines is most accurate. All derived quantities, including the initial inventory in the range 60 to 90 units, the `max_quantity_adjustment` value of 20, and the lead-time mean demand near 40 units, inherit their human-interpretable magnitudes from this 13-unit anchor.
 
-| λ_qty  | E[Poisson(λ)] | E[max(1, Poisson(λ))] = λ + e^{-λ} | bias |
-|--------|---------------|-------------------------------------|------|
-| 5.000  | 5.000         | 5.007                               | +0.13% |
-| 1.667  | 1.667         | 1.856                               | +11% |
-| 1.000  | 1.000         | 1.368                               | +37% |
-| 0.500  | 0.500         | 1.107                               | +121% |
-| 0.167  | 0.167         | 1.013                               | +507% |
+#### Why these holding and penalty costs
 
-For the heaviest SKU lambdas in `env_sku_hetero` and `env_combined_hetero` (λ ≈ 0.167), the intended inverse weight–demand relationship is destroyed: every Bernoulli-included heavy SKU contributes ~1 unit regardless of how small its λ was meant to be, and `weight × E[qty]` is dominated by the floor rather than by the calibration.
+The relationship between the holding cost `c_h` and the penalty cost `c_p` is what determines how aggressively the optimal policy should hold inventory. The intuition is simplest if read as a per-unit comparison. A holding cost of 1.0 means each unit of inventory carried forward to the next step costs one unit of reward. A penalty cost of 5.0 means each unit of unmet demand costs five units of reward. The penalty-to-holding ratio of 5:1 therefore says that missing one unit of demand is as costly as carrying five extra units of inventory for one step.
 
-**Resolution.** A configurable `min_quantity_per_sku` parameter is added to `PoissonDemandSampler.params`, defaulting to `1` for backward compatibility with existing pilot configs. All five 5-SKU environments (symmetric and the four heterogeneous variants) set `min_quantity_per_sku: 0`, removing the floor. Bernoulli-included SKUs whose Poisson draw is zero contribute no demand for that order; orders that end up with all-zero quantities are still emitted to keep order counts consistent across the floor-on/floor-off comparison and are gracefully handled by the demand allocator (no shipments scheduled).
+This ratio determines the optimal service level under the newsvendor approximation. A high ratio such as 50:1 makes the optimal policy push the service level close to 100% by carrying large safety stocks because every avoided stockout pays for fifty units of holding. A very low ratio close to 1:1 makes the optimal policy tolerate frequent stockouts because each avoided stockout pays for only one unit of holding. The interesting regime lies between these extremes, where neither effect dominates. The thesis uses 5:1, which under the newsvendor formula yields an optimal service level of `c_p / (c_p + c_h) = 5 / 6 ≈ 0.83`. Even the optimal stationary policy therefore leaves approximately 17% of demand unmet on average.
 
-**Effect on the symmetric environment.** For λ_qty = 5, the per-step expected number of SKU-instances whose quantity changes from 1 to 0 is approximately `n_regions × λ_orders × n_skus × prob_skus × e^{-λ_qty} ≈ 3 × 4 × 5 × 0.667 × 0.0067 ≈ 0.27`. Over a 100-step episode, this is roughly 27 demand units out of ~20,000 (0.13%), which is well below seed-to-seed noise. The Phase 0 symmetric tune's best hyperparameters are not invalidated; a single-seed re-evaluation of the top-1 trial on the floor-removed sampler is performed as a sanity check before launching Phase 1.
+The choice of an 83% optimal service level rather than the more common 90% or 95% targets is deliberate and methodological. A 95% service level corresponds to a penalty-to-holding ratio of 19:1 and a 90% service level to 9:1. At those ratios the optimal policy leans heavily toward stocking up so that a simple "carry large safety stocks" heuristic already achieves near-optimal performance because penalty cost dominates the reward signal. The inventory problem effectively collapses to "always have inventory," and there is little for a learned policy to discover beyond a high replenishment rate. At 83%, holding cost is approximately 17% of the per-step cost on the optimal policy, so under-stocking and over-stocking are both visibly costly. The agent cannot solve the problem by over-stocking because holding cost remains a meaningful fraction of reward, and it cannot solve it by under-stocking because penalty cost remains meaningful. This places the inventory decision in a regime where a learned policy must actively trade the two errors off rather than gravitating to a corner solution, which is the precondition for measuring the value of the architectural interventions the thesis proposes.
 
-**Effect on heterogeneous environments.** The intended `w × E[qty | included]` profile is realized exactly. With `lambda_qty = [5/w_k for k in skus]` and weights `[0.3, 1, 3, 10, 30]`:
+Holding and penalty costs are uniform across (warehouse, SKU) in the default environment so the cost-rate dimension does not become an implicit fourth heterogeneity axis.
 
-| SKU | weight w | λ_qty = 5/w | w · E[qty\|incl] (after) |
-|----|---|---|---|
-| 0 | 0.3  | 16.67 | 5.00 |
-| 1 | 1.0  | 5.00  | 5.00 |
-| 2 | 3.0  | 1.67  | 5.00 |
-| 3 | 10.0 | 0.50  | 5.00 |
-| 4 | 30.0 | 0.167 | 5.00 |
+#### Why these SKU weights, episode length, lead times, and reward scope
 
-so the network-level weighted demand is `3 × 4 × 0.667 × 5 × 5 = 200.1` weight-units/step — identical to the symmetric environment by design. This budget invariance also extends to `env_demand_hetero` (`lambda_orders = [7, 4, 1]` with uniform weights and λ_qty = 5: `(7+4+1) × 0.667 × 5 × 5 = 200.1`) and to `env_cost_hetero` (demand process unchanged). Across all five 5-SKU environments, total expected weighted network throughput per step is held at 200 weight-units, isolating heterogeneity in the targeted dimension only.
+The SKU weights are uniform in the default environment to be able to isolate the SKU-heterogeneity axis from other variations later. The lead time is fixed at 3 steps to isolate the heterogeneity axes from lead-time stochasticity, which is a separate axis the thesis does not study. The episode length of 100 steps is long enough for the lead-time-3 dynamics to play out repeatedly with approximately 33 lead-time cycles per episode, while remaining short enough to keep training cost manageable. The `agent` reward scope gives each warehouse credit only for its own cost, which produces clean per-agent credit assignment under heterogeneity. Clean credit assignment is essential for the diagnostic study because it makes per-agent failure modes attributable to per-agent policy decisions. A `team` scope and a mixed `agent`/`team` scope are tested as secondary axes in E3.5 and E3.6.
 
-This change is documented as an environment-level design decision (added to the Design Decisions Made table) and applied uniformly across all 5-SKU configurations. The 3WH2SKU pilot configs retain the floor for backward compatibility.
+### 5.2 The Five 5-SKU Environments For The Experiments
+
+Experiments are centered around heterogeneous environments that change one or more default parameters:
+
+| Config | Max. Quantity Adjustment | Initial Inventory | Distances | Inbound Variable Costs | Outbound Variable Costs | SKU weights | Demand λ_orders | probability_skus | λ_quantity per SKU |
+|---|---|---|---|---|---|---|---|---|---|
+| `env_symmetric` | `[20, 20, 20, 20, 20]` | WH0: `[60, 60, 60, 60, 60]` <br>WH1: `[60, 60, 60, 60, 60]` <br>WH2: `[60, 60, 60, 60, 60]` | Symmetric (50 home / 500 away) | `[1, 1, 1, 1, 1]` for all warehouses | Symmetric (0.05 home / 0.5 away) | `[1, 1, 1, 1, 1]` |  `[4, 4, 4]` | `[0.667, 0.667, 0.667]` |  `[5, 5, 5, 5, 5]` for all regions |
+| `env_sku_hetero` | `[60, 20, 7, 2, 2]` | WH0: `[169, 60, 20, 10, 5]` <br>WH1: `[169, 60, 20, 10, 5]` <br>WH2: `[169, 60, 20, 10, 5]` | Symmetric (50 home / 500 away) | `[1, 1, 1, 1, 1]` for all warehouses | Symmetric (0.05 home / 0.5 away) | `[0.3, 1, 3, 10, 30]` | `[4, 4, 4]` | `[0.667, 0.667, 0.667]` | `[16.67, 5, 1.67, 0.5, 0.167]` for all regions |
+| `env_demand_hetero` | `[35, 35, 35, 35, 35]` | WH0: `[96, 96, 96, 96, 96]` <br>WH1: `[60, 60, 60, 60, 60]` <br>WH2: `[20, 20, 20, 20, 20]` | Symmetric (50 home / 500 away) | `[1, 1, 1, 1, 1]` for all warehouses | Symmetric (0.05 home / 0.5 away) | `[1, 1, 1, 1, 1]` | `[7, 4, 1]` | `[0.667, 0.667, 0.667]` | `[5, 5, 5, 5, 5]` for all regions |
+| `env_cost_hetero` | `[20, 20, 20, 20, 20]` | WH0: `[60, 60, 60, 60, 60]` <br>WH1: `[60, 60, 60, 60, 60]` <br>WH2: `[60, 60, 60, 60, 60]` |  Heterogenous (50 home / 200 close / 5000 distant) | `[1, 1, 1, 1, 1]` for all warehouses | Heterogenous (0.05 home / 0.15 close / 1.5 distant) | `[1, 1, 1, 1, 1]` | `[4, 4, 4]` | `[0.667, 0.667, 0.667]` | `[5, 5, 5, 5, 5]` for all regions |
+| `env_combined_hetero` | `[117, 35, 12, 4, 2]` | WH0: `[281, 96, 38, 15, 7]` <br>WH1: `[169, 60, 25, 10, 5]` <br>WH2: `[51, 20, 9, 4, 2]` |  Heterogenous (50 home / 200 close / 5000 distant) | `[1, 1, 1, 1, 1]` for all warehouses | Heterogenous (0.05 home / 0.15 close / 1.5 distant) | `[0.3, 1, 3, 10, 30]` | `[7, 4, 1]` | `[0.667, 0.667, 0.667]` | `[16.67, 5, 1.67, 0.5, 0.167]` for all regions |
+
+
+#### Why are all environment variants comparable
+
+The total expected weighted network throughput per step is held at approximately 200 weight-units across all five environments. This invariant is the central methodological device underlying C1 because it isolates the active heterogeneity axis from any concurrent change in problem size. The construction follows directly from the demand model. The expected per-step demand for SKU `s` at region `r` is
+
+```
+E[D]^{r,s} = λ_orders^{r} · p_{s}^{r} · λ_qty^{r,s}.
+```
+
+The total expected weighted network throughput per step is therefore
+
+```
+D = Σ_{r} Σ_{s} w_{s} · E[D]^{r,s} = Σ_{r} Σ_{s} w_{s} · λ_orders^{r} · p_{s}^{r} · λ_qty^{r,s}.
+```
+
+All five environments are constructed such that `D ≈ 200.1` per step. The mechanism by which each variant preserves this value while perturbing one heterogeneity axis is documented in the subsections that follow.
+
+#### Why these heterogeneous λ_quantity values
+
+The heterogeneous λ_quantity values in `env_sku_hetero` and `env_combined_hetero` are inversely proportional to the SKU weights. Specifically, the rule is
+
+```
+λ_qty^{r,s} = c / w_{s},
+```
+
+uniformly across regions. The constant `c` is chosen so that the total expected weighted network throughput remains at 200.1. Substituting the rule into the throughput formula above gives
+
+```
+D = Σ_{r} Σ_{s} w_{s} · λ_orders^{r} · p_{s}^{r} · (c / w_{s}) = c · Σ_{r} Σ_{s} λ_orders^{r} · p_{s}^{r},
+```
+
+so the weight terms cancel and the throughput becomes independent of the weights. With `λ_orders^{r}` summing to 12 across the three regions (which holds for both `env_sku_hetero` with `[4,4,4]` and `env_combined_hetero` with `[7,4,1]`) and per-SKU inclusion probabilities `p_{s}^{r} = 0.667` uniformly, the sum `Σ_{r} Σ_{s} λ_orders^{r} · p_{s}^{r} = 12 · (5 · 0.667) = 12 · 3.335 = 40.02`. Solving `c · 40.02 = 200.1` yields `c = 5.0`. The choice `c = 5` therefore satisfies the throughput invariant while realising the inverse-weight–demand relationship typical of distribution catalogues where heavier items move at lower per-order quantities.
+
+The hypothesized failure mode under this variant concerns SKU-level credit assignment. Because holding cost is proportional to weight, the heaviest SKUs contribute the largest cost component per unit of inventory and dominate the per-step cost vector. A shared policy that minimises total reward can reduce it most quickly by under-stocking the heavy SKUs, which leads to large lost-sales penalties on those SKUs while keeping holding cost low. The intended test is whether MAPPO-PS with parameter sharing exhibits this under-stocking pattern and whether the per-SKU attention architecture corrects it.
+
+#### Why these heterogeneous λ_orders values
+
+The heterogeneous λ_orders values `[7, 4, 1]` in `env_demand_hetero` and `env_combined_hetero` are chosen so that their sum equals 12, matching the sum of the symmetric `[4, 4, 4]`. Since the remaining factors in the throughput formula are unchanged in `env_demand_hetero` (uniform weights and uniform λ_qty), this choice of values keeps the total expected weighted network throughput at 200.1.
+
+Moreover, the triple `[7, 4, 1]` represents a setting where one region accounts for the majority of demand while the remaining regions handle progressively smaller shares (primary-versus-tail distribution pattern). This pattern is typical of continental distribution networks where population, purchasing power, or market maturity concentrates demand in one primary region and leaves a long tail of smaller regions. The 7× ratio between the highest- and lowest-volume region is large enough to expose any inability of a shared policy to differentiate warehouses by demand scale, and the sparsest region with `λ_orders = 1` is low enough that its home warehouse faces frequent zero-demand periods, which stresses the overstock-versus-stockout trade-off.
+
+The hypothesized failure mode is that a parameter-shared policy must produce different ordering behavior for each warehouse based only on local observation, yet receives no direct signal that its identity differs from the others. The policy may therefore converge on an "average-warehouse" behavior that overstocks the low-volume warehouse and understocks the high-volume one. The intended test is whether per-agent observation normalization removes the scale confound and allows the shared policy to differentiate.
+
+#### Why these heterogeneous weights
+
+The `env_sku_hetero` and `env_combined_hetero` weights `[0.3, 1.0, 3.0, 10.0, 30.0]` are log-spaced over two orders of magnitude. Three properties motivate this choice. First, the range from 0.3 kg to 30 kg matches the practical span of distribution catalogues, with small consumer goods at the lower end and large appliances at the upper end. Second, log-spacing means there is no scale at which a single global normalization (such as the default `meanstd_grouped` policy) can recover the right magnitude for both the lightest and the heaviest SKUs simultaneously. This is a deliberate stressor for the normalization choice in the default observation pipeline and motivates intervention A1. Third, the 30× weight ratio between extremes ensures that holding cost (which is weight-proportional) becomes the dominant cost component for the heaviest SKUs, which is the precondition for the SKU-abandonment failure mode described above.
+
+#### Why these heterogeneous distances
+
+The same design principle applies as in the symmetric environment. The heterogeneous distance matrix uses the simplest values that produce a clear three-way cost structure while remaining consistent with a plausible real-world geography. Three distinct distances are used: 50 km for the local warehouse-to-home-region distance, 200 km for the intermediate same-continent cross-region distance, and 5000 km for the long-haul cross-continent distance. The corresponding outbound variable costs are 0.05, 0.15, and 1.5 per unit weight respectively, which gives 3× and 30× ratios over the home cost.
+
+These distances correspond to a plausible multi-continental layout in which two of the three (warehouse, home-region) pairs sit close together on one continent and the third sits on a different continent. A 200 km separation between the two same-continent pairs is on the order of the distance between a pair of regional hubs inside a country or a region, and a 5000 km separation between the two continents is on the order of a trans-Atlantic distance. The 50 km local distance from §5.1 is preserved inside each pair. The chosen values are therefore symmetric simplifications of a real-world geography that could occur in practice. A possible instance is two European hubs about 200 km apart together with one North-American hub roughly 5000 km away, but the simulator does not depend on this specific labelling.
+
+The cost values 0.15 and 1.5 follow the same freight-cost-with-distance calibration used for the symmetric environment. Continental variable per-weight transport cost on the order of 0.15 per unit at the regional scale of around 200 km, and intercontinental variable per-weight transport runs on the order of 1.5 per unit weight at the intercontinental scale of around 5000 km. As in §5.1, the simulator treats cross-region fulfillment as a direct shipment over the longer distance, with no intermediate relay through the destination region's home warehouse.
+
+The hypothesized failure mode concerns asymmetric credit assignment under parameter sharing. The off-continent warehouse can only economically serve its home region because the cross-continent shipment cost is prohibitive, while the two same-continent warehouses can cross-fulfill at moderate cost. The shared policy must therefore learn three distinct cost geographies distinguished only by each warehouse's position in its local observation. The intended test is whether parameter sharing collapses these distinct geographies onto a single averaged policy, and whether cost-aware entity features (intervention A2) make the cost structure legible to the policy.
+
+### 5.3 Coupling Regime
+
+The main experiments are run at a 10× cross-region cost ratio. In the symmetric environment and in the SKU-heterogeneous variant, the outbound variable cost is 0.05 per unit weight to the home region and 0.5 per unit weight to each non-home region. In the cost-heterogeneous variants, the same calibration extends to the trans-Atlantic regime, where the cross-Atlantic cost of 1.5 per unit weight is 30× the home cost, consistent with the 5000 km distance.
+
+The 10× ratio is not a free design parameter. The available real world data shows a variable per-weight cost on the order of 0.05 per unit at the cluster scale of around 50 km and on the order of 0.5 per unit at the cross-cluster scale of around 500 km, so the ratio is empirically calibrated rather than chosen for convenience. For this reason, the coupling regime is treated as an environment property rather than as a research dimension.
+
+Nevertheless, a 10× cross-region cost makes transshipment a last resort, which weakens the operational coupling between agents and raises the question of whether the problem is truly multi-agent or instead three near-decomposable single-warehouse problems. The thesis addresses this objection in two ways. First, the multi-agent learning challenge studied here is not coordination across strongly coupled agents but generalization of a single shared policy across heterogeneous local contexts. A parameter-shared policy must produce different ordering behavior for warehouses with different home-region demand, different SKU portfolios, and different cost geographies, distinguished only by the local observation. This is a non-trivial generalization problem at any coupling strength. Second, operational coupling is measured explicitly rather than asserted. The metric κ defined in §5.4 reports the fraction of demand fulfilled cross-region under the BS-Optimized policy, and is reported per environment so the reader can see exactly how much cross-region fulfillment a near optimal policy actually uses. The 3× coupling regime is run as an appendix sensitivity check in E5.1 on `env_combined_hetero` so the thesis can state whether the qualitative findings hold under stronger coupling.
+
+### 5.4 Operational Coupling Metric κ
+
+To convert "coupling" from a vague descriptor into a measured property, the thesis reports `κ` defined as the expected fraction of demand fulfilled cross-region under the BS-Optimized policy. The value is computed once in E0.5 from existing baseline rollouts and reported as a column in the environment-summary table. A higher `κ` indicates stronger operational coupling between agents.
+
+The BS-Optimized policy is chosen as the reference for `κ` because it is the strongest stationary baseline available in this thesis. It is optimised end-to-end on the same evaluation distribution, knows the dynamics, and is not subject to a learning constraint. Computing `κ` under BS-Optimized therefore measures how much cross-region fulfillment the problem structurally demands rather than how much a specific learning algorithm happens to use. Using a learned policy such as MAPPO-PS would conflate the problem's structural coupling with the algorithm's specific learned behaviour, and MAPPO-PS in particular is itself among the policies the thesis evaluates, which would make the metric circular. BS-Optimized is also deterministic given its base-stock parameters, so `κ` is a stable and reproducible environment-level measurement.
+
+### 5.5 Zero Minimum Quantity Per SKU
+
+The Poisson demand sampler supports a `min_quantity_per_sku` floor that clamps each per-SKU quantity from below. Earlier experiments enforced a floor of 1 to guarantee that any Bernoulli-included SKU contributes at least one unit. However, under the five 5-SKU environments studied here, this floor is set to 0.
+
+The reason is that a floor of 1 inflates the effective per-SKU mean by approximately `e^{-λ_qty}` relative to the unmodified Poisson mean. While this bias is negligible at `λ_qty = 5` in the symmetric environment (approximately 0.13%), it becomes a real problem for lower `λ_qty` values. Specifically, at `λ_qty ≤ 0.5`, which is the regime of the heaviest two SKUs in `env_sku_hetero` and `env_combined_hetero`, the bias exceeds 100%. Retaining the floor would therefore destroy the intended inverse-weight-demand relationship for the heaviest SKUs and break the throughput invariant of §5.2. Setting `min_quantity_per_sku = 0` uniformly across the five 5-SKU environments preserves both properties.
+
+Removing the floor introduces a semantic case that does not arise under the legacy setting. A SKU may be Bernoulli-included in an order by the inclusion step but draw a quantity of zero from the per-SKU Poisson sampler. The SKU then contributes zero units to that order. If every Bernoulli-included SKU in an order draws zero, the order is generated with all-zero quantities and is handled gracefully by the greedy demand allocator, which schedules no shipments for it. Order counts therefore remain consistent across the floor-on and floor-off configurations and the inverse-weight-demand relationship is preserved for the heaviest SKUs.
 
 ---
 
-## Algorithms
+## 6. Algorithms and Baselines
 
-### Primary Algorithm: MAPPO-PS
+### 6.1 Algorithms
 
-MAPPO with parameter sharing is the primary target for interventions because it is the most constrained but most scalable setting:
-
-- **Centralized Training, Decentralized Execution (CTDE):** Critic sees all agents' states during training; actor uses only local observations at inference
-- **Parameter sharing:** A single policy network must produce different ordering behavior for agents facing different demand levels, cost structures, and SKU mixes — distinguished only by local observations and warehouse ID
-- **Why primary:** Under heterogeneity, parameter sharing creates the hardest learning challenge (one network must generalize across heterogeneous agents). Solving this is the most practically relevant result, since separate policies per agent don't scale.
-
-### Reference Algorithm: IPPO-PS
-
-Independent PPO with parameter sharing serves as a baseline throughout. The IPPO vs. MAPPO comparison is itself an information sharing experiment (local vs. global critic).
-
-### 2×2 Diagnostic Grid (Phase 1)
-
-| | No Parameter Sharing | Parameter Sharing |
+| Algorithm | Role | Why included |
 |---|---|---|
-| **IPPO** (local critic) | Separate policies, local info only | Shared policy, local info only |
-| **MAPPO** (global critic) | Separate policies, global critic | Shared policy, global critic |
+| **MAPPO-PS** | Primary target for interventions | Centralized training, decentralized execution + parameter sharing → the most constrained but most scalable setting. Solving this is the most practically relevant result. |
+| **IPPO-PS** | Reference baseline | Decentralized critic + parameter sharing. The IPPO ↔ MAPPO comparison isolates the value of the centralized critic. |
+| **IPPO-noPS, MAPPO-noPS** | 2×2 grid completion | Separate policies per agent under each information regime. Tests whether parameter sharing or the centralized critic is the dominant constraint under heterogeneity. Used only in Phase 1 diagnostic. |
 
-This grid answers three questions:
-1. Does centralized training (MAPPO) help under heterogeneity?
-2. Does parameter sharing hurt under heterogeneity?
-3. Does MAPPO + PS still work? (If not, interventions must fix this specific configuration.)
+Excluded from main study: HAPPO, MASIA, MAA2C, off-policy MARL algorithms. Rationale in §4.
+
+### 6.2 Reference Baselines
+
+All baselines run under the same multi-seed evaluation protocol as the algorithms in §6.1. The base-stock baselines compute their order quantities as
+
+```
+order[w,k] = clip(S[w,k] − inventory[w,k] − pipeline[w,k], 0, max_qty).
+```
+
+Seven reference baselines are available. Six are non-RL and one is a centralized single-agent RL ceiling.
+
+| Baseline | Description | Tuning | Role |
+|---|---|---|---|
+| **Random** | Uniform random orders | None | Lower-bound sanity check |
+| **ConstantOrder** | Per-(WH, SKU) constant order quantity calibrated from observed demand, scaled by α | α | Naive non-stationary heuristic |
+| **BS-Newsvendor** | Oracle base-stock from true demand parameters | safety factor z | Theory-derived reference |
+| **BS-Adaptive** | Rolling-mean base-stock from observed history | z, window H | Adaptive heuristic without analytical demand |
+| **BS-Optimized** | Joint GP-BO over all (n_WH × n_SKU) base-stocks | n_calls = 300 | Strong simulation-optimized reference |
+| **BS-Independent** | Per-warehouse iterated best-response BO | n_rounds = 3, n_calls = 100 | Coordination-free strong reference |
+| **CPPO** | A single PPO over the concatenated joint observation and joint action | Optuna tune (E0.3) | Centralized RL upper bound. Removes every MARL challenge (non-stationarity, partial observability, credit assignment). The gap from MAPPO-PS to CPPO quantifies the cost of decentralisation under heterogeneity. |
+
+Two baselines anchor the reference scale from different sides. BS-Optimized is the practical heuristic ceiling. It knows the dynamics, has no learning constraint, and is optimised end-to-end on the same evaluation distribution. CPPO is the practical RL ceiling. It removes every multi-agent challenge by collapsing the network into a single joint observation and a single joint action and so represents the highest performance any RL agent could reach if granted full information and a single joint controller.
+
+#### Normalized score for cross-environment comparison
+
+The thesis reports each policy's return as the fraction of the BS-Optimized-to-Random performance range that the policy recovers. Concretely, for an environment in which Random achieves return `R_rand` and BS-Optimized achieves return `R_bs`, a policy with return `R` has a normalized score of `(R − R_rand) / (R_bs − R_rand)`. A score of zero means the policy is no better than uniform random ordering. A score of one means the policy matches the simulation-optimised heuristic ceiling. A score above one means the policy exceeds that ceiling, which is possible because BS-Optimized is restricted to a stationary base-stock policy class while learned policies are not.
+
+The reason for reporting this normalized score rather than raw returns is that absolute returns are not comparable across the five environments studied here. The environments differ substantially in their absolute cost magnitudes because some incur larger shipment costs, larger holding costs, or larger throughput than others. A 100-unit improvement in raw return on the symmetric environment is not the same achievement as a 100-unit improvement on a heterogeneous environment with much higher absolute costs. The normalized score puts every environment on a common zero-to-one scale, which makes degradation and recovery directly comparable across the experimental suite.
+
+#### Granularity of the base-stock baselines
+
+The base-stock baselines use a per-(warehouse, SKU) parameterization rather than a single shared base-stock or a per-SKU-only base-stock. The reason is that under heterogeneity the optimal base-stock level depends jointly on the warehouse and the SKU. A warehouse facing high home-region demand requires more inventory than one facing low demand, and a heavy SKU with low order quantity requires a different inventory level than a light SKU with high order quantity. A coarser baseline that forces all warehouses or all SKUs to share a single base-stock cannot represent this variation and therefore understates the true heuristic ceiling. Using such a coarser baseline as the reference would artifactually inflate the apparent gain of any learned policy.
 
 ---
 
-## Baselines
+## 7. Interventions
 
-### Heuristic and Optimization Baselines
+The thesis evaluates five modifications to the cooperative parameter-shared MARL pipeline. A3 is positioned as the architectural intervention proposed by this thesis and is the centerpiece of contribution C3. A1, A2, and A4 are standard-practice modifications that the thesis tests as controls rather than as novelty claims. Each one targets a specific candidate explanation for the heterogeneity-induced performance gap, namely a per-agent scale mismatch (A1), a missing observation feature (A2), or a reward-component dominance pattern (A4). If any of these controls alone closes the gap on its targeted heterogeneity type, the result narrows the necessary intervention space and weakens the architectural claim of A3. If none of them does, the result strengthens the case for an architectural fix and motivates A3. A5 stacks the most effective subset of A1 through A4 into a single condition, and its decomposition by drop-one ablation is reported in E3.1. A separate matched-capacity MLP control isolates A3's mechanism from its parameter count.
 
-The non-RL baselines are implemented in `src/experiments/run_baselines.py` and run as multi-seed evaluations using the same statistical/output protocol as the RL seed-evaluation pipeline. All base-stock baselines use the standard order-up-to decision rule `order[w,k] = clip(S[w,k] - inventory[w,k] - pipeline[w,k], 0, max_qty)`.
+### A3 — Per-SKU Self-Attention (Architectural Intervention)
 
-| Baseline | Description | Sweep / Optimization |
-|----------|-------------|----------------------|
-| **Random** | Uniform random orders in `[-1, 1]` per (warehouse, SKU) at every step. Lower-bound sanity check. | None |
-| **ConstantOrder** | Per-(warehouse, SKU) constant order quantity calibrated from observed home-region demand in pilot episodes, scaled by a shared multiplier `alpha`. | Sweep over `alpha` |
-| **BS-Newsvendor** | Oracle base-stock using *true* demand parameters: `S = L · E[D] + z · sqrt(L · E[D])` with Poisson approximation. Per-(warehouse, SKU) levels. | Sweep over safety factor `z` |
-| **BS-Adaptive** | Rolling-mean base-stock using *observed* demand history (no knowledge of true demand parameters): `S = L · D_mean + z · sqrt(L · D_var)` over the last `H` observations. Orders zero before any demand is observed. | Sweep over `z` and window `H` |
-| **BS-Optimized** | Joint simulation-optimized base-stock: Gaussian-process Bayesian optimization over all `(n_warehouses × n_skus)` base-stock parameters jointly, with the BO objective averaged over training-mode rollouts. | Joint BO (`n_calls=300`) |
-| **BS-Independent** | Per-warehouse independent BO with iterated best response: each warehouse's base-stock vector is optimized while holding the others fixed, cycling through warehouses for `n_rounds`. Initialized from a newsvendor formula on calibrated mean demand. | Iterated-BR BO (`n_rounds=3`, `n_calls_per_wh=100`) |
+**What.** A3 replaces the flat-MLP actor and critic backbones with an architecture that explicitly represents per-SKU information as a sequence of tokens. The per-SKU portion of each agent's observation is reshaped into a matrix with one row per SKU, and each row is projected through a shared linear layer to a common embedding dimension `d_model`. Multi-head self-attention is then applied across the SKU tokens, so each SKU's representation is updated by a learned weighted combination of all SKUs' representations. The attended tokens are flattened, concatenated with the warehouse identity and the aggregate features, and processed through a small MLP head that produces per-SKU action means in the actor or a scalar value in the critic.
 
-The per-(warehouse, SKU) base-stock granularity is critical: pilot baselines that used a single shared parameter across all SKUs were misleadingly bad on heterogeneous settings. BS-Optimized and BS-Independent serve as strong simulation-optimized references that do not require analytical demand assumptions.
+**Why it helps.** A flat MLP receives the observation as a single vector and must discover from gradient signal alone that certain input dimensions form one block per SKU. A3 builds this structure into the network through the shared projection and the per-SKU tokens, which forces the policy to treat each SKU symmetrically before any cross-SKU interaction and allows it to learn explicit inter-SKU relationships through attention. Under SKU heterogeneity, where the correct behaviour for each SKU is qualitatively different, this inductive bias gives the policy the right vocabulary to differentiate between SKUs without inferring SKU identity indirectly from feature magnitudes. The parameter count of the attention module does not grow with the number of SKUs, which makes the intervention scale-friendly.
 
-### RL Baseline: CPPO (Centralized PPO)
+**Primary target.** SKU heterogeneity and combined heterogeneity.
 
-`src/algorithms/cppo.py` implements a single-agent PPO that controls all warehouses simultaneously. The environment is wrapped in `CentralizedEnvWrapper`, which exposes the concatenated global observation, splits the joint action vector into per-warehouse sub-actions, and aggregates per-warehouse rewards into a single scalar.
+**Expected outcome.** A3 is expected to produce its largest gain on `env_sku_hetero` and `env_combined_hetero`, where the SKU structure is the dominant axis of variation. A modest gain is expected on `env_cost_hetero` because the per-SKU tokenisation also exposes per-SKU shipment cost structure more cleanly. A3 is expected to be approximately neutral on `env_demand_hetero` because the dominant variation in that regime is across warehouses rather than across SKUs. A3 is expected to interact substitutively with A2 because both inject SKU-aware information into the policy, with A3 dominating when both are active, and to interact additively with A1 because the two address orthogonal heterogeneity axes.
 
-**Why include it:** CPPO removes every MARL challenge — non-stationarity, partial observability, credit assignment — and serves as an upper-bound RL reference for what a centralized controller with full information can achieve. The gap between CPPO and the best MAPPO-PS configuration quantifies the cost of decentralized execution and parameter sharing under heterogeneity.
+### A1 — Per-Agent Observation Normalization (Control)
 
-### Factored Policy (Per-WH-SKU) — Phase 3 Comparison
+**What.** A1 computes the running mean and standard deviation of the observation per warehouse rather than pooling all warehouses' observations into a single statistic. Each agent's observation is then normalized by its own statistics before being fed to the policy network. Under parameter sharing the policy itself remains shared across agents and only the normalization pre-step is agent-specific.
 
-A separate RL reference (not implemented in `run_baselines.py`): each (warehouse, SKU) pair has its own network with per-SKU-only observations and a single scalar action output. Under parameter sharing, a single network is shared across all pairs. Scalable but loses inter-SKU information. Used in Phase 3 to address "why not just decompose per SKU?" and to motivate the SKU attention architecture.
+**Why it helps.** Pooled-statistics normalization collapses warehouses with different demand scales onto a single mean and standard deviation, which makes a low-demand warehouse's features look like persistent negative outliers and a high-demand warehouse's features look like persistent positive outliers. Per-agent statistics remove this scale confound by giving each warehouse its own reference distribution. Every input value is then presented to the shared policy in a consistent semantic frame, namely whether it is above or below this agent's own typical level, regardless of absolute scale.
+
+**Primary target.** Demand heterogeneity and cost asymmetry.
+
+**Expected outcome.** A1 is expected to help on `env_demand_hetero` and `env_cost_hetero` because both regimes produce per-warehouse scale differences that pooled statistics cannot absorb. A1 is expected to be approximately neutral on `env_sku_hetero` because the warehouses are symmetric in that regime and per-agent statistics reduce to pooled statistics. A1 is expected to interact additively with A2 and with A3 because all three target orthogonal axes of the heterogeneity problem.
+
+### A2 — Cost-Aware Entity Features (Control)
+
+**What.** A2 appends a static per-SKU feature vector to each warehouse's observation. The vector contains the SKU weight, the holding cost, and the penalty cost. These features carry no temporal information because they are properties of the environment that do not change across timesteps, but they let the shared policy condition on SKU identity through explicit numeric attributes rather than through latent inference from the temporal features.
+
+**Why it helps.** Without A2 the policy can only distinguish SKUs by the magnitudes of their inventory levels, pipeline contents, and demand history. Under SKU heterogeneity these magnitudes correlate with SKU identity, but the correlation is indirect and the policy must infer the identity from it. A2 provides the identity directly, which lets the policy map from "this is the heavy SKU" to "order rarely" without first inferring weight from observed demand magnitude. A2 is the cheapest possible intervention that injects SKU-aware information into the network.
+
+**Primary target.** SKU heterogeneity and cost asymmetry.
+
+**Expected outcome.** A2 is expected to help on `env_sku_hetero` and `env_cost_hetero` because both create per-SKU or per-warehouse cost structure that the policy must learn. The size of the gain on `env_sku_hetero` is the key control variable for A3. If A2 alone recovers the SKU-heterogeneity gap, then explicit feature engineering suffices and A3's attention mechanism is not necessary. A2 is expected to be approximately neutral on `env_demand_hetero` because SKU identity is not the binding constraint in that regime.
+
+### A4 — Reward Component Balancing (Control)
+
+**What.** A4 applies fixed scalar weights to the four cost components (holding, penalty, outbound shipment, inbound shipment) before summing them into the reward. The weights are calibrated so the per-component contribution to the reward magnitude is approximately equal at a baseline operating point. Under the default unweighted reward, the holding component dominates because it scales with weight, and A4 dampens the holding contribution and raises the others to equalise their per-step pressure on the policy gradient.
+
+**Why it helps.** Without weighting, a policy that minimises the unweighted sum of costs has a strong incentive to reduce the largest component first because that produces the steepest gradient signal. Under SKU heterogeneity the heaviest SKUs dominate the holding-cost component by an order of magnitude, and a shared policy can most quickly reduce reward by under-stocking those SKUs at the price of large lost-sales penalties on them. A4 equalises the per-component pressure so the policy must balance all four cost components rather than chase the dominant one.
+
+**Primary target.** SKU heterogeneity and cost asymmetry.
+
+**Expected outcome.** A4 is expected to help on `env_sku_hetero` because the weight-scaled holding cost is the dominant gradient signal in that regime. A4 is expected to be approximately neutral on `env_demand_hetero` because the failure mode there is cross-warehouse magnitude mismatch rather than cross-component imbalance, which A1 is designed to address instead. A4 may interact substitutively with A3 because both target SKU heterogeneity through different surfaces, A3 through the policy network and A4 through the reward signal. If A4 alone closes the SKU-heterogeneity gap, the failure mode reduces to reward domination and A3's architectural contribution weakens.
+
+### A5 — Combined
+
+**What.** A5 stacks the interventions identified as most effective from A1 through A4 individually into a single condition. The default expectation is the full combination of A1, A2, A3, and A4, and the exact composition is finalised after the individual-intervention results in E2.1 through E2.4. A5 is run as one condition per heterogeneous environment alongside the individual interventions.
+
+**Why it helps.** The four individual interventions target distinct axes of heterogeneity through distinct mechanisms. If their gains are additive or synergistic, A5 produces the strongest recovery available within the intervention space. If their gains are substitutive, A5 reveals which interventions dominate and which become redundant in combination. The drop-one ablation in E3.1 decomposes A5 into the marginal contribution of each component, which is the empirical basis for the C4 decision matrix.
+
+**Primary target.** Combined heterogeneity (`env_combined_hetero`) is the primary stress test, with the other three heterogeneous environments included for completeness.
+
+**Expected outcome.** A5 is expected to produce the strongest recovery on every heterogeneous environment, with the largest gain on `env_combined_hetero` where multiple heterogeneity axes are simultaneously active. The interactions across A1 through A4 are the central empirical question of E3, and the drop-one ablation in E3.1 is the primary tool to answer them.
+
+### Matched-Capacity MLP Control for A3 (E2.3b)
+
+**What.** The matched-capacity MLP control replaces the per-SKU attention architecture of A3 with a flat MLP whose total trainable parameter count matches the attention architecture exactly. The flat MLP has no inductive bias toward per-SKU token structure and treats the observation as an unstructured vector, but it has the same number of parameters available as A3.
+
+**Why it helps as a control.** A3 introduces both new parameters and a new architectural mechanism. The matched-capacity MLP isolates the contribution of the mechanism by holding the parameter count constant. Any performance gap between A3 and the matched MLP is therefore attributable to the architectural mechanism rather than to the larger parameter budget. This control is non-negotiable because a reviewer will otherwise ask whether the gains of A3 are simply due to capacity, and an empirical answer is much stronger than a theoretical defence.
+
+**Primary target.** `env_sku_hetero` and `env_combined_hetero`, the two environments on which A3 is expected to produce its largest gains.
+
+**Expected outcome.** The matched-capacity MLP is expected to underperform A3 on `env_sku_hetero` and `env_combined_hetero` by a meaningful margin. If it matches or exceeds A3, the architectural-mechanism claim of A3 collapses and the contribution C3 must be reframed around capacity rather than mechanism. The control is run only on the two environments where A3 is the proposed intervention.
 
 ---
 
-## Interventions
+## 8. Experimental Program
 
-### A1: Per-Agent Normalization
+The program is organized into six blocks (E0, E1, E2, E3, E5, E7). E0 establishes the baseline; E1 is the diagnostic study; E2 tests the interventions; E3 ablates and explores secondary axes; E5 is the coupling sensitivity check; E7 covers scalability and transfer. **Sequencing matters:** E0.5 (κ measurement) → E1.2 (per-env re-tunes) → E2.0 (HP-transfer calibration) feed downstream experiments and should be run before any large E2/E3 commitments.
 
-**What it does:** Compute observation mean/std statistics separately per agent (or per agent-type) rather than pooling all warehouses together. Agents with different scales get appropriate normalization.
+Every experiment specifies a question, a design, conditions, a seed count, an expected outcome (pre-registered hypothesis), the contribution it supports, and a falsifier — the empirical pattern that would force a different conclusion. Falsifiers exist so a negative result is still a publishable result.
 
-**Why it helps:** Under demand heterogeneity, a high-demand warehouse has much larger feature magnitudes than a low-demand one. With pooled statistics, the low-demand warehouse's features look like large negative outliers. Per-agent normalization makes all agents see semantically consistent inputs: "this agent is slightly above/below its own typical demand."
+Default seed list across the program: `100, 200, 300, 400, 500` (5 seeds where stated; 3 where noted).
 
-**Implementation:** Modify `obs_stats.py` to store observations per warehouse separately, compute `(mean_i, std_i)` per warehouse, and pass a dict to the environment. In `_build_local_obs`, use `obs_stats[warehouse_idx]` instead of global stats.
+### E0 — Symmetric Baseline
 
-**Primary target:** Demand heterogeneity, cost asymmetry.
+**Purpose.** Establish that IPPO-PS, MAPPO-PS, and CPPO converge to comparable performance on the symmetric environment. The symmetric env is a sanity check, not a result; under weak coupling the per-warehouse problem is near-decomposable and centralization should provide little measurable benefit.
 
-### A2: Entity Embeddings / Cost-Aware Observations
+| ID | Env | Condition | Seeds | Expected outcome / Falsifier |
+|---|---|---|---|---|
+| E0.1 | symmetric | IPPO-PS top-10 trials from 1000-sample Optuna tune | 5 each | All top-10 within ~5% of each other; best ≈ baseline ceiling. *Falsifier:* large between-trial variance suggests HPs are under-determined. |
+| E0.2 | symmetric | MAPPO-PS 1000-sample Optuna tune → top-10 seed eval | 5 each | MAPPO-PS within ~5% of IPPO-PS. *Falsifier:* MAPPO-PS systematically outperforms IPPO-PS even under symmetry → centralization helps even when theory says it should not, which would change the framing of C1. |
+| E0.3 | symmetric | CPPO tune → top-10 seed eval | 5 each | CPPO within ~5% of IPPO-PS / MAPPO-PS. *Falsifier:* CPPO systematically dominates → the multi-agent framing of the problem is questionable. |
+| E0.4 | symmetric | All baselines (Random, ConstantOrder, BS-Newsvendor, BS-Adaptive, BS-Optimized, BS-Independent) | per pipeline | RL within 5% of BS-Optimized; BS-Optimized dominates BS-Newsvendor (BO improves on analytical formula). *Falsifier:* BS-Optimized substantially below BS-Newsvendor → BO is under-tuned. |
+| E0.5 | all five envs | Compute κ from existing BS-Optimized rollouts | analysis only | κ_symmetric is the smallest; κ rises with cost asymmetry. *No falsifier* — measurement, not test. |
 
-**What it does:** Append static feature vectors encoding warehouse identity and SKU characteristics (weight, cost parameters) to each observation. With 3 warehouses and 5 SKUs, use static features (not learned embeddings) — append `sku_weight`, `holding_cost`, `penalty_cost` to the observation vector.
+**Supports:** C1 (the symmetric result is the baseline against which heterogeneity-induced degradation is measured).
 
-**Why it helps:** Gives the shared policy explicit knowledge about the agent it controls ("this SKU weighs 15 kg while the other weighs 0.5 kg") instead of forcing it to infer identity from feature magnitudes alone.
+### E1 — Diagnostic Phase
 
-**Implementation:** Add cost profile and SKU weight features to `_build_local_obs()`. Register new features in `feature_config.yaml`.
+**Purpose.** Characterize how MAPPO-PS and its 2×2 information-sharing variants degrade under each heterogeneity type, after ruling out the "you just needed different HPs" explanation. This is the empirical core of C2.
 
-**Note on learned vs. static embeddings:** At 3 warehouses and 5 SKUs, learned embeddings (`nn.Embedding`) provide minimal benefit over static features (there are too few entities for the embedding space to learn latent structure). Learned embeddings become justified at 10+ entities. This is a clean, defensible design choice.
+| ID | Env | Condition | Seeds | Expected outcome / Falsifier |
+|---|---|---|---|---|
+| E1.1 | all 4 hetero envs | MAPPO-PS with symmetric-tuned HPs (transferred) | 5 | Degradation increases from `demand_hetero` → `cost_hetero` → `sku_hetero` → `combined_hetero`. Per-SKU inventory traces reveal which SKUs are neglected. *Falsifier:* no degradation under any heterogeneity → MAPPO-PS is already robust, and the thesis premise is weak. |
+| E1.2 | all 4 hetero envs | MAPPO-PS small re-tune (~100 Optuna trials) → top-3 seed eval | 5 each | Re-tune narrows the gap by < 50% (architectural problem, not HP problem). *Falsifier:* re-tune fully closes the gap → the contribution becomes "MAPPO-PS needs per-env tuning," which is a weaker (but still publishable) story. |
+| E1.3 | all 4 hetero envs | 2×2 grid: IPPO-PS, IPPO-noPS, MAPPO-noPS (HPs transferred + small polish) | 3 each | MAPPO > IPPO (centralization helps under heterogeneity); PS hurts on `sku_hetero` and `cost_hetero` but is acceptable on `demand_hetero`. *Falsifier:* PS uniformly wins or uniformly loses → the parameter-sharing-as-shared-target-under-heterogeneity framing weakens. |
+| E1.4 | all 4 hetero envs | CPPO small re-tune (~50 trials) → top-3 seed eval | 5 each | CPPO outperforms MAPPO-PS by 10–25% on the hetero envs (gap larger than under symmetry). *Falsifier:* CPPO-MAPPO gap stays under 5% → either MARL is "free" under this heterogeneity, or CPPO needs more tuning. |
+| E1.5 | all 4 hetero envs | All baselines per-(WH, SKU) tuned | per pipeline | BS-Optimized > BS-Newsvendor under heterogeneity; ranking informs the RL gap. | 
 
-**Primary target:** SKU heterogeneity, cost asymmetry.
+**Supports:** C1 (degradation under controlled heterogeneity), C2 (the empirical diagnostic).
 
-### A3: SKU-Level Attention
+**On E1.4 CPPO re-tune.** Required, not optional: if MAPPO is allowed an env-specific re-tune (E1.2), CPPO must also be re-tuned for the upper bound to be fair. Asymmetric tuning is a reviewer attack surface and CPPO especially needs a fair shot because it serves as the ceiling.
 
-**What it does:** Replace the flat MLP actor/critic with a network that reshapes per-SKU features into tokens, applies multi-head self-attention, then aggregates. The architecture processes each SKU independently through a shared projection, then uses attention to capture inter-SKU relationships.
+### E2 — Targeted Interventions
 
-**Data flow:**
+**Purpose.** Test each intervention individually and as the best combination on the four heterogeneous envs. All on MAPPO-PS unless noted.
 
-1. Split the flat observation into `warehouse_id`, `per_sku_matrix (n_skus, features_per_sku)`, and `aggregate_features`
-2. Project each SKU's features to attention dimension: `input_proj: Linear(features_per_sku, d_model)`, shared across SKUs
-3. Apply multi-head self-attention: `nn.MultiheadAttention(embed_dim=d_model, num_heads=2)` over the n_skus tokens
-4. Flatten attention output, concatenate with aggregate and warehouse ID features
-5. Feed through actor MLP head to produce per-SKU action means
+#### Sequencing gate: E2.0 (HP-transfer calibration)
 
-**For MAPPO critic:** Apply the same SKU attention to each agent's local observation independently, flatten each to a vector, concatenate all agents' vectors, feed to critic MLP.
+| ID | Env | Condition | Seeds | Decision rule |
+|---|---|---|---|---|
+| E2.0 | combined_hetero | A3 (SKU attention) with E1.2-best HPs **vs** A3 with ~50-trial focused polish (LR, entropy, vf-coeff, `d_model ∈ {32, 64, 128}`, `n_heads ∈ {1, 2, 4}`) | 3 + 3 | Gap < 5% → reuse E1.2 HPs everywhere. 5–15% → polish only A3 and A5. > 15% → polish every intervention (~5 polishes × 4 envs). |
 
-**Why it helps:** The model's parameter count does not grow with n_skus (shared projection + attention weights), providing scalability. Per-SKU output maps directly to per-SKU actions. Under heterogeneity, the attention weights learn to differentiate how to process heavy vs. light SKUs.
+The calibration is run **before** committing budget to E2.1–E2.5.
 
-**Implementation:** Create a new `SKUAttentionArchitecture` class. Register in `registry.py`.
+#### Intervention experiments
 
-**Primary target:** SKU heterogeneity. This is the **main architectural contribution** of the paper.
+| ID | Env | Condition | Seeds | Expected outcome / Falsifier |
+|---|---|---|---|---|
+| E2.1 | 4 hetero envs | MAPPO-PS + A1 (per-agent normalization) | 5 | A1 helps on `demand_hetero` and `cost_hetero`; ≈ neutral on `sku_hetero`. *Falsifier:* A1 helps everywhere → it is a general-purpose fix and the non-monotonicity claim weakens. |
+| E2.2 | 4 hetero envs | MAPPO-PS + A2 (cost-aware features) | 5 | A2 helps on `sku_hetero` and `cost_hetero`; small effect on `demand_hetero`. |
+| E2.3 | 4 hetero envs | MAPPO-PS + A3 (SKU attention) | 5 | A3 helps most on `sku_hetero` and `combined_hetero`; meaningful but smaller gain on `cost_hetero`; ≈ neutral on `demand_hetero` (warehouses, not SKUs, are heterogeneous). HP treatment per E2.0 decision rule. |
+| **E2.3b** | sku_hetero, combined_hetero | MAPPO-PS + parameter-matched flat MLP (no attention) | 5 each | MLP control underperforms A3 by ≥ 5%. *Falsifier:* MLP control matches A3 → the contribution of A3 is **capacity**, not **mechanism**; the architectural-contribution framing weakens and C3 reframes around capacity. |
+| E2.4 | 4 hetero envs | MAPPO-PS + A4 (reward balancing) | 5 | A4 helps on `sku_hetero` and `cost_hetero`; ≈ neutral on `demand_hetero`. |
+| E2.5 | 4 hetero envs | MAPPO-PS + A5 (best combination from A1–A4) | 5 | A5 outperforms each individual intervention on the env it targets; recovers within X% of BS-Optimized on `combined_hetero`. |
 
-### A4: Reward Component Balancing
+**Supports:** C3 (interventions and their pairing with failure modes).
 
-**What it does:** Apply fixed weights to the cost components (holding, penalty, shipping) in the reward via `cost_weights` in `CostRewardCalculator`, so no single component dominates the gradient.
+### E3 — Ablation, Analysis, and Secondary Axes
 
-**Why it helps:**
+**Purpose.** Decompose A5, analyze per-SKU behavior, and run the secondary experimental axes that close obvious reviewer questions.
 
-| Heterogeneity type | Benefit | Mechanism |
+| ID | Env | Condition | Seeds | What it tests |
+|---|---|---|---|---|
+| E3.1 | combined_hetero | A5 drop-one: A5 minus A1, minus A2, minus A3, minus A4 | 5 each | Contribution of each component. Builds the guidelines matrix (C4). |
+| E3.2 | all hetero | Analysis-only: per-SKU inventory trajectories, ordering patterns, attention-weight heatmaps from A3 | n/a | Qualitative recovery story; figures for the paper. |
+| E3.3 | sku_hetero, combined_hetero | Factored per-(WH, SKU) policy with shared parameters | 3 each | Addresses "why not just decompose per SKU?" Shows the factored policy loses inter-SKU information and motivates A3. *Falsifier:* factored matches A3 → A3's value is questionable. |
+| E3.4 | sku_hetero, combined_hetero | Information-sharing variants: local-only / own-aggregates / global-aggregates × {IPPO-PS, MAPPO-PS} | 3 each | Does observation-level aggregation substitute for the centralized critic? |
+| E3.5 | 1–2 hetero envs | IPPO weighted reward `α ∈ {0.0, 0.3, 0.5}` for `r_i = α·(-cost_i) + (1−α)·(-Σ cost_j)` | 3 each | Reward-channel information sharing as an alternative to a centralized critic. |
+| E3.6 | combined_hetero | MAPPO-PS + A5 with `agent` vs `team` reward scope | 3 each | Whether `agent` scope is necessary or whether `team` scope can match it under interventions. Tested on the hardest env only. |
+| E3.7 | combined_hetero | A5 from-scratch vs A5 + simple warm-start (symmetric checkpoint) vs A5 + progressive curriculum (sym → mild hetero → full hetero) | 3 each | Whether curriculum adds value on top of architecture. *Two clean outcomes:* curriculum adds nothing → strong support for the architectural claim; curriculum adds modest gain → "interventions are dominant, curriculum is complementary." |
+
+**Supports:** C3 (drop-one decomposition), C4 (guidelines matrix from E3.1 + E3.2).
+
+### E5 — Coupling Sensitivity (Appendix)
+
+**Purpose.** Confirm the heterogeneity-induced failures and intervention-driven recoveries hold under stronger coupling.
+
+| ID | Env | Condition | Seeds | What it tests |
+|---|---|---|---|---|
+| E5.1 | combined_hetero @ 3× coupling | MAPPO-PS baseline; MAPPO-PS + best A5; IPPO-PS | 3 each | The 10× findings replicate qualitatively at 3×; the MAPPO–IPPO gap may widen. ~6 runs total, appendix only. |
+
+### E7 — Scalability and Transfer
+
+**Purpose.** Demonstrate that interventions scale and the best A5 transfers to a real-world-inspired instance without re-tuning.
+
+| ID | Env | Condition | Seeds | What it tests |
+|---|---|---|---|---|
+| E7.1 | 5WH5SKU and/or 7WH5SKU @ 10× | MAPPO-PS + best A5; MAPPO-PS baseline; entity-encoder critic vs flat critic | 3 each | Scaling. Introduces the entity-encoder critic (deferred from main study). |
+| E7.2 | DataGenerator-produced real-world-inspired instance | MAPPO-PS + best A5 (zero-shot, no re-tune) vs heuristic baseline | 3 | External validity / transfer. |
+| E7.3 (optional) | combined_hetero | Best A5 with MLP vs best A5 with GRU | 3 each | Brief temporal-architecture check. |
+
+---
+
+## 9. Summary Table — Entire Experimental Program
+
+A single matrix of every block, for navigation and budget-planning.
+
+| Block | Purpose | Envs | Main conditions | Seeds | Approx. new runs |
+|---|---|---|---|---|---|
+| **E0** | Symmetric baseline | symmetric | IPPO-PS, MAPPO-PS, CPPO tunes + top-10 seed eval; baselines; κ | 5 each top-10 | Mostly done |
+| **E1** | Diagnostic | 4 hetero | MAPPO-PS transferred + re-tune; 2×2 grid; CPPO re-tune; baselines | 3–5 | ~50–60 |
+| **E2** | Interventions | 4 hetero | E2.0 calibration; A1, A2, A3, A3b (MLP control), A4, A5 on MAPPO-PS | 5 | ~80 |
+| **E3** | Ablation & secondary | hetero subset | A5 drop-one; per-SKU analysis; factored policy; info sharing; reward scope; curriculum | 3–5 | ~40 |
+| **E5** | Coupling sensitivity | combined @ 3× | MAPPO-PS baseline / + A5 / IPPO-PS | 3 | ~6 |
+| **E7** | Scalability & transfer | 5WH/7WH, real-world | MAPPO-PS ± A5; entity-encoder critic; GRU | 3 | ~20 |
+| **Total** | | | | | **~200 new training runs** |
+
+### Lean version (if compute is tight)
+
+| Drop | Saves | Cost to thesis |
 |---|---|---|
-| SKU heterogeneity | **High** | Heavy SKU holding cost dominates reward → balancing equalizes component contributions |
-| Cost asymmetry | **Medium** | Different agents have different component ratios → balancing ensures all components get attention |
-| Demand heterogeneity | **Low** | The issue is cross-agent magnitude, not cross-component imbalance → A1 helps here instead |
+| E3.4 (info sharing) | ~10 runs | Lose one secondary axis; mention as future work |
+| E3.5 (weighted reward) | ~6 runs | Lose alternative-to-critic story |
+| E7.2 (real-world transfer) | ~3 runs | Lose external-validity claim; reframe as future work |
+| E7.3 (GRU) | ~3 runs | Lose temporal-arch check |
+| All seeds 5 → 3 in E2 | ~30 runs | Statistical power reduced; pre-register paired comparisons to compensate |
 
-**Implementation:** Calibrate `cost_weights` in `CostRewardCalculator` (already partially implemented).
-
-### A5: Combined
-
-Stack the best interventions from A1–A4. Run the best combination identified from individual intervention results. Includes ablation to show which components contribute most.
-
-### Entity-Encoder Critic (Phase 4 scalability)
-
-**What it does:** Replace MAPPO's flat concatenation critic with a structured architecture: shared encoder MLP per agent's local observation → mean-pooling (or attention-pooling) across agent embeddings → value head.
-
-**Why deferred:** At 3 warehouses, the flat critic input is ~162 dimensions — an MLP handles this fine. The entity-encoder's structural benefit (permutation awareness, compositional processing) becomes meaningful at 5+ warehouses where the flat input grows large. Introduce in Phase 4 as a scalability enabler.
+**Non-negotiable:** E0, E1.1–E1.5, E2.0, E2.3, E2.3b, E2.5, E3.1, E3.2. These carry C1, C2, C3, C4.
 
 ---
 
-## Additional Experimental Axes (Phase 3)
+## 10. Statistical Protocol
 
-### Information Sharing via Network-Level Aggregate Observations
+A reviewer at a top venue will reject a paper that compares overlapping error bars and calls it a result. The protocol below is committed in advance.
 
-Three feature config variants:
-
-1. **Local only:** All aggregates off. Each agent sees only its own warehouse data.
-2. **Local + own aggregates (current):** `inventory_aggregate: true`. Agent sees its own total inventory across SKUs.
-3. **Local + global aggregates (new):** Network-level aggregates — total inventory across ALL warehouses per SKU, total demand across ALL regions per SKU.
-
-Run IPPO-PS and MAPPO-PS with each variant on heterogeneous envs. This answers:
-- Does adding global information to IPPO make it competitive with MAPPO (which gets global info through the critic)?
-- Does MAPPO also benefit from global features in the observation (redundant with the critic, or complementary)?
-
-**Implementation:** Modify `_build_local_obs()` to accept and append network-level features computed once in `_get_observations()`.
-
-### Weighted Reward Scope for IPPO
-
-Test `r_i = alpha * (-cost_i) + (1-alpha) * (-sum(cost_j))` for IPPO as a form of information sharing through the reward signal. Test `alpha ∈ {0.0, 0.3, 0.5}` on 1-2 heterogeneous envs. Compare to MAPPO with agent scope.
-
-Keep separate from network aggregate experiments to avoid confounding.
-
-### Factored Policy (Per-WH-SKU) Comparison
-
-Each (warehouse, SKU) pair has its own network with per-SKU-only observations and a single action output. Under parameter sharing, a single network shared across all pairs.
-
-**Purpose:** Addresses the reviewer question "why not just decompose the problem per SKU?" Shows that the factored approach is insufficient under SKU heterogeneity because it loses inter-SKU information — directly motivating the attention architecture.
-
-### Agent vs. Team Reward Scope
-
-Test agent vs. team reward on `env_combined_hetero` only (the hardest setting). Hypothesis: agent reward works better under heterogeneity because credit assignment is clearer.
+- **Seeds.** Default `[100, 200, 300, 400, 500]` (n = 5) for all main claims. n = 3 for secondary / exploratory experiments and for the 2×2 grid in E1.3. Same seeds across conditions within an experiment so that comparisons are paired.
+- **Primary comparison.** Paired seed-level differences `δ_s = metric(condition_A, seed_s) − metric(condition_B, seed_s)`. Report `mean(δ) ± SE(δ)` not `mean(A) ± SD(A)`. Use a paired t-test on `δ`; report effect size (Cohen's d_z).
+- **Significance threshold.** α = 0.05. Multiple-comparison correction (Bonferroni or Holm) applied when comparing one intervention across the four heterogeneous envs (k = 4) or when comparing interventions pairwise within an env.
+- **Headline metric.** `eval/episode_return_mean` averaged across 100 evaluation episodes per seed, evaluated with a deterministic policy (mean action). Per-SKU inventory levels, stockout rates, and cost-component breakdowns are reported alongside but are not the primary statistic.
+- **Normalized score.** For cross-env comparisons, report `(metric(condition) − metric(Random)) / (metric(BS-Optimized) − metric(Random))` so degradation is comparable across envs with different absolute cost scales.
+- **What is pre-registered vs. exploratory.** The expected outcomes and falsifiers in §8 are pre-registered hypotheses; per-SKU behavior analysis (E3.2) and attention-weight visualization (E3.2) are exploratory and labeled as such in the thesis.
+- **Reproducibility.** All runs use the central `SeedManager` (see [IMPLEMENTATION.md §7](IMPLEMENTATION.md)). PyTorch deterministic mode is enabled. Per-(worker, env) seeds are derived from the root seed.
 
 ---
 
-## Design Decisions Made
+## 11. Design Decisions Table (Consolidated)
 
-| Decision | Choice | Justification |
-|----------|--------|---------------|
-| SKU count | 5 | Attention needs sufficient tokens; 5 spans realistic portfolio diversity |
-| Warehouse count | 3 (scale to 5+ in Phase 4) | Sufficient for core contribution; scaling is a separate experiment |
-| Primary algorithm | MAPPO-PS | Most constrained + most scalable = highest practical relevance |
-| Action space | `demand_centered` (not searched) | `a=0` orders expected demand; natural default; easier learning than `direct` |
-| Reward scope | `agent` (default) | Cleaner credit assignment; weighted/team tested as secondary axis |
-| Normalization | `meanstd_custom` (searched via tune) | Per-feature-dimension normalization; per-agent variant is an intervention |
-| Feature config | `inventory_aggregate`, `rolling_demand_mean` fixed on; `stockout` fixed off; `demand_variability` + 8 others searched | Based on IPPO tune evidence (always on/off in top-10 trials) |
-| Demand distribution | Poisson only | Standard in stochastic inventory literature; isolates heterogeneity from demand model complexity |
-| Demand sampler floor | `min_quantity_per_sku: 0` for all 5-SKU envs (symmetric + heterogeneous); legacy floor of 1 retained for 3WH2SKU pilot | Floor inflates effective mean by `e^{-λ}`, which is negligible at λ=5 (0.13%) but ≥100% at λ≤0.5; preserving the floor would destroy the intended inverse weight–demand relationship in `env_sku_hetero` and `env_combined_hetero` |
-| Network-weighted demand budget | 200 weight-units/step (matched across symmetric, demand-hetero, sku-hetero, cost-hetero envs) | Eliminates throughput-magnitude as a confound when attributing performance differences to heterogeneity dimensions |
-| SKU correlations | Not included | Independent Poisson per SKU; correlations mentioned as future work |
-| GRU / framestacking | Not in main study | MLP with temporal features sufficient; optional brief GRU comparison post-Phase 2 |
-| Data generator | Used only for parameter justification in appendix; not in experiment pipeline | Demand generation incomplete; domain randomization is scope creep |
-| Learned embeddings | Static features at 3WH/5SKU; learned embeddings at 10+ entities | Too few entities for learned representations to outperform static features |
-| Entity-encoder critic | Deferred to Phase 4 | Benefit marginal at 3 warehouses; valuable for scalability |
-| HAPPO | Excluded | Related work mention only; doesn't fit the problem structure |
-
----
-
-## Experiment Roadmap
-
-### Phase 0: Symmetric Tune
-
-**Goal:** Establish baseline IPPO-PS and MAPPO-PS performance on the symmetric 3WH5SKU environment.
-
-| Step | What | Status |
-|------|------|--------|
-| 0.1 | IPPO-PS tune on `env_symmetric_3WH5SKU`: 1000-sample Optuna, FIFO scheduler | Done |
-| 0.2 | IPPO critic size diagnostic (512 vs 1024 vs 512×512) | Done — all equivalent for 54-dim local critic |
-| 0.3 | Seed evaluation of top-10 IPPO trials (3 seeds each) | Pending |
-| 0.4 | MAPPO-PS tune on `env_symmetric_3WH5SKU`: 1000-sample Optuna, same search space + expanded critic sizes (add 1024 and "512_512") | Next step |
-| 0.5 | Seed evaluation of top-10 MAPPO trials (3 seeds each) | Pending |
-
-**Tune search space:**
-- Shared: `learning_rate` (loguniform 5e-5 to 3e-3), `batch_size` ({4000, 8000, 16000}), `num_epochs` ({3, 5, 10, 15, 20}), `num_minibatches` ({1, 4, 10, 20})
-- Algorithm-specific: `lam` ({0.9, 0.95, 0.97, 0.99}), `gamma` ({0.95, 0.99, 0.995}), `use_kl_loss`, `grad_clip` ({5, 10, 20, 40, 100000}), `entropy_coeff` (loguniform 0.001 to 0.1), `vf_loss_coeff` (uniform 0.1 to 1.2), `clip_param` ({0.1, 0.2, 0.3}), `vf_clip_param` (loguniform 10 to 10000), `logstd_init` (uniform -1.5 to 0), `logstd_floor` (uniform -4.0 to -1.5)
-- Network sizes: `actor_hidden_size` and `critic_hidden_size` ({64, 128, 256, 512, 1024, "64_64", "128_128", "256_256", "128_256", "256_128", "512_512"})
-- Features: 9 binary toggles (`incoming_demand_home`, `units_shipped_home`, `units_shipped_away`, `demand_forecast`, `days_of_supply`, `net_inventory_position`, `demand_history`, `demand_variability`, `pipeline_aggregate`)
-
-**Note on MAPPO critic size:** The IPPO tune showed 512 as optimal for the local critic (54-dim input), with larger sizes providing no benefit. For MAPPO, the global critic has 162-dim input — larger sizes may genuinely help. The expanded search space (adding 1024, "512_512") allows MAPPO to find its optimal capacity. This is fair because MAPPO inherently has a larger critic input and may need more capacity.
-
-### Phase 0.5: Infrastructure
-
-**Goal:** Build the remaining infrastructure needed for the full study.
-
-| Step | What | Status |
-|------|------|--------|
-| 0.5.1 | Implement **heuristic baselines** (Random, ConstantOrder, BS-Newsvendor) with per-(warehouse, SKU) sweeps in `src/experiments/run_baselines.py`. | Done |
-| 0.5.2 | Implement **adaptive baseline** (BS-Adaptive): rolling-mean base-stock from observed demand history; sweep over `z` and window `H`. | Done |
-| 0.5.3 | Implement **simulation-optimized baselines** (BS-Optimized joint BO; BS-Independent iterated-BR BO) for strong reference policies that do not require analytical demand assumptions. | Done |
-| 0.5.4 | Implement **CPPO** centralized single-agent PPO wrapper as RL upper-bound baseline (`src/algorithms/cppo.py`). | Done |
-| 0.5.5 | Create the **4 heterogeneous environment configs** (all 5-SKU): SKU hetero, demand hetero, cost asymmetry (2EU+1US), combined. | Not started |
-
-### Phase 1: Diagnostic — "What Breaks and Why?"
-
-**Goal:** Systematically characterize failure modes under each heterogeneity type. This becomes Section 4 of the paper.
-
-| Step | What | Why |
-|------|------|-----|
-| 1.1 | **Run MAPPO-PS (symmetric HPs) on all 4 heterogeneous envs.** 3-5 seeds. Collect: reward, per-agent reward, per-SKU inventory levels, per-SKU order quantities, stockout rates, cost breakdowns, entropy trajectories, VF explained variance. | Quantifies degradation. Identifies specific failure modes per heterogeneity type. |
-| 1.2 | **Re-tune MAPPO-PS on each heterogeneous env.** Smaller search space (key HPs only). 3-5 seeds on best config. | Controls for "maybe it just needed different HPs." If re-tuned MAPPO still abandons heavy SKUs, the problem is architectural, not HP-related. |
-| 1.3 | **Run the full 2×2 grid** (IPPO/MAPPO × PS/no-PS) on each heterogeneous env. Two strategies per cell: from-scratch (with per-env re-tuned HPs) + warm-start from Phase 0 checkpoint. | Information sharing analysis. Tests whether parameter sharing or centralized training is the issue. |
-| 1.4 | **Run all baselines** (per-SKU tuned) on all envs. | Provides the heuristic benchmark. |
-| 1.5 | **Analyze.** For each env: which SKUs are neglected? Which agents underperform? Where do cost breakdowns show imbalance? Build the diagnostic table. | Motivates Phase 2 interventions. |
-
-**Pre-registered hypotheses:**
-
-| Config | Expected degradation | Key predicted failure mode |
-|--------|---------------------|--------------------------|
-| `env_demand_hetero` | Moderate (10-20%) | Low-demand warehouse overstocks; MAPPO helps via global critic |
-| `env_cost_asymm` | Moderate (15-25%) | Credit assignment errors; MAPPO helps; PS may hurt |
-| `env_sku_hetero` | Large (20-40%) | Heavy SKU dominates reward; light SKU under-served or abandoned |
-| `env_combined_hetero` | Large (30-50%) | All failure modes compound |
-
-**Runs:** 4 envs × 4 algo configs × 2 strategies × 3-5 seeds + 4 small re-tunes.
-
-### Phase 2: Interventions — "What Helps?"
-
-**Goal:** Implement and test each intervention on all 4 heterogeneous envs with MAPPO-PS. 3-5 seeds per experiment. MAPPO-noPS included as reference for key experiments.
-
-**Ordering:** Normalization first (low-hanging fruit) → embeddings → attention → curriculum. Each layer builds on the previous. If normalization alone closes the gap, attention is unnecessary.
-
-| Phase | Intervention | Test on | Implementation |
-|-------|-------------|---------|----------------|
-| 2.1 | Per-agent normalization (A1) + cost-aware observations (A2) + reward balancing (A4) | `env_sku_hetero` + `env_combined_hetero` | Modify `obs_stats.py`, `_build_local_obs()`, calibrate `cost_weights` |
-| 2.2 | Entity embeddings (static features for warehouse identity + SKU characteristics) | All 4 heterogeneous configs | Add to observation vector, register in `feature_config.yaml` |
-| 2.3 | SKU attention (main architectural contribution) | All 4 heterogeneous configs | New `SKUAttentionArchitecture` class, register in `registry.py` |
-| 2.4 | Curriculum strategies: from-scratch vs simple warm-start vs progressive (symmetric → mild hetero → full hetero) | `env_combined_hetero` with best architecture from 2.1-2.3 | Tune fine-tuning LR multiplier ∈ {1.0, 0.5, 0.1, 0.03} |
-| 2.5 | Combined (A5): stack best combination from A1-A4 | All 4 heterogeneous configs | |
-
-### Phase 3: Ablation and Analysis
-
-**Goal:** Dissect contribution of each component. Produce the guidelines matrix.
-
-| Step | What |
-|------|------|
-| 3.1 | **Fractional factorial ablation** on `env_combined_hetero`: Full combination vs drop-one for each component. 5 seeds, MAPPO-PS only. |
-| 3.2 | **Per-SKU behavior analysis:** Does the agent now maintain inventory for all SKUs? Show inventory trajectories, ordering patterns, cost breakdowns. |
-| 3.3 | **IPPO-MAPPO gap analysis** across complexity levels: Plot performance gap with/without interventions. Does the gap shrink with interventions? ("Representation design partially substitutes for centralized training.") |
-| 3.4 | **Information sharing experiments:** Network-level aggregate features (3 variants: local-only, own-aggregates, global-aggregates) with IPPO-PS and MAPPO-PS on heterogeneous envs. |
-| 3.5 | **Weighted reward scope for IPPO:** Test alpha ∈ {0.0, 0.3, 0.5} on 1-2 heterogeneous envs. |
-| 3.6 | **Agent vs team reward scope** on `env_combined_hetero`. |
-| 3.7 | **Factored policy (per-WH-SKU) comparison** as a scaling reference and to address "why not decompose per SKU?" |
-
-**The guidelines matrix** (example structure):
-
-| | Demand hetero | Cost asymm | SKU hetero | Combined |
-|---|:---:|:---:|:---:|:---:|
-| A1: Per-agent normalization | +X% | +X% | +X% | +X% |
-| A2: Entity embeddings | +X% | +X% | +X% | +X% |
-| A3: SKU attention | +X% | +X% | +X% | +X% |
-| A4: Reward balancing | +X% | +X% | +X% | +X% |
-| All combined | +X% | +X% | +X% | +X% |
-
-### Phase 4: Scalability and Validation
-
-**Goal:** Demonstrate that interventions scale and transfer.
-
-| Step | What |
-|------|------|
-| 4.1 | **Larger instances:** Test on 5WH5SKU or 7WH5SKU. Introduce entity-encoder critic here (replacing flat concatenation in MAPPO's critic). |
-| 4.2 | **Real-world-inspired instance:** Use `DataGenerator` for realistic distances, weights, and costs (not demand/lead times). Run best intervention combination without re-tuning — tests zero-shot transfer of the approach. |
-| 4.3 | Optional: brief GRU comparison (MLP vs GRU) on the most challenging heterogeneous env with the best intervention config. |
-
-### Phase 5: Paper Writing (overlaps with Phase 4)
-
-| Section | Content |
-|---------|---------|
-| Introduction | Motivation (heterogeneous supply chains + MARL), research question, contributions. Optional: condensed pilot result as motivating example ("agents learn to abandon heavy SKUs entirely"). |
-| Related Work | MARL in supply chains, heterogeneous MARL, attention architectures, entity embeddings |
-| Problem Formulation | Supply chain model, MARL formulation, heterogeneity dimensions |
-| Diagnostic Study (Phase 1 results) | Failure modes under heterogeneity, 2×2 information sharing analysis, comparison with baselines |
-| Proposed Interventions (Phase 2 design) | Architecture descriptions, intuition, implementation |
-| Experiments (Phase 2+3 results) | Main results, ablations, guidelines matrix, information sharing analysis |
-| Scalability (Phase 4 results) | Larger instances, entity-encoder critic, real-world-inspired validation |
-| Conclusion | Summary, key takeaway, limitations, future work |
-
-**Limitations/future work to mention:** Correlated demand across SKUs, learned embeddings at larger entity counts, domain randomization for robustness, GRU/temporal architectures, non-Poisson demand processes.
+| Decision | Choice | Why |
+|---|---|---|
+| Warehouse count (main study) | 3 | Minimum for non-trivial PS generalization; sufficient for transshipment dynamics. Scaling to 5–7 tested in E7.1. |
+| SKU count | 5 | Minimum for non-trivial self-attention; spans a realistic weight range. |
+| Episode length | 100 | ~33 lead-time cycles per episode without prohibitive training cost. |
+| Lead time | Fixed at 3 | Isolates heterogeneity axes from lead-time stochasticity. |
+| Reward scope | `agent` | Clean per-agent credit assignment for diagnostic study. `team` tested as secondary axis (E3.6). |
+| Demand model | Independent Poisson per SKU | Standard in stochastic inventory literature; isolates heterogeneity from demand-model complexity. |
+| Demand sampler floor | `min_quantity_per_sku = 0` for 5-SKU envs (legacy floor of 1 retained for 3WH2SKU pilot) | Floor inflates effective mean by `e^{-λ}`, ≥100% bias at λ ≤ 0.5. Would destroy the inverse weight–demand relationship in `env_sku_hetero` / `env_combined_hetero`. |
+| Network-weighted demand budget | 200 weight-units/step, matched across all 5 envs | Eliminates throughput-magnitude as a confound when attributing performance differences to a heterogeneity dimension. |
+| SKU weight range | `[0.3, 1.0, 3.0, 10.0, 30.0]` (log-spaced, two orders of magnitude) | Realistic light-to-heavy product range; large enough to expose SKU heterogeneity. |
+| λ_quantity rule | `λ_qty = 5 / w` per SKU | Realizes inverse weight–demand pattern typical of distribution catalogs; calibrated so medium SKU matches symmetric baseline. |
+| Demand-region split | `λ_orders = [7, 4, 1]` for `demand_hetero` | Sums to 12 (matches symmetric); 7× ratio is realistic; `λ = 1` region is sparse enough to stress overstock-vs-stockout. |
+| Cost asymmetry topology | 2EU + 1US (50 / 200 / 5000 km) | Two regionally clustered + one offshore warehouse; realistic continental-scale topology. |
+| Coupling regime (main) | 10× cross-region cost | Calibrated against real distance-vs-cost data; environment property, not research axis. |
+| Coupling sensitivity | 3× as appendix only | Confirms qualitative findings without elevating coupling to a research axis. |
+| Action space | `demand_centered`, `max_qty_adjustment = ceil(1.5 · E[D])` | `a = 0` orders expected demand (natural prior); 1.5× factor allows meaningful upward deviation without bloating the action space. |
+| Initial inventory | Analytical steady-state base stock with z = 3.09 | 99.99th percentile; avoids cold-start artifacts that would dominate the first ~10 timesteps. |
+| Normalization (default) | `meanstd_grouped` with per-agent statistics (A1) | Preserves inter-SKU relationships; A1 fixes per-agent scale; cost-aware features (A2) add semantic structure. |
+| Primary algorithm | MAPPO-PS | Most constrained and most scalable MARL configuration → highest practical relevance. |
+| Algorithm family | PPO (IPPO, MAPPO, CPPO) | Standard MARL backbone for cooperative continuous control. HAPPO / MASIA / off-policy excluded — see §4. |
+| Baselines granularity | Per-(WH, SKU) tuned base-stock | Single-parameter pilots were misleadingly bad on heterogeneous envs; per-(WH, SKU) is the fair reference. |
+| Curriculum | Single Phase 3 sub-experiment (E3.7) | Training-procedure tweak, not architectural; not elevated to a primary intervention. |
+| Entity-encoder critic | Deferred to E7.1 | Benefit marginal at 3 warehouses; valuable for scalability. |
+| Learned embeddings | Static features at 3WH/5SKU | Too few entities for learned embeddings to outperform static features. Learned embeddings become defensible at 10+ entities. |
+| `bayesopt` search space restriction | Continuous-only | Validated at config-load time; categorical search uses `optuna` or `random`. |
 
 ---
 
-## Normalization Strategy
+## 12. Limitations (Acknowledged in the Thesis)
 
-The normalization design resolves a tension between preserving inter-SKU relationships and handling scale differences:
+The thesis acknowledges these limitations upfront so they do not become reviewer attack surfaces.
 
-- **`meanstd_grouped`:** Preserves inter-SKU relationships (agent sees "SKU 0 inventory is much higher than SKU 1") but fails when one SKU's scale dominates the shared statistics.
-- **`meanstd_custom`:** Eliminates scale dominance (each SKU normalized independently) but destroys inter-SKU relationships.
+- **Single-echelon.** The model omits multi-tier supply chains (manufacturer → DC → retailer). Heterogeneity within an echelon is the contribution; cross-echelon heterogeneity is future work.
+- **Independent demand.** SKUs are independent in the Poisson model. Empirical demand often exhibits cross-SKU correlation (substitution, complementarity, basket structure). Future work.
+- **Fixed lead times.** Lead-time stochasticity is implemented in the codebase but not exercised in the main study. Future work.
+- **Synthetic demand.** Main experiments use Poisson; E7.2 uses a real-world-inspired but still synthetic instance. No real demand traces are used.
+- **Three warehouses, five SKUs.** Scalability is tested in E7.1 (5–7 warehouses) but the heterogeneity-axis findings are not re-validated at scale axis-by-axis.
+- **Single coupling regime in main.** 10× is empirically grounded but a single choice. E5 verifies one alternative (3×).
+- **No algorithm-family comparison.** HAPPO, MASIA, off-policy MARL are not compared. The contribution is the intervention toolkit on a canonical PPO backbone, not a horse race.
+- **Parameter-sharing only at the main scale.** No-PS variants appear only in the Phase 1 diagnostic grid (E1.3); the main intervention study is PS-only.
 
-**Resolved approach:** Use `meanstd_grouped` with per-agent stats (A1) + explicit SKU context features:
-
-1. Keep `meanstd_grouped` as normalization mode (preserves relative magnitudes between SKUs) but compute grouped statistics per-agent (A1), so each warehouse's statistics reflect its own demand regime.
-2. Add SKU characteristic features (weight, cost parameters) as static features to each SKU's observation block.
-3. Retain aggregate features (`inventory_aggregate`, `pipeline_aggregate`) for total scale context.
-4. Optionally add log-compressed raw features (`log(1 + raw_inventory)`) alongside grouped-normalized values for absolute scale information.
-
----
-
-## Coupling and Multi-Agent Justification
-
-The paper frames the multi-agent aspect through two mechanisms:
-
-1. **Demand spillover through the allocator:** When a warehouse stocks out, unfulfilled demand is re-allocated to others at higher shipping cost. Each agent's inventory decision directly affects other agents' workloads and costs.
-2. **Parameter sharing under heterogeneity:** A single-agent approach would require separate policies per warehouse. Parameter sharing forces one network to handle all warehouse types — a fundamentally multi-agent generalization challenge.
-
-Paper framing:
-
-> *"While each warehouse primarily serves its local region, the decentralized nature of the problem and the use of parameter sharing create a multi-agent learning challenge: a shared policy must adapt to heterogeneous local conditions through observation alone. We study how heterogeneity in SKU portfolios and demand patterns affects the ability of MARL algorithms to learn such adaptive policies."*
-
-This sidesteps the "weak coupling" critique by reframing the contribution as **policy generalization across heterogeneous agents**, not cooperation/coordination per se.
-
----
-
-## Pilot Study (Completed)
-
-The 3WH2SKU pilot validated the premise:
-
-- **SKU heterogeneity** caused IPPO/MAPPO to learn pathological policies (abandoning heavy SKUs entirely — maintaining zero inventory and accepting chronic stockouts)
-- **Demand heterogeneity** caused only modest degradation
-- Baselines were found inadequate for heterogeneous SKUs (use one parameter for all SKUs)
-
-The pilot was for internal go/no-go. It is NOT a formal paper section, but a condensed version (2-3 sentences + one figure) can serve as a motivating example in the introduction.
-
----
-
-## Current Status
-
-| Item | Status |
-|------|--------|
-| Environment implementation (PettingZoo, allocators, costs, observations) | Done |
-| IPPO and MAPPO wrappers with RLlib new API | Done |
-| Parameter sharing, observation normalization modes | Done |
-| Symmetric 3WH2SKU environment config + tunes | Done |
-| Pilot study (3WH2SKU, 3 heterogeneous configs) | Done |
-| Symmetric 3WH5SKU environment config | Done |
-| Feature config with fixed/searched feature split | Done |
-| IPPO-PS tune on symmetric 3WH5SKU (1000 samples) | Done |
-| IPPO critic size diagnostic (512 vs 1024 vs 512×512) | Done — all equivalent |
-| Seed evaluation of top-10 IPPO trials | Pending |
-| **MAPPO-PS tune on symmetric 3WH5SKU** | **Next step** |
-| Heuristic baselines (Random, ConstantOrder, BS-Newsvendor) | Done |
-| Adaptive baseline (BS-Adaptive) | Done |
-| Simulation-optimized baselines (BS-Optimized, BS-Independent) | Done |
-| CPPO centralized RL baseline | Done |
-| Heterogeneous environment configs (5-SKU) | Not started |
-| Phase 1 diagnostic experiments | Not started |
-| Phase 2 intervention implementations | Not started |
-| Phase 3 ablation and analysis | Not started |
-| Phase 4 scalability and validation | Not started |
-
----
-
-## Timeline Estimate
-
-| Phase | Duration | Can overlap with |
-|-------|----------|-----------------|
-| Phase 0 (Symmetric Tune) | 2-3 weeks | — |
-| Phase 0.5 (Infrastructure) | 1-2 weeks | Phase 0 (configs + baselines while tune runs) |
-| Phase 1 (Diagnostic) | 2-3 weeks | — |
-| Phase 2 (Interventions) | 3-4 weeks | — |
-| Phase 3 (Ablation) | 1-2 weeks | Phase 2 (later runs) |
-| Phase 4 (Scalability) | 1-2 weeks | Phase 3 |
-| Phase 5 (Writing) | 2-3 weeks | Phase 4 |
-| **Total** | **~12-16 weeks** | |
-
----
-
-## Metrics to Record (All Experiments)
-
-- Final eval reward (mean ± std over seeds)
-- Per-agent reward breakdown
-- Per-SKU inventory levels, order quantities, stockout rates
-- Per-cost-component breakdown (holding, penalty, inbound shipping, outbound shipping)
-- Entropy trajectory over training
-- VF explained variance over training
-- Convergence speed (iterations to reach X% of final performance)
-- Attention weight heatmaps (for SKU attention experiments)
+These limitations are referenced from the conclusion as concrete future-work avenues.
