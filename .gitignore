@@ -31,7 +31,6 @@ experiment_outputs/*
 !experiment_outputs/.gitkeep
 wandb/
 scripts/logs/*
-!scripts/logs/.gitkeep
 
 
 # =========================
