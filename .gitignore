@@ -44,6 +44,7 @@ docs/archive/
 !docs/SCOPE.md
 !docs/IMPLEMENTATION.md
 !docs/SYSTEM_MODEL.md
+.claude_archive/
 
 # =========================
 # Config secrets (if any)
