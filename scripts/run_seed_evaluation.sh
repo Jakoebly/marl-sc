@@ -11,8 +11,8 @@
 #SBATCH --cpus-per-task=3                       # CPU cores per task
 #SBATCH --mem=32G                               # Memory allocation
 #SBATCH --time=04:00:00                         # Max walltime per worker (resume-on-restart)
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
-##SBATCH --chdir=/home/lumechs/projects/marl-sc  # Working directory
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
+#SBATCH --chdir=/home/lumechs/projects/marl-sc  # Working directory
 #SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
 #SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705
@@ -327,8 +327,8 @@ fi
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment
-PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
-# PROJECT_ROOT="/home/lumechs/projects/marl-sc"
+# PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
+PROJECT_ROOT="/home/lumechs/projects/marl-sc"
 module load miniforge/25.11.0-0
 cd "$PROJECT_ROOT"
 source ~/projects/marl-sc/.venv/bin/activate
