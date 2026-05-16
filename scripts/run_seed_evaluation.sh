@@ -87,7 +87,7 @@ NAME=""
 STORAGE_DIR=""
 ENV_CONFIG=""
 ALGO_CONFIG=""
-N_SEEDS=5
+N_SEEDS=10
 TOP_K=10
 NUM_ITERATIONS=""
 FINAL_EVAL_EPISODES=100
@@ -285,7 +285,7 @@ except FileNotFoundError as e:
   # Determine the array size and the maximum concurrent tasks
   ARRAY_SIZE=$(( N_CONFIGS * N_SEEDS - 1 ))
   TOTAL_TASKS=$(( ARRAY_SIZE + 1 ))
-  MAX_CONCURRENT=$(( TOTAL_TASKS < 15 ? TOTAL_TASKS : 15 ))
+  MAX_CONCURRENT=$(( TOTAL_TASKS < 20 ? TOTAL_TASKS : 20 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
   FORWARD_ARGS="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --final-eval-episodes ${FINAL_EVAL_EPISODES} --intra-eval-episodes ${INTRA_EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
@@ -392,7 +392,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
     MISSING_COUNT=$(echo "$MISSING_STR" | awk -F, '{print NF}')
     if [ "$HEAL_ROUND" -lt "$MAX_HEAL_ROUNDS" ]; then
       NEXT_ROUND=$(( HEAL_ROUND + 1 ))
-      MAX_CONCURRENT=$(( MISSING_COUNT < 17 ? MISSING_COUNT : 17 ))
+      MAX_CONCURRENT=$(( MISSING_COUNT < 20 ? MISSING_COUNT : 20 ))
       echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
       # Build the forward arguments for the worker and aggregate jobs
