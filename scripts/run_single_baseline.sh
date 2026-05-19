@@ -4,16 +4,23 @@
 # SBATCH directives
 # ============================================================================
 
-#SBATCH --job-name=marl-baseline-single          # Name of the job
-#SBATCH --partition=mit_normal                   # Partition
-#SBATCH --nodes=1                                # Number of nodes
-#SBATCH --ntasks-per-node=1                      # Number of tasks per node
-#SBATCH --cpus-per-task=2                        # CPU cores per task
-#SBATCH --mem=8G                                 # Memory allocation
-#SBATCH --time=06:00:00                          # Maximum walltime
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc   # Working directory
-#SBATCH --output=scripts/logs/%x_%j.out          # Standard output
-#SBATCH --error=scripts/logs/%x_%j.err           # Standard error
+#SBATCH --job-name=marl-baseline-single                     # Name of the job
+##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+#SBATCH --nodes=1                                           # Number of nodes
+#SBATCH --ntasks-per-node=1                                 # Number of tasks per node
+#SBATCH --cpus-per-task=2                                   # CPU cores per task
+#SBATCH --mem=8G                                            # Memory allocation
+#SBATCH --time=06:00:00                                     # Maximum walltime
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+#SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
+#SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
+#SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
+
+# Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
+CLUSTER="lrz"
 
 
 # ============================================================================
@@ -41,6 +48,7 @@
 #   <storage_dir>/<Name>/visualizations/<DisplayName>/sweep.png
 #   <storage_dir>/<Name>/visualizations/<DisplayName>/<DisplayName>_Best_*/
 
+# Set defaults
 NAME=""
 BASELINE=""
 ROOT_SEED=""
@@ -49,6 +57,7 @@ ENV_CONFIG="./config_files/environments/env_symmetric_3WH5SKU.yaml"
 EVAL_EPISODES=100
 EVAL_SEED=123
 
+# Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)
@@ -76,6 +85,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Validate args
+# Check if the name, baseline, and root seed are provided
 if [ -z "$NAME" ] || [ -z "$BASELINE" ] || [ -z "$ROOT_SEED" ]; then
   echo "ERROR: --name, --baseline, and --root-seed are required." >&2
   exit 1
@@ -86,14 +97,27 @@ fi
 # Setup
 # ============================================================================
 
-# Load the Python distribution, change to the project directory,
-# and activate the virtual environment
-module load miniforge/25.11.0-0
-cd /home/jakobeh/projects/marl-sc
-source ~/projects/marl-sc/.venv/bin/activate
+# Load the Python distribution, change to the project directory, 
+# and activate the virtual environment based on the cluster
+if [ "$CLUSTER" == "lrz" ]; then
+    PROJECT_ROOT="/dss/dsshome1/07/go56luf2/projects/marl-sc"
+    module load miniforge3/24.3.0-0
+    cd "$PROJECT_ROOT"
+    source activate ~/projects/marl-sc/.venv
+elif [ "$CLUSTER" == "mit-jakobeh" ]; then
+    PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
+    module load miniforge/25.11.0-0                 
+    cd "$PROJECT_ROOT"              
+    source ~/projects/marl-sc/.venv/bin/activate    
+elif [ "$CLUSTER" == "mit-lumechs" ]; then
+    PROJECT_ROOT="/home/lumechs/projects/marl-sc"
+    module load miniforge/25.11.0-0                 
+    cd "$PROJECT_ROOT"              
+    source ~/projects/marl-sc/.venv/bin/activate    
+fi
 
 # Set the Python path, unbuffer the output, and set the Python hash seed
-export PYTHONPATH="/home/jakobeh/projects/marl-sc${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
 

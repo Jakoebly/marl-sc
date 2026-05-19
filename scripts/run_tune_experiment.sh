@@ -19,13 +19,13 @@
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
+# Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
+CLUSTER="lrz"
+
 
 # ============================================================================
 # Load modules + env
 # ============================================================================
-
-# Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="lrz"
 
 # Load the Python distribution, change to the project directory, 
 # and activate the virtual environment based on the cluster

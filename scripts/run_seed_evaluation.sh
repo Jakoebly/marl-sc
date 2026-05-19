@@ -4,18 +4,24 @@
 # SBATCH directives
 # ============================================================================
 
-#SBATCH --job-name=marl-seed-eval               # Name of the job
-#SBATCH --partition=mit_normal                  # Partition
-#SBATCH --nodes=1                               # Number of nodes
-#SBATCH --ntasks-per-node=1                     # Number of tasks per node
-#SBATCH --cpus-per-task=3                       # CPU cores per task
-#SBATCH --mem=32G                               # Memory allocation
-#SBATCH --time=04:00:00                         # Max walltime per worker (resume-on-restart)
-##SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
-#SBATCH --chdir=/home/lumechs/projects/marl-sc  # Working directory
-#SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
-#SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
+#SBATCH --job-name=marl-seed-eval                           # Name of the job
+##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+#SBATCH --nodes=1                                           # Number of nodes
+#SBATCH --ntasks-per-node=1                                 # Number of tasks per node
+#SBATCH --cpus-per-task=3                                   # CPU cores per task
+#SBATCH --mem=32G                                           # Memory allocation
+#SBATCH --time=04:00:00                                     # Max walltime per worker
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+#SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
+#SBATCH --output=scripts/logs/%x_%A_%a.out                  # Standard output
+#SBATCH --error=scripts/logs/%x_%A_%a.err                   # Standard error
 #SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705
+
+# Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
+CLUSTER="lrz"
 
 
 # ============================================================================
@@ -80,8 +86,8 @@
 # indices and chains a new aggregate behind them. Workers auto-resume from
 # the latest periodic checkpoint when one is present.
 
+# Set defaults
 WANDB_PROJECT_NAME="marl-sc"
-
 MODE=""
 NAME=""
 STORAGE_DIR=""
@@ -100,6 +106,7 @@ HEAL_ROUND=0
 MAX_HEAL_ROUNDS=2
 USE_WANDB=false
 
+# Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)
@@ -157,6 +164,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate args
+# Check if the mode is provided and valid
 if [ -z "$MODE" ]; then
   echo "ERROR: --mode is required (single or tune)" >&2
   exit 1
@@ -165,6 +173,8 @@ if [[ "$MODE" != "single" && "$MODE" != "tune" ]]; then
   echo "ERROR: --mode must be 'single' or 'tune' (got: ${MODE})" >&2
   exit 1
 fi
+
+# Check if the env and algorithm configs are provided together
 if [ -n "$ENV_CONFIG" ] && [ -z "$ALGO_CONFIG" ]; then
   echo "ERROR: --env-config requires --algorithm-config" >&2
   exit 1
@@ -173,6 +183,8 @@ if [ -z "$ENV_CONFIG" ] && [ -n "$ALGO_CONFIG" ]; then
   echo "ERROR: --algorithm-config requires --env-config" >&2
   exit 1
 fi
+
+# Check if the env and algorithm configs are not provided when in tune mode
 if [ "$MODE" = "tune" ] && { [ -n "$ENV_CONFIG" ] || [ -n "$ALGO_CONFIG" ]; }; then
   echo "ERROR: --env-config / --algorithm-config are not valid in tune mode" >&2
   exit 1
@@ -326,12 +338,23 @@ fi
 # ============================================================================
 
 # Load the Python distribution, change to the project directory, 
-# and activate the virtual environment
-# PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
-PROJECT_ROOT="/home/lumechs/projects/marl-sc"
-module load miniforge/25.11.0-0
-cd "$PROJECT_ROOT"
-source ~/projects/marl-sc/.venv/bin/activate
+# and activate the virtual environment based on the cluster
+if [ "$CLUSTER" == "lrz" ]; then
+    PROJECT_ROOT="/dss/dsshome1/07/go56luf2/projects/marl-sc"
+    module load miniforge3/24.3.0-0
+    cd "$PROJECT_ROOT"
+    source activate ~/projects/marl-sc/.venv
+elif [ "$CLUSTER" == "mit-jakobeh" ]; then
+    PROJECT_ROOT="/home/jakobeh/projects/marl-sc"
+    module load miniforge/25.11.0-0                 
+    cd "$PROJECT_ROOT"              
+    source ~/projects/marl-sc/.venv/bin/activate    
+elif [ "$CLUSTER" == "mit-lumechs" ]; then
+    PROJECT_ROOT="/home/lumechs/projects/marl-sc"
+    module load miniforge/25.11.0-0                 
+    cd "$PROJECT_ROOT"              
+    source ~/projects/marl-sc/.venv/bin/activate    
+fi
 
 # Set the Python path, unbuffer the output, and set the Python hash seed
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"

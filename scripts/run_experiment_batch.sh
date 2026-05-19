@@ -4,41 +4,48 @@
 # SBATCH directives
 # ============================================================================
 
-#SBATCH --job-name=marl-training                # Name of the job
-#SBATCH --partition=mit_normal                  # Partition
-#SBATCH --nodes=1                               # Number of nodes
-#SBATCH --ntasks-per-node=1                     # Number of tasks per node
-#SBATCH --cpus-per-task=3                       # CPU cores per task
-#SBATCH --mem=16G                               # Memory allocation
-#SBATCH --time=10:00:00                         # Maximum walltime (hh:mm:ss)
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc  # Working directory
-#SBATCH --output=scripts/logs/%x_%A_%a.out      # Standard output
-#SBATCH --error=scripts/logs/%x_%A_%a.err       # Standard error
-#SBATCH --array=0-29%30                         # 7 configs x 3 runs = 21 tasks (indices 0-20), max 11 concurrent
+#SBATCH --job-name=marl-training                            # Name of the job
+##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+#SBATCH --nodes=1                                           # Number of nodes
+#SBATCH --ntasks-per-node=1                                 # Number of tasks per node
+#SBATCH --cpus-per-task=3                                   # CPU cores per task
+#SBATCH --mem=16G                                           # Memory allocation
+#SBATCH --time=10:00:00                                     # Maximum walltime 
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+#SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
+#SBATCH --output=scripts/logs/%x_%A_%a.out                  # Standard output
+#SBATCH --error=scripts/logs/%x_%A_%a.err                   # Standard error
+#SBATCH --array=0-29%30                                     # Array and step size
 #SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705
+
+# Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
+CLUSTER="lrz"
 
 
 # ============================================================================
 # Parse arguments
 # ============================================================================
 
-# Usage: sbatch run_experiment_batch.sh --name <FolderName> [--eval-seed N] [--wandb]
+# Usage: sbatch run_experiment_batch.sh [--name <FolderName>] [--eval-seed N] [--wandb]
 #
 # Options:
 #   --name <FolderName>   Subfolder under experiment_outputs/Runs (optional)
 #   --eval-seed <N>       Root seed for the final evaluation; shared by all
 #                         array tasks so paired comparisons across runs see
-#                         identical eval episodes (default: 123, distinct from
-#                         per-task training root seeds so the benchmark is
-#                         held out from training).
+#                         identical eval episodes (optional, default: 123).
 #   --wandb               Enable WandB logging with project "marl-sc"
-#                         (default: off; no wandb args passed to Python)
+#                         (optional, default: off).
 
+# Set defaults
 WANDB_PROJECT_NAME="marl-sc"
-
 FOLDER_NAME=""
 USE_WANDB=false
 EVAL_SEED=123
+
+# Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)
@@ -54,15 +61,6 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
-
-# Print the folder name
-if [ -n "$FOLDER_NAME" ]; then
-  echo "FOLDER_NAME=${FOLDER_NAME}"
-else
-  echo "FOLDER_NAME=not specified"
-fi
-echo "USE_WANDB=${USE_WANDB}"
-echo "EVAL_SEED=${EVAL_SEED}"
 
 
 # ============================================================================
