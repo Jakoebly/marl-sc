@@ -2,11 +2,11 @@
 
 This document describes what the marl-sc system models and how its main components behave. Specifically, it describes the supply chain model, the algorithms, the baselines, the data sources, and the training and evaluation protocols. Together with [SCOPE.md](SCOPE.md), it is the primary reference for thesis writing.
 
-For runtime wiring, configuration internals, RLlib integration, seeding details, and other operational concerns, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
+For thesis scope, research questions, contribution claims, environment design, algorithms, baselines, and interventions, see [SCOPE.md](SCOPE.md). For the full experimental program, statistical protocol, and supplementary appendix experiments, see [EXPERIMENTS.md](EXPERIMENTS.md). For runtime wiring, configuration, and implementation details, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## 1. Project Aim
 
-Each warehouse is controlled by an independent RL agent. At every timestep the agent decides how many units of each SKU to reorder. The objective is to minimize total supply chain cost under stochastic demand and non-trivial fulfillment logistics. Total supplybj chain cost has four components. The components are inventory holding cost, lost-sales penalty, outbound shipment cost, and inbound shipment cost.
+Each warehouse is controlled by an independent RL agent. At every timestep the agent decides how many units of each SKU to reorder. The objective is to minimize total supply chain cost under stochastic demand and non-trivial fulfillment logistics. Total supply chain cost has four components. The components are inventory holding cost, lost-sales penalty, outbound shipment cost, and inbound shipment cost.
 
 ## 2. Repository Layout
 
@@ -274,4 +274,4 @@ Reproducibility is enforced by deriving all randomness from a single root seed v
 
 ## 12. Inert / Unused Code Paths
 
-sdfs
+tbd

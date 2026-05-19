@@ -2,7 +2,7 @@
 
 This document describes how the marl-sc codebase is wired and operated. Specifically, it described the entry points and experiment paths, the core class contracts, the configuration system, the runtime objects, the RLlib integration, the seeding scheme, the visualization helpers, and the shell entry layer. It is the primary reference for modifying the codebase or debugging runtime behavior.
 
-For a description of what the system models and how its components behave, see [CODEBASE.md](CODEBASE.md).
+For thesis scope, research questions, contribution claims, environment design, algorithms, baselines, and interventions, see [SCOPE.md](SCOPE.md). For the full experimental program, statistical protocol, and supplementary appendix experiments, see [EXPERIMENTS.md](EXPERIMENTS.md). For what the system models and how its components behave, see [SYSTEM_MODEL.md](SYSTEM_MODEL.md).
 
 ## 1. Runtime Wiring
 
