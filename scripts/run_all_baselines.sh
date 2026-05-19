@@ -27,8 +27,8 @@
 # Options:
 #   --name <Name>           Experiment / output folder name (required).
 #   --storage-dir <dir>     Parent directory for the experiment folder
-#                           (default: experiment_outputs/Runs)
-#   --n-seeds <N>           Number of seeds (default: 5)
+#                           (default: experiment_outputs/Tuning)
+#   --n-seeds <N>           Number of seeds (default: 10)
 #   --eval-episodes <N>     Final eval episodes (default: 100)
 #   --eval-seed <N>         Held-out eval root seed shared by all
 #                           (baseline, seed) pairs and (config, seed) RL

@@ -27,7 +27,7 @@ algorithm:
     logstd_init: -1.1565544671880936
     logstd_floor: -3.5588934437793998
     obs_normalization: "meanstd_custom"
-    parameter_sharing: true
+    parameter_sharing: false
     actor_obs_type: "local"
     critic_obs_type: "local"
     networks:
