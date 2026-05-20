@@ -322,11 +322,6 @@ except FileNotFoundError as e:
   WORKER_JOB=$(sbatch --parsable \
     --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
     "$0" --phase worker ${FORWARD_ARGS})
-  
-  # Submit worker array job
-  WORKER_JOB=$(sbatch --parsable \
-    --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
-    "$0" --phase worker ${FORWARD_ARGS})
   if [ "$CLUSTER" == "lrz" ]; then
     WORKER_JOB=$(echo "$WORKER_JOB" | cut -d';' -f1)
   fi
