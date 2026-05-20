@@ -72,9 +72,18 @@ class BaseAlgorithmWrapper(ABC):
             self.trainer.config._is_frozen = True
             
             def _prime_for_final_eval(env_runner):
-                if getattr(env_runner, "env", None) is None:
+                env = getattr(env_runner, "env", None)
+                if env is None:
                     return
-                for sub_env in env_runner.env.envs:
+                # The single-agent (CPPO) eval env-runner exposes its sub-envs
+                # under a gymnasium vector wrapper (DictInfoToList) on restored
+                # trials, so `.envs` lives on `.unwrapped`, not the wrapper.
+                sub_envs = getattr(env, "envs", None)
+                if sub_envs is None:
+                    sub_envs = getattr(env.unwrapped, "envs", None)
+                if sub_envs is None:
+                    return
+                for sub_env in sub_envs:
                     # `sub_env.unwrapped` is the wrapper the env factory
                     # produces (ParallelPettingZooEnv or CentralizedEnvWrapper)
                     e = sub_env.unwrapped
