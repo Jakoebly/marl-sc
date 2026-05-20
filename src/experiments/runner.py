@@ -226,7 +226,23 @@ class ExperimentRunner:
         if self.wandb_config:
             wandb.finish()
 
-        return result
+        # Return a lightweight final-metrics dict. The full RLlib result is
+        # released each iteration above to bound memory over long runs.
+        final_metrics: Dict[str, Any] = {}
+        if _internal_metrics:
+            last_entry = _internal_metrics[-1]
+            final_metrics = {
+                "env_runners": {
+                    "episode_return_mean": last_entry.get("train_return"),
+                },
+                "evaluation": {
+                    "env_runners": {
+                        "episode_return_mean": last_entry.get("eval_return"),
+                    },
+                },
+            }
+
+        return final_metrics
 
     def _prepare_resume(
         self,

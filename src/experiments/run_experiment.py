@@ -60,7 +60,7 @@ from src.experiments.utils.seed_evaluation import (
 
 TUNE_METRIC = "eval/episode_return_mean"
 TUNE_MODE = "max"
-CONVERGENCE_METRIC = "train/episode_return_mean"
+CONVERGENCE_METRIC = "eval/episode_return_mean"
 
 
 # ============================================================================
