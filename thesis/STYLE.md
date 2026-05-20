@@ -31,6 +31,25 @@ LLM-generated prose defaults to a handful of patterns that read as machine-writt
 - **Triadic stacking.** "X, Y, and Z" used reflexively in every sentence. Vary the rhythm: pair items where two are sufficient, drop "and Z" when Z is redundant.
 - **Stock connectives.** "It is worth noting that", "Importantly,", "Notably,", "Interestingly,". Delete the connective. The sentence that follows either earns its place or does not.
 
+### 2.3 American English spelling
+
+The thesis uses American English orthography throughout. Set the document language to American English so the spell checker enforces this.
+
+- **`-ize` / `-ization`, not `-ise` / `-isation`**: realize, optimize, characterize, normalize, parameterize, organization, generalization, etc... .
+- **`-or`, not `-our`**: behavior, color, neighbor, favor, etc... .
+- **`-er`, not `-re`**: center, fiber, meter, liter, etc... .
+- **No doubled consonant before an inflection where American usage drops it**: modeling, modeled, labeled, traveled, canceled, etc... .
+- **Other American forms**: analyze, defense, offense, license (both noun and verb), catalog, gray, toward (not towards), etc... .
+- The project docs under [docs/](../docs/) are written in British spelling. That is internal scaffolding and does not govern thesis prose. When prose is lifted from a doc into the thesis, convert it.
+
+### 2.4 Comma usage
+
+- **Two independent clauses joined by a coordinating conjunction take a comma before the conjunction**: "MAPPO closed the gap, but CPPO did not." If the conjunction joins a clause to a bare phrase with no second subject, use no comma: "MAPPO closed the gap but not the variance."
+- **Serial (Oxford) comma is mandatory**: include the comma before the final "and" or "or" in a list of three or more. "holding, penalty, and shipment costs."
+- **A comma follows an introductory clause or phrase**: "Under SKU heterogeneity, the shared policy under-stocked the heavy items." A short introductory adverb may omit it.
+- **Nonrestrictive clauses take paired commas; restrictive clauses take none**: "The policy, which shares parameters across agents, ..." (nonrestrictive) versus "The policy that shares parameters ..." (restrictive).
+- **No comma splice**: two independent clauses are never joined by a comma alone. Use a period (this restates the clause-joining prohibition in §2.2 and §5.8 for the comma case).
+
 ## 3. Tense conventions
 
 | Context | Tense | Example |

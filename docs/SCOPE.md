@@ -16,7 +16,23 @@ There are multiple current options:
 
 ---
 
-## 2. Research Questions
+## 2. Background, Motivation, and Research Questions
+
+### 2.1 Background and motivation
+
+**Heterogeneity:** Cooperative MARL achieves strong results on multi-warehouse inventory problems, but almost always under symmetric conditions. Real distribution networks are heterogeneous: warehouses differ in the demand they serve, the SKU mix they carry, and the shipment costs they incur, and these differences are the operating condition rather than the exception.
+
+**Information sharing:** Information in practice is also decentralized, often within a single company. Warehouses frequently act on local information and replenish independently, without sharing inventory positions, demand, or order intentions with peers in real time. A centralized controller with full network state is therefore the exception, and a regime in which each warehouse executes from its own local observation is the realistic default. These two features define the problem the thesis studies: a heterogeneous network in which a policy must act from local information at each warehouse, which is exactly where decentralized-execution MARL is the natural model.
+
+### 2.2 Why the focus is on parameter sharing
+
+The thesis concentrates on parameter sharing for three reasons.
+
+1. **Convention:** It is the dominant convention in cooperative MARL: sharing one policy across agents cuts the parameter count, pools experience, and keeps training tractable as agents grow, so a diagnostic study is most useful aimed at the setting practitioners deploy.
+2. **Failure mode source:** It is the source of the failure mode under study. Sharing one policy imposes a single inductive bias on every agent, which suits symmetric networks but becomes a liability when a shared policy must produce different behavior for different warehouses using only the local observation to distinguish them. Parameter sharing is therefore the mechanism under investigation, not an incidental implementation choice.
+3. **Scaling:** It is what scales, since per-agent parameters grow linearly in the number of agents and share no learning across them. The interventions are designed to relax the shared-bias constraint while preserving that scalability. Non-shared variants are retained only as a diagnostic control (see §6.1) to test whether parameter sharing, rather than the centralized critic, is the binding constraint under heterogeneity.
+
+### 2.3 Research Questions
 
 The thesis is organised around two research questions:
 

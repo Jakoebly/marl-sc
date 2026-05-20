@@ -274,4 +274,16 @@ Reproducibility is enforced by deriving all randomness from a single root seed v
 
 ## 12. Inert / Unused Code Paths
 
-tbd
+Several code paths are implemented and schema-validated but are not exercised by any current thesis config or experiment. Agents must not treat any of these as part of the active thesis pipeline unless the user says so.
+
+- **Legacy configs:** The pilot env configs `env_symmetric_1WH2SKU.yaml` and `env_symmetric_3WH2SKU.yaml` (single-warehouse and 3-warehouse 2-SKU) are superseded by the five 3WH5SKU configs (SCOPE.md §5.2); likely removed before submission.
+
+- **Unused environment-component options:** The component registries register more options than the thesis uses; each config uses exactly one option per component (Poisson demand, greedy allocation, fixed lead times, shipment-proportional lost sales, cost reward). Unused but registered: the **stochastic lead-time sampler** (all configs use `fixed`; stochastic lead times are out of scope per SCOPE.md §4) and the **`closest` and `cost` lost-sales handlers** (all configs use `shipment`).
+
+- **Unused data sources and samplers:** The thesis uses `data_source.type: custom` exclusively (SYSTEM_MODEL.md §7). The **`synthetic` and `real_world`** paths — including the **`empirical` demand sampler** that `real_world` requires and the preprocessing in `src/data/preprocessor.py` — are implemented but not exercised. The **in-run data generator** (`src/data/data_generator.py`) is also unused; the real-world-inspired transfer instance (E4.2) is generated offline via the notebooks in `src/data/notebooks/`.
+
+- **No-op config fields (validated, no enforcing logic):** `max_wh_capacities` (per-warehouse capacity caps) is validated but enforced by no code, and all configs set it effectively unbounded; removed or left as a documented no-op before submission. `reward_calculator.params.cost_weights` is read but its weighted-sum branch is commented out in `CostRewardCalculator.calculate` (the unweighted sum is used), so it is a no-op today — intended to be activated for intervention A3 (SCOPE.md §7).
+
+- **Unused algorithm / training options:** The `base_stock` action space is a pilot relict (all configs use `demand_centered`, SCOPE.md §5.1). The Hysteretic PPO learner (`src/algorithms/learners/hysteretic_learner.py`, enabled via `hysteretic_beta`) is documented in §5.3 but set by no config and used by no experiment. The actor/critic config knobs `use_mu_sigma_head` (all configs `false`) and `networks.shared_layers (all configs `null`) are supported but disabled everywhere.
+
+- **Backup scripts:** `scripts/run_seed_evaluation_sequential.sh` and the single-node branches it drives in `src/experiments/run_experiment.py` and `src/experiments/utils/seed_evaluation.py` are a fallback for the parallel SLURM baseline path (`scripts/run_all_baselines.sh`); likely removed before submission.
