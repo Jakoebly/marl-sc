@@ -6,12 +6,14 @@ This file defines the voice, tone, and LaTeX conventions for the thesis. It is l
 
 The thesis is a controlled diagnostic study: identify failure modes of parameter-sharing MARL under heterogeneity, then test targeted interventions. Write as a diagnostician, not an advocate.
 
-- **Match scope language to evidence.** Findings hold in the configurations tested. Words like "in general", "always", "broadly", "robust" misrepresent results and invite reviewer attack. Prefer "in the settings studied", "across the heterogeneity profiles of E2.x", "under the configurations of \autoref{tab:cell-grid}".
+- **Match scope language to evidence.** Findings hold in the configurations tested. Words like "in general", "always", "broadly", "robust" misrepresent results and invite reviewer attack. Prefer "in the settings studied", "across the heterogeneous configurations of the main study", "under the configurations of \autoref{tab:cell-grid}".
 - **Report the negative result plainly.** When an intervention does not help, the section says so without softening adverbs. "Reward balancing did not close the gap to BS-Optimized on C-3" beats "reward balancing showed mixed results".
 - **Distinguish behavior from cognition.** Agents *select*, *output*, *order*, *map observations to actions*. Agents do not *think*, *decide* (in the cognitive sense), *prefer*, *want*, or *reason about* state.
 - **Pre-registered framing stays pre-registered.** Where [docs/EXPERIMENTS.md](../docs/EXPERIMENTS.md) specifies an "expected outcome" and a "falsifier", the prose preserves that forward-looking phrasing. Do not retroactively reframe falsifiers as "we expected ...".
 
 ## 2. Voice
+
+### 2.1 General tone and voice 
 
 - Third person, formal academic register.
 - **"This thesis" over "we"** for thesis-side empirical and contribution statements: "This thesis studies …", "Chapter 4 introduces …", ". The empirical "we propose / we find / we observe" should not be used.
@@ -24,7 +26,7 @@ LLM-generated prose defaults to a handful of patterns that read as machine-writt
 
 - **Em dash joining independent clauses.** Bad: "Reward balancing did not close the gap on C-3 --- the residual gap appears under cost asymmetry." Use a period and start a new sentence. The em dash (`---`) is permitted only for a parenthetical interruption inside a single clause (see §5.9).
 - **Hyphen used as an em dash.** A single hyphen (`-`) is never a clause connector. It is reserved for compound modifiers (`base-stock policy`) and label kebab-case. Bad: "MAPPO failed - this is consistent with non-stationarity." Use a period.
-- **Semicolon joining clauses.** Bad: "Parameter sharing degraded performance on E2.3; this is attributable to non-stationary credit assignment." Use a period. The semicolon is permitted only inside a list of complex items that themselves contain commas.
+- **Semicolon joining clauses.** Bad: "Parameter sharing degraded performance under SKU heterogeneity; this is attributable to non-stationary credit assignment." Use a period. The semicolon is permitted only inside a list of complex items that themselves contain commas.
 - **Trailing participle phrases.** Bad: "MAPPO failed to close the gap, suggesting that …", "Lost sales were under-attributed, leading to …", "The advantages were shared, resulting in …". This construction smuggles a causal claim into a grammatically attached clause and evades the burden of justifying it. Replace with two sentences that name the claim and the evidence: "MAPPO failed to close the gap. This is consistent with …".
 - **Triadic stacking.** "X, Y, and Z" used reflexively in every sentence. Vary the rhythm: pair items where two are sufficient, drop "and Z" when Z is redundant.
 - **Stock connectives.** "It is worth noting that", "Importantly,", "Notably,", "Interestingly,". Delete the connective. The sentence that follows either earns its place or does not.
@@ -36,7 +38,7 @@ LLM-generated prose defaults to a handful of patterns that read as machine-writt
 | Definitions, theory, system description | Present | "The environment exposes a flat local observation per warehouse." |
 | Thesis-level contribution statements | Present | "Chapter 4 introduces three interventions targeting cost-asymmetric heterogeneity." |
 | Experimental procedure | Past | "Each configuration was trained for 200 iterations across five seeds." |
-| Numerical results | Past | "MAPPO with parameter sharing failed to close the gap on E2.3." |
+| Numerical results | Past | "MAPPO with parameter sharing failed to close the gap under SKU heterogeneity." |
 | Interpretation of results | Present | "The pattern is consistent with non-stationary credit assignment under shared advantages." |
 | Prior literature (what a paper did) | Past | "Foerster et al.\ proposed COMA …" |
 | Prior literature (collective state of the field) | Present perfect | "Prior work has established that …" |
@@ -54,6 +56,7 @@ The following terms are not interchangeable. Use each in its specific sense thro
 - **Configuration:** one fully-specified env + algorithm pair, the unit at which seed-evaluation operates.
 - **Heterogeneity:** configured asymmetry across agents, SKUs, or regions in the senses defined in [docs/SCOPE.md](../docs/SCOPE.md). Do not use the word in a colloquial sense.
 - **Failure mode:** a characterizable, repeatable pattern of suboptimal behavior tied to a specific heterogeneity type. Not "a bad result".
+- **Experiment and intervention IDs.** The block IDs (`E0`–`E4`), per-cell handles (`E0.3`, `E1.4`, `E2.3`, etc.), and intervention IDs (`A1`–`A5`) defined in [docs/EXPERIMENTS.md](../docs/EXPERIMENTS.md) are project-internal scaffolding for cross-referencing experiments and must not appear in thesis prose, captions, or table headers. Refer to each experiment and intervention by its descriptive name (e.g., "the symmetric baseline", "the diagnostic re-tuning of the 2×2 information-sharing grid", "the per-agent observation-normalization intervention", "the per-SKU attention intervention"). When a specific experiment is invoked, cross-reference the section, table, or figure that presents it via `\autoref{}` — not the EXPERIMENTS.md ID. Labels that include the ID (e.g., `\label{sec:per-sku-attention}` referencing the intervention that EXPERIMENTS.md calls A4) are fine because labels are not rendered as prose.
 
 ## 5. LaTeX conventions
 
