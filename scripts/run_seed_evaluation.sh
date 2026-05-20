@@ -20,7 +20,7 @@
 #SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%A_%a.out                  # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err                   # Standard error
-##SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705
+##SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705    <-- ADJUST THIS!
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
 CLUSTER="lrz"
@@ -322,6 +322,14 @@ except FileNotFoundError as e:
   WORKER_JOB=$(sbatch --parsable \
     --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
     "$0" --phase worker ${FORWARD_ARGS})
+  
+  # Submit worker array job
+  WORKER_JOB=$(sbatch --parsable \
+    --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
+    "$0" --phase worker ${FORWARD_ARGS})
+  if [ "$CLUSTER" == "lrz" ]; then
+    WORKER_JOB=$(echo "$WORKER_JOB" | cut -d';' -f1)
+  fi
   echo "Workers submitted: job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
 
   # Submit aggregate job
@@ -329,6 +337,9 @@ except FileNotFoundError as e:
     --dependency=afterany:${WORKER_JOB} \
     --cpus-per-task=1 --mem=4G --time=00:30:00 \
     "$0" --phase aggregate ${FORWARD_ARGS} --heal-round 0)
+  if [ "$CLUSTER" == "lrz" ]; then
+    AGG_JOB=$(echo "$AGG_JOB" | cut -d';' -f1)
+  fi
   echo "Aggregate submitted: job ${AGG_JOB} (runs after ${WORKER_JOB})"
 
   exit 0
@@ -439,6 +450,9 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
       HEAL_WORKER_JOB=$(sbatch --parsable \
         --array=${MISSING_STR}%${MAX_CONCURRENT} \
         "$0" --phase worker ${HEAL_FORWARD})
+      if [ "$CLUSTER" == "lrz" ]; then
+        HEAL_WORKER_JOB=$(echo "$HEAL_WORKER_JOB" | cut -d';' -f1)
+      fi
       echo "[HEAL] Re-submitted workers: job ${HEAL_WORKER_JOB}"
 
       # Submit a new aggregate job
@@ -446,6 +460,9 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
         --dependency=afterany:${HEAL_WORKER_JOB} \
         --cpus-per-task=1 --mem=4G --time=00:30:00 \
         "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
+      if [ "$CLUSTER" == "lrz" ]; then
+        HEAL_AGG_JOB=$(echo "$HEAL_AGG_JOB" | cut -d';' -f1)
+      fi
       echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
 
       # Deliberately exit 0 since the next aggregate job will do the final plotting
