@@ -5,22 +5,22 @@
 # ============================================================================
 
 #SBATCH --job-name=marl-tune                                # Name of the job
-#SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
-##SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
-##SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node 
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
 #SBATCH --time=12:00:00                                     # Maximum walltime 
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
-##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
+##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+#SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-lumechs"
+CLUSTER="lrz"
 
 
 # ============================================================================
@@ -68,25 +68,25 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="CPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
+EXPERIMENT_NAME="IPPO_NoPS_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
 
 # Run tune experiment.
-python src/experiments/run_experiment.py \
-    --mode tune \
-    --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/cppo.yaml \
-    --tune-config ./config_files/experiments/tune_config.yaml \
-    --num-samples 1000 \
-    --storage-dir "${STORAGE_DIR}" \
-    --experiment-name "${EXPERIMENT_NAME}" \
-    --wandb-project marl-sc \
-    --root-seed 42 \
-    --eval-seed 123
+# python src/experiments/run_experiment.py \
+#     --mode tune \
+#     --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
+#     --algorithm-config ./config_files/algorithms/ippo_nops.yaml \
+#     --tune-config ./config_files/experiments/tune_config.yaml \
+#     --num-samples 1000 \
+#     --storage-dir "${STORAGE_DIR}" \
+#     --experiment-name "${EXPERIMENT_NAME}" \
+#     --wandb-project marl-sc \
+#     --root-seed 42 \
+#     --eval-seed 123
 
 # Resume existing tune experiment
-# python src/experiments/run_experiment.py \
-#   --mode tune \
-#   --resume-from "${EXPERIMENT_NAME}" \
-#   --storage-dir "${STORAGE_DIR}" \
-#   --wandb-project marl-sc \
-#   --eval-seed 123
+python src/experiments/run_experiment.py \
+  --mode tune \
+  --resume-from "${EXPERIMENT_NAME}" \
+  --storage-dir "${STORAGE_DIR}" \
+  --wandb-project marl-sc \
+  --eval-seed 123
