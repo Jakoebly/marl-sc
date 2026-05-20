@@ -1,8 +1,6 @@
 \babel@toc {english}{}\relax 
 \vspace {-5pt}
 \contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
-\contentsline {section}{\numberline {1.1}Heterogeneous Distribution Networks / Motivation}{1}{section.1.1}%
-\contentsline {section}{\numberline {1.2}Research Question and Contributions}{1}{section.1.2}%
 \contentsline {paragraph}{\nonumberline \textbf {Primary RQ}}{1}{paragraph*.8}%
 \contentsline {paragraph}{\nonumberline \textbf {RQ1}}{1}{paragraph*.9}%
 \contentsline {paragraph}{\nonumberline \textbf {RQ2}}{1}{paragraph*.10}%
