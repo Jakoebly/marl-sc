@@ -87,6 +87,15 @@ CLUSTER="lrz"
 # still missing eval_results_final.yaml, it re-submits only those array
 # indices and chains a new aggregate behind them. Workers auto-resume from
 # the latest periodic checkpoint when one is present.
+#
+# Self-healing strategy differs by cluster (see CLUSTER below). On clusters
+# that permit sbatch from within a job (MIT), the aggregate phase resubmits
+# the missing indices in-job, as above. On LRZ, compute nodes are NOT allowed
+# to submit jobs (sbatch fails with "Access/permission denied"), so the
+# launcher instead pre-chains MAX_HEAL_ROUNDS extra full-array worker passes
+# from the login node up front, each depending on the previous pass. The
+# worker skip-guard makes already-complete pairs no-op, so each pass only
+# does the work still outstanding, and the aggregate phase only aggregates.
 
 # Set defaults
 WANDB_PROJECT_NAME="marl-sc"
@@ -318,24 +327,59 @@ except FileNotFoundError as e:
   echo "Launching seed evaluation: mode=${MODE}, name=${NAME}, configs=${N_CONFIGS}, n_seeds=${N_SEEDS}"
   echo "Total tasks: ${TOTAL_TASKS} (${N_CONFIGS} configs x ${N_SEEDS} seeds)"
 
-  # Submit worker array job
-  WORKER_JOB=$(sbatch --parsable \
-    --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
-    "$0" --phase worker ${FORWARD_ARGS})
+  # ---------- LRZ: pre-chain heal passes from the login node ----------
+  # LRZ compute nodes cannot submit jobs, so the aggregate phase cannot
+  # self-heal in-job. Instead, submit the initial worker pass plus
+  # MAX_HEAL_ROUNDS additional full-array passes up front (all from this
+  # login-node launcher), each depending afterany on the previous pass.
+  # The worker skip-guard makes already-complete (config, seed) pairs exit
+  # immediately and killed pairs resume from their latest checkpoint, so
+  # each successive pass only does the work still outstanding. A single
+  # final aggregate runs after the last pass (no resubmission on LRZ).
   if [ "$CLUSTER" == "lrz" ]; then
-    WORKER_JOB=$(echo "$WORKER_JOB" | cut -d';' -f1)
-  fi
-  echo "Workers submitted: job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
+    PREV_JOB=""
+    PASS_LABEL="initial"
+    for ROUND in $(seq 0 ${MAX_HEAL_ROUNDS}); do
+      DEP_ARG=""
+      if [ -n "$PREV_JOB" ]; then
+        DEP_ARG="--dependency=afterany:${PREV_JOB}"
+      fi
+      WORKER_JOB=$(sbatch --parsable ${DEP_ARG} \
+        --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
+        "$0" --phase worker ${FORWARD_ARGS})
+      WORKER_JOB=$(echo "$WORKER_JOB" | cut -d';' -f1)
+      echo "Workers submitted (${PASS_LABEL} pass, round ${ROUND}): job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
+      PREV_JOB="$WORKER_JOB"
+      PASS_LABEL="heal"
+    done
 
-  # Submit aggregate job
-  AGG_JOB=$(sbatch --parsable \
-    --dependency=afterany:${WORKER_JOB} \
-    --cpus-per-task=1 --mem=4G --time=00:30:00 \
-    "$0" --phase aggregate ${FORWARD_ARGS} --heal-round 0)
-  if [ "$CLUSTER" == "lrz" ]; then
+    # Final aggregate: aggregate + plot only (heal-round pinned at the cap so
+    # the aggregate phase never attempts an in-job resubmit even if reached).
+    AGG_JOB=$(sbatch --parsable \
+      --dependency=afterany:${PREV_JOB} \
+      --cpus-per-task=1 --mem=4G --time=00:30:00 \
+      "$0" --phase aggregate ${FORWARD_ARGS} --heal-round ${MAX_HEAL_ROUNDS})
     AGG_JOB=$(echo "$AGG_JOB" | cut -d';' -f1)
+    echo "Aggregate submitted: job ${AGG_JOB} (runs after ${PREV_JOB})"
+
+  # ---------- MIT (and any cluster permitting sbatch from within a job) ----------
+  # Submit one worker array + one self-healing aggregate. The aggregate
+  # detects missing (config, seed) pairs and resubmits just those, chaining
+  # a fresh aggregate behind them (see the aggregate phase).
+  else
+    # Submit worker array job
+    WORKER_JOB=$(sbatch --parsable \
+      --array=0-${ARRAY_SIZE}%${MAX_CONCURRENT} \
+      "$0" --phase worker ${FORWARD_ARGS})
+    echo "Workers submitted: job ${WORKER_JOB} ($(( ARRAY_SIZE + 1 )) tasks, max ${MAX_CONCURRENT} concurrent)"
+
+    # Submit aggregate job
+    AGG_JOB=$(sbatch --parsable \
+      --dependency=afterany:${WORKER_JOB} \
+      --cpus-per-task=1 --mem=4G --time=00:30:00 \
+      "$0" --phase aggregate ${FORWARD_ARGS} --heal-round 0)
+    echo "Aggregate submitted: job ${AGG_JOB} (runs after ${WORKER_JOB})"
   fi
-  echo "Aggregate submitted: job ${AGG_JOB} (runs after ${WORKER_JOB})"
 
   exit 0
 fi
@@ -389,84 +433,85 @@ export RAY_DEFAULT_OMP_NUM_THREADS="${CPUS_THREAD_PIN}"
 if [ "$PHASE" = "aggregate" ]; then
   echo "Running seed evaluation aggregation for: ${NAME} (mode=${MODE}, heal_round=${HEAL_ROUND})"
 
-  # ---------- Step 1 ----------
-  # Detect any (config, seed) pairs whose eval_results_final.yaml is
-  # missing or malformed. These are the tasks we need to re-submit.
-  # Use a sentinel prefix so we can safely strip any import-time noise that
-  # leaks to stdout from Ray/PyTorch/etc.
-  MISSING_RAW=$(python -c "
+  # On LRZ, healing is pre-chained from the login node at launch time
+  # (compute nodes cannot submit jobs), so the in-job resubmit logic below is
+  # skipped and we go straight to final aggregation. Every other cluster
+  # self-heals here by detecting and resubmitting the missing tasks.
+  if [ "$CLUSTER" != "lrz" ]; then
+
+    # ---------- Step 1 ----------
+    # Detect any (config, seed) pairs whose eval_results_final.yaml is
+    # missing or malformed. These are the tasks we need to re-submit.
+    # Use a sentinel prefix so we can safely strip any import-time noise that
+    # leaks to stdout from Ray/PyTorch/etc.
+    MISSING_RAW=$(python -c "
 from src.experiments.utils.seed_evaluation import find_missing_seed_evaluation_tasks
 missing = find_missing_seed_evaluation_tasks(
-    mode='${MODE}', 
-    name='${NAME}', 
-    n_seeds=${N_SEEDS}, 
+    mode='${MODE}',
+    name='${NAME}',
+    n_seeds=${N_SEEDS},
     top_k=${TOP_K},
     storage_dir='${STORAGE_DIR}',
 )
 print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
 ")
-  MISSING_RC=$?
-  if [ $MISSING_RC -ne 0 ]; then
-    echo "ERROR: Could not scan for missing seed-eval tasks (exit ${MISSING_RC})"
-    echo "python output was:"
-    echo "$MISSING_RAW"
-    exit $MISSING_RC
-  fi
-  MISSING_STR=$(echo "$MISSING_RAW" | grep '^__MISSING_TASKS__:' | tail -n1 | sed 's/^__MISSING_TASKS__://')
+    MISSING_RC=$?
+    if [ $MISSING_RC -ne 0 ]; then
+      echo "ERROR: Could not scan for missing seed-eval tasks (exit ${MISSING_RC})"
+      echo "python output was:"
+      echo "$MISSING_RAW"
+      exit $MISSING_RC
+    fi
+    MISSING_STR=$(echo "$MISSING_RAW" | grep '^__MISSING_TASKS__:' | tail -n1 | sed 's/^__MISSING_TASKS__://')
 
-  # ---------- Step 2 ----------
-  # If work is still pending and we haven't exhausted the heal
-  # budget, re-submit JUST the missing array indices and chain a new
-  # aggregate behind them.
-  if [ -n "$MISSING_STR" ]; then
-    # Count the number of missing tasks
-    MISSING_COUNT=$(echo "$MISSING_STR" | awk -F, '{print NF}')
-    if [ "$HEAL_ROUND" -lt "$MAX_HEAL_ROUNDS" ]; then
-      NEXT_ROUND=$(( HEAL_ROUND + 1 ))
-      MAX_CONCURRENT=$(( MISSING_COUNT < 20 ? MISSING_COUNT : 20 ))
-      echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
+    # ---------- Step 2 ----------
+    # If work is still pending and we haven't exhausted the heal
+    # budget, re-submit JUST the missing array indices and chain a new
+    # aggregate behind them.
+    if [ -n "$MISSING_STR" ]; then
+      # Count the number of missing tasks
+      MISSING_COUNT=$(echo "$MISSING_STR" | awk -F, '{print NF}')
+      if [ "$HEAL_ROUND" -lt "$MAX_HEAL_ROUNDS" ]; then
+        NEXT_ROUND=$(( HEAL_ROUND + 1 ))
+        MAX_CONCURRENT=$(( MISSING_COUNT < 20 ? MISSING_COUNT : 20 ))
+        echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
-      # Build the forward arguments for the worker and aggregate jobs
-      HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --final-eval-episodes ${FINAL_EVAL_EPISODES} --intra-eval-episodes ${INTRA_EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
-      if [ -n "$NUM_ITERATIONS" ]; then
-        HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
-      fi
-      if [ -n "$ENV_CONFIG" ]; then
-        HEAL_FORWARD="${HEAL_FORWARD} --env-config ${ENV_CONFIG}"
-      fi
-      if [ -n "$ALGO_CONFIG" ]; then
-        HEAL_FORWARD="${HEAL_FORWARD} --algorithm-config ${ALGO_CONFIG}"
-      fi
-      if [ "$USE_WANDB" = true ]; then
-        HEAL_FORWARD="${HEAL_FORWARD} --wandb"
-      fi
+        # Build the forward arguments for the worker and aggregate jobs
+        HEAL_FORWARD="--mode ${MODE} --name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --top-k ${TOP_K} --final-eval-episodes ${FINAL_EVAL_EPISODES} --intra-eval-episodes ${INTRA_EVAL_EPISODES} --eval-interval ${EVAL_INTERVAL} --eval-seed ${EVAL_SEED} --checkpoint-freq ${CHECKPOINT_FREQ} --max-heal-rounds ${MAX_HEAL_ROUNDS}"
+        if [ -n "$NUM_ITERATIONS" ]; then
+          HEAL_FORWARD="${HEAL_FORWARD} --num-iterations ${NUM_ITERATIONS}"
+        fi
+        if [ -n "$ENV_CONFIG" ]; then
+          HEAL_FORWARD="${HEAL_FORWARD} --env-config ${ENV_CONFIG}"
+        fi
+        if [ -n "$ALGO_CONFIG" ]; then
+          HEAL_FORWARD="${HEAL_FORWARD} --algorithm-config ${ALGO_CONFIG}"
+        fi
+        if [ "$USE_WANDB" = true ]; then
+          HEAL_FORWARD="${HEAL_FORWARD} --wandb"
+        fi
 
-      # Submit the missing worker jobs
-      HEAL_WORKER_JOB=$(sbatch --parsable \
-        --array=${MISSING_STR}%${MAX_CONCURRENT} \
-        "$0" --phase worker ${HEAL_FORWARD})
-      if [ "$CLUSTER" == "lrz" ]; then
-        HEAL_WORKER_JOB=$(echo "$HEAL_WORKER_JOB" | cut -d';' -f1)
-      fi
-      echo "[HEAL] Re-submitted workers: job ${HEAL_WORKER_JOB}"
+        # Submit the missing worker jobs
+        HEAL_WORKER_JOB=$(sbatch --parsable \
+          --array=${MISSING_STR}%${MAX_CONCURRENT} \
+          "$0" --phase worker ${HEAL_FORWARD})
+        echo "[HEAL] Re-submitted workers: job ${HEAL_WORKER_JOB}"
 
-      # Submit a new aggregate job
-      HEAL_AGG_JOB=$(sbatch --parsable \
-        --dependency=afterany:${HEAL_WORKER_JOB} \
-        --cpus-per-task=1 --mem=4G --time=00:30:00 \
-        "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
-      if [ "$CLUSTER" == "lrz" ]; then
-        HEAL_AGG_JOB=$(echo "$HEAL_AGG_JOB" | cut -d';' -f1)
-      fi
-      echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
+        # Submit a new aggregate job
+        HEAL_AGG_JOB=$(sbatch --parsable \
+          --dependency=afterany:${HEAL_WORKER_JOB} \
+          --cpus-per-task=1 --mem=4G --time=00:30:00 \
+          "$0" --phase aggregate ${HEAL_FORWARD} --heal-round ${NEXT_ROUND})
+        echo "[HEAL] Chained aggregate: job ${HEAL_AGG_JOB}"
 
-      # Deliberately exit 0 since the next aggregate job will do the final plotting
-      exit 0
-    
-    # If we have exhausted the heal budget, proceed to the final aggregation
-    else
-      echo "[HEAL] Exhausted ${MAX_HEAL_ROUNDS} heal rounds but ${MISSING_COUNT} task(s) still missing: ${MISSING_STR}"
-      echo "[HEAL] Proceeding to aggregate with incomplete results."
+        # Deliberately exit 0 since the next aggregate job will do the final plotting
+        exit 0
+
+      # If we have exhausted the heal budget, proceed to the final aggregation
+      else
+        echo "[HEAL] Exhausted ${MAX_HEAL_ROUNDS} heal rounds but ${MISSING_COUNT} task(s) still missing: ${MISSING_STR}"
+        echo "[HEAL] Proceeding to aggregate with incomplete results."
+      fi
     fi
   fi
 
@@ -610,15 +655,42 @@ echo "  Algo config:  ${ALGO_CFG_FILE}"
 echo "  Storage dir:  ${SEED_DIR}"
 echo "  Experiment:   ${SEED_EXPERIMENT_NAME}"
 
+SEED_EXPERIMENT_DIR="${SEED_DIR}/${SEED_EXPERIMENT_NAME}"
+
+
+# --------------------------------------------------
+# Skip if this (config, seed) pair is already complete
+# --------------------------------------------------
+
+# A previous pass may already have produced a valid eval_results_final.yaml
+# for this (config, seed) pair. This matters most on clusters where healing
+# is done by pre-chaining full-array passes from the login node (e.g. LRZ,
+# see the launcher): completed pairs must no-op so each pass only does the
+# work still outstanding. The completeness criterion mirrors
+# find_missing_seed_eval_files: the file must exist, parse, and carry a
+# numeric episode_return_mean.
+EVAL_RESULTS_FILE="${SEED_EXPERIMENT_DIR}/eval_results_final.yaml"
+if [ -f "$EVAL_RESULTS_FILE" ] && python -c "
+import sys, yaml
+try:
+    with open('${EVAL_RESULTS_FILE}', encoding='utf-8') as f:
+        data = yaml.safe_load(f) or {}
+except (OSError, yaml.YAMLError):
+    sys.exit(1)
+sys.exit(0 if isinstance(data.get('episode_return_mean'), (int, float)) else 1)
+"; then
+  echo "[SKIP] ${SEED_EXPERIMENT_NAME} already has a valid eval_results_final.yaml; nothing to do."
+  exit 0
+fi
+
 
 # --------------------------------------------------
 # Detect resumable checkpoint
 # --------------------------------------------------
 
-# If a prior (killed) run for this (config, seed) left a periodic checkpoint_<N> behind, 
+# If a prior (killed) run for this (config, seed) left a periodic checkpoint_<N> behind,
 # resume from the largest N instead of starting from iteration 1.
 RESUME_FROM=""
-SEED_EXPERIMENT_DIR="${SEED_DIR}/${SEED_EXPERIMENT_NAME}"
 if [ -d "$SEED_EXPERIMENT_DIR" ]; then
   LATEST_CHKPT=$(ls -d "${SEED_EXPERIMENT_DIR}"/checkpoint_[0-9]* 2>/dev/null \
     | awk -F'checkpoint_' '{print $2"|"$0}' \
