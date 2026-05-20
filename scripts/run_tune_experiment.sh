@@ -74,7 +74,7 @@ EXPERIMENT_NAME="CPPO_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO"
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/CPPO.yaml \
+    --algorithm-config ./config_files/algorithms/cppo.yaml \
     --tune-config ./config_files/experiments/tune_config.yaml \
     --num-samples 1000 \
     --storage-dir "${STORAGE_DIR}" \
