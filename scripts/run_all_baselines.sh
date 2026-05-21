@@ -68,8 +68,8 @@ CLUSTER="lrz"
 
 # Set defaults
 NAME=""
-STORAGE_DIR="experiment_outputs/Tuning"
-ENV_CONFIG="./config_files/environments/env_symmetric_3WH5SKU.yaml"
+STORAGE_DIR="experiment_outputs/Tuning/E1/BASELINES_3WH5SKUS_Hetero"
+ENV_CONFIG="./config_files/environments/env_demand_hetero_3WH5SKU.yaml"
 N_SEEDS=10
 EVAL_EPISODES=100
 EVAL_SEED=123
