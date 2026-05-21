@@ -15,3 +15,9 @@
 \newnotation{setOfArcs}{\ensuremath{\mathcal{A}}}{set of arcs}{A}
 \newnotation{setOfVertices}{\ensuremath{\mathcal{C}}}{set of vertices}{V}
 \newnotation{distanceOfArc}{\ensuremath{d_{ij}}}{distance of arc from i to j}{d}
+%% Inventory-control notation (Section 2.1)
+%% Note: classical reorder point 's' and order-up-to 'S' are NOT used here because they
+%% collide with the RL state symbol s and state set \mathcal{S} (STYLE.md §5.5).
+%% This section uses r_p for reorder point and B for base-stock / order-up-to level.
+\newnotation{reorderPoint}{\ensuremath{r_p}}{reorder point: inventory-position threshold below which a replenishment order is triggered}{rp}
+\newnotation{baseStockLevel}{\ensuremath{B}}{base-stock level (order-up-to target level): the inventory-position target to which each periodic replenishment order raises the stock}{B}

@@ -3,19 +3,16 @@
 \pagenumbering{arabic}
 
 
-\paragraph{\textbf{Primary RQ}}
-\textit{In multi-warehouse inventory networks with empirically realistic heterogeneity in demand, SKU portfolios, and cost geography, what specific failure modes do parameter-sharing MARL algorithms exhibit, and what targeted architectural interventions enable a single shared policy to learn effectively across heterogeneous agents and product lines?}
 
-see \cite{OpenStreetMap2020} for more details.
-\gls{acr:alns} is a concept
-\gls{setOfArcs} is a formula
+\paragraph{\textbf{C1}}  
+\textit{An extensible benchmark that brings MARL inventory control closer to operational practice.** The thesis contributes a simulation environment that additionally supports controlled heterogeneity across multiple network dimensions and adopts an order-level multi-SKU demand model. The result is a richer evaluation setting in which heterogeneity-driven phenomena can be studied systematically.}
 
-\paragraph{\textbf{RQ1}} 
-\textit{What specific, characterizable failure modes does MAPPO with parameter sharing exhibit under (a) demand heterogeneity, (b) SKU heterogeneity, (c) cost-geographic asymmetry, and (d) their combination, and to what extent are these failures architectural rather than attributable to hyperparameter choices?}
+\paragraph{\textbf{C2}}  
+\textit{A diagnostic characterisation of MARL failure modes under heterogeneity. The thesis quantifies the performance degradation of cooperative parameter-shared MARL across distinct heterogeneity types, identifies the specific failure modes responsible, and demonstrates that hyperparameter tuning alone is insufficient to close the gap. The result is a precise account of where and how standard MARL breaks once the inventory setting moves beyond its symmetric idealisation.}
 
-\paragraph{\textbf{RQ2}}  
-\textit{Which architectural interventions (per-agent observation normalization, entity- and cost-aware features, SKU-level attention, and reward-component balancing) address each identified failure mode, and how do they compose into a combined intervention that closes the gap to per-(WH, SKU)-tuned simulation-optimized baselines?}
+\paragraph{\textbf{C3}}  
+\textit{A toolkit of architectural interventions and an analysis of their interactions.** The thesis introduces a set of architectural modifications that address the diagnosed failure modes, and reports both their individual efficacy and the effects of combining them. The result is a concrete set of remediation techniques for the research community together with empirical evidence on how those techniques compose.}
 
-\paragraph{\textbf{RQ3}}  
-\textit{Do the resulting intervention combinations preserve their gains when scaled to larger networks (5–7 warehouses) and when transferred zero-shot to real-world-inspired instances?}
+\paragraph{\textbf{C3}}  
+\textit{A prescriptive decision rule for practitioners.** The thesis derives a decision matrix that maps an observed heterogeneity profile of an inventory network to a recommended combination of architectural modifications. The result is practitioner-facing guidance that converts the thesis's findings into a directly applicable design rule.}
 
