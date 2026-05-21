@@ -6,13 +6,15 @@
 
 #SBATCH --job-name=marl-baselines                           # Name of the job
 ##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
-#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
-#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+##SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+##SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+#SBATCH --clusters=serial                                   # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=serial_std                              # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node
 #SBATCH --cpus-per-task=2                                   # CPU cores per task
 #SBATCH --mem=8G                                            # Memory allocation
-#SBATCH --time=12:00:00                                     # Maximum walltime per worker
+#SBATCH --time=8:00:00                                     # Maximum walltime per worker
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
 ##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 #SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
