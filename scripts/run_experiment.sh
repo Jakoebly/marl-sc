@@ -6,8 +6,10 @@
 
 #SBATCH --job-name=marl-training                            # Name of the job
 ##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
-#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
-#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+##SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+##SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+#SBATCH --clusters=serial                                   # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=serial_std                              # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node 
 #SBATCH --cpus-per-task=8                                   # CPU cores per task
