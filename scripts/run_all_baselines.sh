@@ -12,7 +12,7 @@
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node
 #SBATCH --cpus-per-task=2                                   # CPU cores per task
 #SBATCH --mem=8G                                            # Memory allocation
-#SBATCH --time=06:00:00                                     # Maximum walltime per worker
+#SBATCH --time=12:00:00                                     # Maximum walltime per worker
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
 ##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 #SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
