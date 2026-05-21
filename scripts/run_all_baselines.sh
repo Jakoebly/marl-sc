@@ -36,6 +36,10 @@ CLUSTER="lrz"
 #   --name <Name>           Experiment / output folder name (required).
 #   --storage-dir <dir>     Parent directory for the experiment folder
 #                           (default: experiment_outputs/Tuning)
+#   --env-config <path>     Environment config YAML the baselines are
+#                           evaluated against (default: the hetero 3WH5SKU
+#                           env config). Lets you switch heterogeneity type
+#                           without editing this file.
 #   --n-seeds <N>           Number of seeds (default: 10)
 #   --eval-episodes <N>     Final eval episodes (default: 100)
 #   --eval-seed <N>         Held-out eval root seed shared by all
@@ -71,7 +75,7 @@ CLUSTER="lrz"
 # Set defaults
 NAME=""
 STORAGE_DIR="experiment_outputs/Tuning/E1/BASELINES_3WH5SKUS_Hetero"
-ENV_CONFIG="./config_files/environments/env_demand_hetero_3WH5SKU.yaml"
+ENV_CONFIG=""
 N_SEEDS=10
 EVAL_EPISODES=100
 EVAL_SEED=123
@@ -89,6 +93,9 @@ while [[ $# -gt 0 ]]; do
     --storage-dir)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --storage-dir requires a value" >&2; exit 1; }
       STORAGE_DIR="$2"; shift 2 ;;
+    --env-config)
+      [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --env-config requires a value" >&2; exit 1; }
+      ENV_CONFIG="$2"; shift 2 ;;
     --n-seeds)
       [[ $# -ge 2 && "$2" != -* ]] || { echo "ERROR: --n-seeds requires a value" >&2; exit 1; }
       N_SEEDS="$2"; shift 2 ;;
@@ -156,13 +163,19 @@ SEED_DIR="${EXPERIMENT_DIR}/seed_evaluation"
 # If no phase was provided, launch the jobs
 if [ -z "$PHASE" ]; then
 
+  # Make sure the env config exists before submitting any jobs
+  if [ ! -f "$ENV_CONFIG" ]; then
+    echo "ERROR: --env-config not found: ${ENV_CONFIG}" >&2
+    exit 1
+  fi
+
   # Determine the array size and the maximum concurrent tasks
   ARRAY_SIZE=$(( N_BASELINES * N_SEEDS - 1 ))
   TOTAL_TASKS=$(( ARRAY_SIZE + 1 ))
   MAX_CONCURRENT=$(( TOTAL_TASKS < 17 ? TOTAL_TASKS : 17 ))
 
   # Collect all arguments to forward to the worker and aggregate phases
-  FORWARD_ARGS="--name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
+  FORWARD_ARGS="--name ${NAME} --storage-dir ${STORAGE_DIR} --env-config ${ENV_CONFIG} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
   echo "Launching baseline seed evaluation: name=${NAME}, n_baselines=${N_BASELINES}, n_seeds=${N_SEEDS}"
   echo "Total tasks: ${TOTAL_TASKS} (${N_BASELINES} baselines x ${N_SEEDS} seeds)"
@@ -317,7 +330,7 @@ print('__MISSING_TASKS__:' + ','.join(str(t) for t in missing))
         echo "[HEAL ${NEXT_ROUND}/${MAX_HEAL_ROUNDS}] ${MISSING_COUNT} task(s) missing: ${MISSING_STR}"
 
         # Build the forward arguments for the worker and aggregate jobs
-        HEAL_FORWARD="--name ${NAME} --storage-dir ${STORAGE_DIR} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
+        HEAL_FORWARD="--name ${NAME} --storage-dir ${STORAGE_DIR} --env-config ${ENV_CONFIG} --n-seeds ${N_SEEDS} --eval-episodes ${EVAL_EPISODES} --eval-seed ${EVAL_SEED} --max-heal-rounds ${MAX_HEAL_ROUNDS} --baselines ${BASELINES}"
 
         # Submit the missing worker jobs
         HEAL_WORKER_JOB=$(sbatch --parsable \
