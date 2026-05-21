@@ -10,6 +10,7 @@ assignment) and serves as an upper-bound baseline on what RL can achieve.
 import os
 import random
 import uuid
+from pathlib import Path
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 import numpy as np
 import torch
 from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.core import DEFAULT_MODULE_ID
+from ray.rllib.core import DEFAULT_MODULE_ID, COMPONENT_RL_MODULE
 from ray.rllib.core.columns import Columns
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.connectors.env_to_module import MeanStdFilter
@@ -223,11 +224,35 @@ class CPPOWrapper(BaseAlgorithmWrapper):
                 self.trainer, DEFAULT_MODULE_ID, cppo_params.warmstart_weights_path
             )
             weights = self.trainer.learner_group.get_weights()
-            self.trainer.env_runner.set_weights(weights)
+            self.trainer.env_runner.set_state({COMPONENT_RL_MODULE: weights})
 
     # ------------------------------------------------------------------
     # BaseAlgorithmWrapper Overrides
     # ------------------------------------------------------------------
+
+    def load_checkpoint(self, path: str):
+        """
+        Overrides the base class method to load the CPPO-specific checkpoint.
+
+        Identical to :meth:`BaseAlgorithmWrapper.load_checkpoint` except for the
+        final weight sync. CPPO's eval env runner is a ``SingleAgentEnvRunner``,
+        whose ``set_weights`` is removed in this Ray version
+        (``@Deprecated(error=True)`` -> raises ``ValueError``). We push the
+        learner weights via the supported ``set_state`` API instead. The
+        multi-agent (IPPO/MAPPO) path keeps the base implementation, where
+        ``set_weights`` is only soft-deprecated (``error=False``) and still works.
+
+        Args:
+            path (str): Path to load checkpoint from.
+        """
+        # Ray's restore_from_path uses PyArrow FileSystem.from_uri which requires a URI with scheme
+        abs_path = Path(path).resolve()
+        uri = abs_path.as_uri()
+        self.trainer.restore_from_path(uri)
+
+        # Explicitly sync learner weights to the local single-agent env runner via set_state
+        weights = self.trainer.learner_group.get_weights()
+        self.trainer.env_runner.set_state({COMPONENT_RL_MODULE: weights})
 
     @staticmethod
     def create_env_factory(
