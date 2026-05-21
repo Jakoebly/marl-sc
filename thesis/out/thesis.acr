@@ -1,12 +1,1 @@
-\glossarysection[\glossarytoctitle]{\glossarytitle}\glossarypreamble
-\begin{theglossary}\glossaryheader
-\glsgroupheading{B}\relax \glsresetentrylist %
-\glossentry{acr:bo}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{5}}}\glsgroupskip
-\glsgroupheading{G}\relax \glsresetentrylist %
-\glossentry{acr:gp}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{5}}}\glsgroupskip
-\glsgroupheading{S}\relax \glsresetentrylist %
-\glossentry{acr:sku}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{2\delimR 5}}}%
-\end{theglossary}\glossarypostamble
+\null

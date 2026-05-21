@@ -2,21 +2,17 @@
 \begin{theglossary}\glossaryheader
 \glsgroupheading{A}\relax \glsresetentrylist %
 \glossentry{setOfArcs}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{v}}}\glsgroupskip
+		\setentrycounter[]{page}\glsnumberformat{iv}}}\glsgroupskip
 \glsgroupheading{B}\relax \glsresetentrylist %
 \glossentry{baseStockLevel}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{v}\delimN 
-		\setentrycounter[]{page}\glsnumberformat{2\delimN 3}\delimN 
-		\setentrycounter[]{page}\glsnumberformat{7}}}\glsgroupskip
+		\setentrycounter[]{page}\glsnumberformat{iv}}}\glsgroupskip
 \glsgroupheading{D}\relax \glsresetentrylist %
 \glossentry{distanceOfArc}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{v}}}\glsgroupskip
+		\setentrycounter[]{page}\glsnumberformat{iv}}}\glsgroupskip
 \glsgroupheading{R}\relax \glsresetentrylist %
 \glossentry{reorderPoint}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{v}\delimN 
-		\setentrycounter[]{page}\glsnumberformat{2\delimN 3}\delimN 
-		\setentrycounter[]{page}\glsnumberformat{7}}}\glsgroupskip
+		\setentrycounter[]{page}\glsnumberformat{iv}}}\glsgroupskip
 \glsgroupheading{V}\relax \glsresetentrylist %
 \glossentry{setOfVertices}{\glossaryentrynumbers{\relax 
-		\setentrycounter[]{page}\glsnumberformat{v}}}%
+		\setentrycounter[]{page}\glsnumberformat{iv}}}%
 \end{theglossary}\glossarypostamble

@@ -2,39 +2,141 @@
 \section{Classical Approaches to Inventory Control}
 \label{sec:classical-inventory-control}
 
-Stochastic inventory control is concerned with the question of how a facility should replenish its stock when future demand is uncertain and orders take time to arrive. The classical single-location stochastic inventory problem formalizes this question as follows. A facility holds stock of one or more \glspl{acr:sku} and faces random demand each period. At designated review instants it places replenishment orders that arrive after a lead time, defined as the number of periods between placing an order and receiving it. Carrying inventory that is not immediately sold incurs a holding cost per unit held per period, while failing to satisfy demand on time incurs a shortage, or penalty, cost per unit of unmet demand. The objective is to minimize expected total cost over a planning horizon by trading these two costs against each other [CITE: standard stochastic inventory-control / inventory-theory textbook treatment of the single-location periodic-review problem]. The fundamental decision at each review instant is captured by an \emph{order policy}, also called a \emph{replenishment policy}: a rule that answers two questions, namely \emph{when} to order and \emph{how much} to order [CITE: textbook framing of an order/replenishment policy as the answer to the "when" and "how much" questions of inventory control]. The order quantity, or equivalently the parameters of the rule that sets it, is the decision variable, and expected total cost is the objective. This thesis controls a network of such facilities; the per-warehouse replenishment decision is exactly the object an order policy describes, and the extensions to multiple warehouses and to learned policies are addressed in the sections that follow.
+The study of inventory control under uncertainty begins with the single-period newsvendor
+model, which balances the cost of holding unsold stock against the cost of unmet demand and
+places the optimal order quantity at the critical fractile of the demand distribution
+[CITE: newsvendor model and critical fractile, e.g. Zipkin 2000 or Silver, Pyke and Thomas 2017].
+Across multiple periods this trade-off becomes the dynamic stochastic inventory problem
+[CITE: Arrow, Harris and Marschak 1951 as the foundational dynamic stochastic inventory work],
+for which the structure of the optimal replenishment policy is well understood. When each
+replenishment incurs a fixed ordering cost, the optimal policy takes the $(s,S)$ form and places
+an order to raise the inventory position to $S$ whenever it falls to or below $s$
+[CITE: Scarf 1960 optimality of (s,S) policies]. When no fixed ordering cost is present, this
+reduces to a base-stock or order-up-to policy that raises the inventory position to a single
+target level each period [CITE: base-stock policy optimality, e.g. Veinott 1966 and Zipkin 2000].
+The deterministic special case in which demand is constant is the classical economic order
+quantity model [CITE: Harris 1913 EOQ and Erlenkotter 1990 historical account]. The network
+studied in this thesis carries no fixed ordering cost, so the base-stock policy is the relevant
+optimal class and underlies the reference policies it evaluates.
 
-% TODO: The two \citep[see][] commands above contain [CITE: ...] placeholders as the key argument, which is non-standard LaTeX. After the cite-claim skill resolves the markers, replace the entire \citep[see][]{[CITE: ...]} constructs with standard \citep{resolved-key} or restructure as prose + \citep. The [CITE: ...] content is kept inline for the cite-claim skill to match against.
+A second strand of the classical literature concerns how the parameters of a chosen policy are
+computed. When demand follows a tractable distribution and unmet demand is backordered,
+base-stock levels admit closed-form or readily computable expressions
+[CITE: analytical base-stock levels, Zipkin 2000]. This tractability is lost under the lost-sales
+assumption adopted in this thesis, where unmet demand disappears rather than carrying over and the
+optimal policy has no simple closed form [CITE: Zipkin 2008 old and new methods for lost-sales
+systems], a setting whose reliance on approximations and numerical procedures is documented in
+dedicated reviews [CITE: Bijvank and Vis 2011 lost-sales review]. Two practical responses recur.
+The first calibrates policy parameters analytically from estimated demand statistics, as in
+newsvendor-style safety-stock formulas. The second treats the simulator as a black box and searches
+for the parameters that minimise simulated cost, an approach known as simulation optimisation
+[CITE: simulation optimisation for inventory base-stock levels]. Forecast-driven and adaptive
+heuristics that update their parameters from observed demand occupy the middle ground between the
+two [CITE: adaptive or forecast-based replenishment heuristics, Silver, Pyke and Thomas 2017]. The
+reference policies used in this thesis instantiate this spectrum from analytically derived to
+simulation-optimised base-stock levels.
 
-Order policies are organized along two axes --- the timing of inventory review and the form of the order-quantity rule --- and the combinations of these choices generate the standard policy families used in inventory practice. Four parameters define the vocabulary: the \emph{reorder point} (the inventory-position threshold $\gls{reorderPoint}$ below which an order is triggered), the \emph{order-up-to level} (the target $\gls{baseStockLevel}$ to which the inventory position is raised by the order), the \emph{order quantity} (a fixed lot size ordered whenever the reorder point is breached), and the \emph{review interval} (the spacing between consecutive inventory inspections) [CITE: textbook definition of reorder point, order-up-to level, order quantity, and review interval as the building blocks of order policies]. Policies are further distinguished by whether inventory is monitored \emph{continuously} or \emph{periodically}. Under continuous review, the inventory position is tracked at every instant and an order can be triggered at any point in time; this is the idealized textbook case. Under periodic review, the position is inspected only at fixed instants separated by one review interval, which is the operationally realistic regime and the one this thesis adopts, with one replenishment decision per timestep [CITE: textbook treatment of continuous vs. periodic review, with continuous review as the textbook idealization]. Combining the two review types with the two order-quantity rules produces the standard families summarized in \autoref{tab:order-policies} [CITE: comparative overview of (s,S), (s,S,r), (s,q), (s,q,r), (S-1,S), and X+Y-type order policies]. The list is a sketch of the most prevalent strategies rather than an exhaustive enumeration; the appropriate policy depends on the structural properties of the problem, which motivates the narrowing that follows.
+Moving from a single location to a network introduces coordination across stocking points. The
+multi-echelon literature, beginning with the analysis of serial systems, establishes that echelon
+base-stock policies are optimal under suitable conditions and provides the foundation for inventory
+control across tiered supply chains [CITE: Clark and Scarf 1960 multi-echelon serial systems].
+Related work extends these ideas to repairable-item and service-parts networks
+[CITE: Sherbrooke 1968 METRIC]. The setting closest to the present work is the single-echelon,
+multi-location distribution system in which warehouses serve a set of demand regions, for which the
+optimal allocation policy is generally intractable and is addressed through heuristics
+[CITE: Eppen and Schrage 1981 and Federgruen and Zipkin 1984 one-warehouse multi-retailer]. Within
+such networks, lateral transshipment allows stock to move between locations of the same echelon to
+cover demand that cannot be met locally [CITE: Paterson et al. 2011 lateral transshipment review].
+The environment in this thesis realises a reactive form of this mechanism implicitly through its
+greedy fulfilment of demand from the cheapest stocked warehouse. Comprehensive surveys catalogue
+the assumptions and methods of this body of work and note that most models assume a single echelon
+or a strictly tiered structure [CITE: de Kok et al. 2018 typology and review of stochastic
+multi-echelon inventory models].
 
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill. Replace with resolved keys once available.
+Two features limit the reach of these classical methods in the setting this thesis studies. First,
+their tractability rests on structural and distributional assumptions that rarely hold in realistic
+networks, and the dynamic programmes that characterise optimal policies suffer from the curse of
+dimensionality as the number of locations and products grows [CITE: curse of dimensionality in
+inventory networks, e.g. de Kok et al. 2018]. Optimal policies for general distribution systems are
+therefore unknown, and practice relies on heuristics whose quality is difficult to certify. Second,
+the analytically convenient cases are typically symmetric across locations and assume centralised
+information, whereas the networks of interest here are heterogeneous and operate under decentralised
+local information. These limitations motivate data-driven and learning-based methods, which
+approximate replenishment policies directly from interaction with the system rather than from
+closed-form analysis [CITE: Boute, Gijsbrechts, van Jaarsveld and Vanvuchelen 2022 DRL for
+inventory control roadmap]. The remainder of this chapter reviews reinforcement learning as such an
+approach.</parameter>
 
-[TABLE PENDING: order-policy overview table --- label tab:order-policies; caption above per STYLE.md §5.7; columns: policy family (textual name and canonical symbol in locally-scoped notation that does not reuse s or S), review type (continuous / periodic), decision rule (when to order and how much); rows covering the (reorder-point, order-up-to) policy, its periodic variant, the (reorder-point, order-quantity) policy, its periodic variant, the base-stock / order-up-to special case, and the demand-tracking rule; no vertical rules; booktabs style]
+------------------------------------------------------------------------------------------------
 
-Among these families, the \emph{base-stock policy} --- the special case in which the reorder point and the order-up-to level coincide, so that $\gls{reorderPoint} = \gls{baseStockLevel}$ --- is the classical reference policy on which this thesis builds its non-learning baselines. Under a base-stock policy, the facility reviews its inventory position at every period and orders the quantity that raises the position back to the fixed target level $\gls{baseStockLevel}$; equivalently, for integer demand, each unit of demand triggers a one-unit replenishment once the position sits at the target, giving the policy its ``one-for-one'' or ``$(B-1, B)$'' characterization [CITE: textbook / reference definition of the base-stock (order-up-to / 1-1) policy as the (s,S) special case with reorder point equal to order-up-to level]. Base-stock policies are a natural classical reference for three reasons: they are simple to specify, they are widely adopted in practice, and they reduce the policy to a single decision variable per \gls{acr:sku} --- the target level $\gls{baseStockLevel}$ --- rather than to a rule shape, which makes them analytically tractable and easy to optimize [CITE: literature establishing base-stock policies as widely used and, under standard assumptions, a strong/optimal policy class for single-location stochastic inventory]. This thesis exploits exactly that property: the order-up-to-style baselines in the Methodology chapter (\autoref{chap:methodology}) all instantiate the base-stock policy class, and the per-(warehouse, \gls{acr:sku}) target levels are their parameters. The demand-centered action space used by the learned agents corresponds to a demand-tracking order rule whose neutral action mirrors the base-stock replenishment logic (see \autoref{chap:methodology}).
+Research on stochastic inventory control originates with the single-period newsvendor model, in
+which a single order is placed before demand is observed and the order quantity balances the
+expected cost of overage against that of underage. The cost-minimising quantity equates the
+marginal costs of the two errors and is given by the critical fractile of the demand distribution
+[CITE: newsvendor model and critical fractile, e.g. Zipkin 2000]. Arrow, Harris and Marschak (1951)
+[CITE: Arrow, Harris and Marschak 1951, Optimal Inventory Policy] generalise this static decision
+into a multi-period dynamic programme and give the first integrated account of inventory decisions
+under sequential demand uncertainty. Scarf (1960) [CITE: Scarf 1960, optimality of (s,S) policies]
+characterises the optimal policy for the periodic-review problem with a fixed ordering cost. He
+introduces the notion of $K$-convexity and uses it to prove that an $(s,S)$ policy is optimal,
+under which an order raising the inventory position to $S$ is placed whenever the position drops to
+or below $s$. Veinott (1966) [CITE: Veinott 1966, conditions for (s,S) optimality] later weakens
+the conditions required for this result. In the absence of a fixed ordering cost the reorder point
+and the order-up-to level coincide, and the optimum reduces to a base-stock policy with a single
+target level [CITE: base-stock optimality, Veinott 1966 and Zipkin 2000]. The deterministic
+antecedent of this work is the economic order quantity of Harris (1913) [CITE: Harris 1913 EOQ and
+Erlenkotter 1990 historical account], which trades a fixed ordering cost against a linear holding
+cost under constant demand and remains the textbook entry point to the field.
 
-% TODO: \autoref{chap:methodology} assumes the Methodology chapter carries \label{chap:methodology}. Verify this label once 04_Methodology.tex is populated.
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill. Replace with resolved keys once available.
+A parallel question is how the parameters of these policies are computed once their structure is
+fixed. In the backorder case, where unmet demand carries to later periods, base-stock levels follow
+from tractable newsvendor-type expressions [CITE: analytical base-stock computation, Zipkin 2000].
+The lost-sales case, where unmet demand is simply lost, is markedly harder. Zipkin (2008) [CITE:
+Zipkin 2008, lost-sales inventory systems] re-examines it and shows that the optimal policy is no
+longer of base-stock form and depends on the full vector of outstanding orders. Bijvank and Vis
+(2011) [CITE: Bijvank and Vis 2011, lost-sales review] survey the resulting literature and find that
+analysis proceeds almost entirely through restricted policy classes and approximations rather than
+optimal rules. Where analytical levels are unavailable, a practical alternative evaluates a
+candidate policy by simulation and searches the parameter space for the configuration of lowest
+cost, an approach studied under the name of simulation optimisation [CITE: simulation optimisation
+for inventory systems]. Adaptive heuristics occupy the ground between these extremes, re-estimating
+demand from a moving window and updating their order-up-to levels online [CITE: adaptive or
+forecast-based replenishment, Silver, Pyke and Thomas 2017].
 
-The newsvendor model gives the base-stock level $\gls{baseStockLevel}$ its analytical form by identifying the target where the marginal cost of overstocking exactly balances the marginal cost of understocking. The single-period \emph{newsvendor problem} considers a decision maker who must commit to an order quantity before observing demand: unsold units incur an \emph{overage cost} (equivalently, holding cost) per unit, while unmet demand incurs an \emph{underage cost} (equivalently, shortage or penalty cost) per unit, and the optimal order quantity minimizes expected total cost [CITE: standard newsvendor-model definition with overage and underage costs]. The cost-minimizing quantity is given by the \emph{critical-ratio} (or \emph{critical-fractile}) result: the optimal order quantity is the demand quantile at probability $c_u / (c_u + c_o)$, where $c_u$ is the underage cost and $c_o$ is the overage cost, so the optimal service level is determined entirely by the ratio of shortage to total cost [CITE: newsvendor critical-fractile (critical-ratio) optimality result]. Applying this logic to the base-stock setting connects the target level $\gls{baseStockLevel}$ to the \emph{service level}: the critical ratio fixes the target fill rate, and the target $\gls{baseStockLevel}$ is then the lead-time-demand quantile at that service level [CITE: newsvendor / base-stock connection --- critical ratio as service-level target for the order-up-to level under stochastic lead-time demand]. Under the penalty-to-holding cost structure of this thesis ($c_p = 5$, $c_h = 1$), the critical ratio equals $c_p / (c_p + c_h) = 5/6 \approx 0.83$, so the optimal stationary policy targets approximately an 83\% service level. Concretely, the base-stock level is set to expected lead-time demand plus a safety-stock term that lifts the fill probability to this target; the Methodology chapter specifies the Poisson-demand formula and the $z$-factor used in the thesis (see~\autoref{chap:methodology}).
+Extending these results from one stocking point to a network is the concern of multi-echelon
+inventory theory. Clark and Scarf (1960) [CITE: Clark and Scarf 1960, multi-echelon serial systems]
+analyse a serial system and show that it decomposes into a sequence of single-stage problems linked
+by induced penalty functions, establishing that an echelon base-stock policy, defined on the stock
+of a stage together with all stock downstream of it, is optimal. Sherbrooke (1968) [CITE:
+Sherbrooke 1968, METRIC] develops the METRIC model for repairable-item networks at the RAND
+Corporation and sets stock levels across a two-echelon depot and base structure by approximating
+the expected backorders at each base under compound Poisson demand. For distribution systems, in
+which a depot supplies several retailers facing independent demand, the optimal policy is generally
+intractable. Eppen and Schrage (1981) [CITE: Eppen and Schrage 1981, one-warehouse multi-retailer]
+obtain closed-form results under a balance assumption that permits negative allocations, and
+Federgruen and Zipkin (1984) [CITE: Federgruen and Zipkin 1984, multilocation approximations]
+construct approximations for the general multilocation problem. A closely related mechanism is
+lateral transshipment, the movement of stock between locations of the same echelon. Paterson et al.
+(2011) [CITE: Paterson et al. 2011, lateral transshipment review] survey this work and separate
+proactive transshipments, carried out at predetermined times, from reactive transshipments that
+respond to stockouts. The assumptions and solution methods spanning these models are catalogued by
+de Kok et al. (2018) [CITE: de Kok et al. 2018, typology and review], whose typology shows that
+most tractable formulations rest on a single echelon or a strictly serial structure.
 
-% TODO: \autoref{chap:methodology} used twice above; verify label once 04_Methodology.tex is populated.
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill.
+Two limitations run through this body of work. First, its tractable results depend on strong
+structural assumptions, and the exact dynamic programmes behind them become computationally
+prohibitive as the number of locations, products and lead-time stages grows, a difficulty long
+known as the curse of dimensionality [CITE: curse of dimensionality in inventory, e.g. de Kok et
+al. 2018]. For general distribution networks the optimal policy is unknown, and the field proceeds
+through heuristics whose optimality gap is seldom quantified. Second, the analytically convenient
+models are largely symmetric across locations and assume a central planner with full network
+information, whereas real distribution networks are heterogeneous across sites and are operated from
+local information. These gaps have motivated a shift toward data-driven methods that learn
+replenishment policies from interaction rather than deriving them in closed form, a direction
+surveyed for inventory control by Boute et al. (2022) [CITE: Boute et al. 2022, DRL for inventory
+control roadmap]. The remainder of this chapter reviews the reinforcement learning methods on which
+that approach rests.
 
-Most classical policies, including base-stock, are \emph{static}: their parameters are fixed once at the start of the planning horizon and held constant across every period, so the policy commits to the same decision rule regardless of how conditions evolve. A \emph{dynamic} policy, by contrast, re-determines its decision each period from the current state of the system --- for example, a demand-tracking rule that sets the order quantity as a function of the demand observed in the current period [CITE: inventory-literature treatment distinguishing static (open-loop, horizon-fixed) from dynamic (closed-loop, per-period) order policies]. The trade-off is well defined. Static policies are easy to compute and, under stationary demand, can be near-optimal within their policy class, but they are rigid and cannot adapt to non-stationary or context-dependent conditions. Dynamic policies carry an informational advantage because they re-decide each period, at the cost of requiring a mechanism to compute the per-period decision [CITE: results / discussion contrasting the rigidity of horizon-fixed policies with the adaptivity of per-period policies]. A learned control policy is the dynamic case taken to its most general form, mapping the current observation to an order quantity each period without a fixed analytical rule; this is the conceptual bridge to \autoref{sec:reinforcement-learning}. The thesis nonetheless retains strong static base-stock policies as references precisely because they constitute the competitive classical benchmark against which a learned dynamic policy must be measured.
-
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill.
-
-When no closed form for the optimal base-stock levels exists, they are found by \emph{simulation-based optimization}, which treats the simulator as a black-box objective to be minimized over the vector of target levels. In this thesis's multi-warehouse network, with cross-region fulfillment, an order-level multi-\gls{acr:sku} demand model, and interacting per-(warehouse, \gls{acr:sku}) levels, the expected cost of a base-stock level vector has no tractable analytical expression and must be estimated by running the stochastic simulator. The level vector therefore becomes the optimization variable and the noisy simulated expected cost becomes the objective [CITE: simulation-optimization framing for inventory base-stock levels under analytically intractable cost surfaces]. Simulation-based optimization places an outer optimizer around this evaluation loop: the optimizer proposes candidate level vectors, each is evaluated by simulating the policy, and the optimizer uses the resulting cost estimates to propose better candidates. The defining features of this problem class are that the objective is black-box (no gradient information is available), evaluations are expensive (each requires running many stochastic rollouts), and the estimates are noisy. These properties make naive grid search or gradient-based methods impractical and motivate a sample-efficient alternative [CITE: simulation-optimization / black-box optimization of expensive stochastic objectives]. The thesis's two strongest non-learning references both use this route: the simulation-optimized base-stock reference performs a joint optimization over all per-(warehouse, \gls{acr:sku}) target levels simultaneously, while the per-warehouse independently-optimized reference optimizes each warehouse's levels in isolation by iterated best response. Both are defined in the Methodology chapter (see~\autoref{chap:methodology}).
-
-% TODO: \autoref{chap:methodology} above; verify label once populated.
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill.
-
-\Gls{acr:bo} is the sample-efficient instance of simulation-based optimization used for these baselines: it maintains a probabilistic surrogate model of the objective over the parameter space, fit to the cost evaluations seen so far, and uses that surrogate to decide where to evaluate next. The surrogate is commonly a \gls{acr:gp}, which represents both the predicted cost at any candidate point and the uncertainty around that prediction [CITE: Bayesian optimization as surrogate-based optimization of expensive black-box functions; Gaussian-process surrogate]. The mechanism that turns the surrogate into the next query is the \emph{acquisition function}: it scores candidate points by trading off exploitation (evaluating where the surrogate predicts low cost) against exploration (evaluating where the surrogate is most uncertain), and the optimizer simulates the policy at the acquisition maximizer, updates the surrogate with the new observation, and repeats within a fixed evaluation budget [CITE: acquisition-function role in Bayesian optimization --- exploration/exploitation trade-off; common acquisition functions]. This sample efficiency is what makes \gls{acr:bo} appropriate when each simulated evaluation is costly. The simulation-optimized base-stock references in this thesis locate their per-(warehouse, \gls{acr:sku}) target levels through \gls{acr:gp}-based \gls{acr:bo} under a fixed evaluation budget, which is why they serve as a strong stationary reference against which the learned policies are measured. The normalized score used for cross-environment comparison anchors its upper end to this baseline (see~\autoref{chap:methodology}).
-
-% TODO: \autoref{chap:methodology} above; verify label once populated.
-% TODO: The \citep[see][] commands with [CITE: ...] keys in this paragraph are placeholders for the cite-claim skill.
 
 \section{Reinforcement Learning}
 \label{sec:reinforcement-learning}
@@ -58,6 +160,7 @@ When no closed form for the optimal base-stock levels exists, they are found by 
     \item Overview of Approaches (Independent Learners, Joint Learners, cdte, parameter sharing, mappo, ippo, evtl. also mention value decomposition, ...)
     \item Policy Gradient Approaches and PPO
 \end{itemize}
+
 \section{Heterogeneity in Multi-Agent Reinforcement Learning}
 
 \section{2.4  Research Gap and Research Questions}
