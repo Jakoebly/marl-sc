@@ -25,20 +25,24 @@ class BaseRLModule(TorchRLModule):
         architecture_config: Dict[str, Any],
         action_space: Optional[Space] = None,
         name: str = "",
+        obs_layout: Optional[Dict[str, Any]] = None,
     ) -> nn.Module:
         """
         Builds a network module from architecture config.
-        
+
         Args:
-            architecture_type (str): Architecture name (e.g., "mlp", "gru")
+            architecture_type (str): Architecture name (e.g., "mlp", "gru", "attention")
             input_dim (int): Input dimension
             output_dim (int): Output dimension
             architecture_config (Dict[str, Any]): Architecture-specific config dict
             action_space (Optional[Space]): Action space for the network.
             name (str): Optional name prefix for layers (for debugging)
-            
+            obs_layout (Optional[Dict[str, Any]]): Per-SKU observation layout used by
+                tokenizing architectures (attention). Ignored by MLP and GRU.
+
         Returns:
-            nn.Module: PyTorch module (Sequential for MLP, ModuleDict for GRU)
+            nn.Module: PyTorch module (Sequential for MLP, ModuleDict for GRU,
+                PerSkuAttentionNetwork for attention)
         """
 
         # Get the architecture class and instance
@@ -50,6 +54,7 @@ class BaseRLModule(TorchRLModule):
             input_dim, output_dim, architecture_config,
             action_space=action_space,
             name=name,
+            obs_layout=obs_layout,
         )
 
         return network
@@ -156,6 +161,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         obs_space = self.observation_space
         self.local_obs_dim = self.model_config["local_obs_dim"]
         self.global_obs_dim = self.model_config["global_obs_dim"]
+        self.obs_layout = self.model_config.get("obs_layout")
         action_dim = self._get_action_dim(self.action_space)
         actor_output_dim = self._get_actor_output_dim(self.action_space)
 
@@ -201,7 +207,8 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                 input_dim=actor_raw_dim,
                 output_dim=shared_layers_output_dim,
                 architecture_config=self.shared_layers_config,
-                name="shared"
+                name="shared",
+                obs_layout=self.obs_layout,
             )
             actor_input_dim = shared_layers_output_dim
             critic_input_dim = shared_layers_output_dim
@@ -240,7 +247,8 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                 output_dim=backbone_dim,
                 architecture_config=backbone_config,
                 action_space=self.action_space,
-                name="actor"
+                name="actor",
+                obs_layout=self.obs_layout,
             )
 
             # Attach dual-head module on top of backbone
@@ -257,7 +265,8 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                 output_dim=actor_output_dim,
                 architecture_config=self.actor_config,
                 action_space=self.action_space,
-                name="actor"
+                name="actor",
+                obs_layout=self.obs_layout,
             )
 
             # Add a free (state-independent) log_std parameter for continuous action spaces
@@ -267,10 +276,11 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         # Build critic network with local obs as default input dimension
         self.critic = self.build_network(
             architecture_type=self.critic_type,
-            input_dim=critic_input_dim, 
-            output_dim=1,  
+            input_dim=critic_input_dim,
+            output_dim=1,
             architecture_config=self.critic_config,
-            name="critic"
+            name="critic",
+            obs_layout=self.obs_layout,
         )
 
     def _get_obs_dim(self, space: Space, key: Optional[str] = None) -> int:

@@ -85,6 +85,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             "critic_obs_type": mappo_params.critic_obs_type,
             "local_obs_dim": self.local_obs_dim,
             "global_obs_dim": self.global_obs_dim,
+            "obs_layout": self.env._compute_obs_layout(),
             "logstd_init": mappo_params.logstd_init,
             "logstd_floor": mappo_params.logstd_floor,
         }

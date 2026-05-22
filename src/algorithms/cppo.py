@@ -105,6 +105,7 @@ class CPPOWrapper(BaseAlgorithmWrapper):
             "critic_obs_type": "local",
             "local_obs_dim": self.obs_dim,
             "global_obs_dim": 0,
+            "obs_layout": self.env._compute_obs_layout(),
             "logstd_init": cppo_params.logstd_init,
             "logstd_floor": cppo_params.logstd_floor,
         }

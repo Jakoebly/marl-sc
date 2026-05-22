@@ -92,7 +92,7 @@ There are three places in the code where registries appear:
 
 - **Environment**: [src/environment/registry.py](src/environment/registry.py) holds five `*_REGISTRY` maps (`DEMAND_SAMPLER`, `DEMAND_ALLOCATOR`, `LEAD_TIME_SAMPLER`, `LOST_SALES_HANDLER`, `REWARD_CALCULATOR`) with matching `register_*` / `get_*` helpers. Concrete classes register on import at the bottom of that file.
 - **Algorithms**: Algorithms follow the same pattern. The algorithm registry lives in  [src/algorithms/registry.py](src/algorithms/registry.py) and maps `"ippo"`, `"mappo"`, and `"cppo"` to wrapper classes.
-- **Architectures**: Architectures follow the same pattern. The architectures registry lives in  [src/algorithms/models/registry.py](src/algorithms/models/registry.py) and maps `"mlp"` and `"gru"` to `NetworkArchitecture` subclasses.
+- **Architectures**: Architectures follow the same pattern. The architectures registry lives in  [src/algorithms/models/registry.py](src/algorithms/models/registry.py) and maps `"mlp"`, `"gru"`, and `"attention"` (per-SKU self-attention, intervention A4) to `NetworkArchitecture` subclasses.
 
 ### 5. Experiment and Evaluation Runtime
 The runtime objects in [src/experiments/runner.py](src/experiments/runner.py) are:

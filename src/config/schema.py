@@ -973,8 +973,48 @@ class NetworkGRU(BaseModel):
     config: GRUConfig
     model_config = ConfigDict(extra="forbid")
 
+# Attention networks
+class AttentionConfig(BaseModel):
+    """Configuration for per-SKU self-attention config."""
+
+    d_model: PositiveInt
+    n_heads: PositiveInt
+    n_layers: PositiveInt = 1
+    ff_hidden: PositiveInt
+    head_hidden_sizes: List[PositiveInt] = Field(min_length=0)
+    activation: ActivationName
+    dropout: NonNegativeFloat = 0.0
+    output_activation: Optional[ActivationName] = None
+    output_activation_mu: Optional[ActivationName] = None
+    output_activation_sigma: Optional[ActivationName] = None
+    output_dim: Optional[PositiveInt] = None
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("dropout")
+    @classmethod
+    def _validate_dropout(cls, v: float):
+        if v > 1.0:
+            raise ValueError("dropout must be in [0.0, 1.0]")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_heads(self):
+        # Multi-head attention requires d_model to be divisible by n_heads.
+        if self.d_model % self.n_heads != 0:
+            raise ValueError(
+                f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})"
+            )
+        return self
+
+class NetworkAttention(BaseModel):
+    """Configuration for per-SKU self-attention network."""
+
+    type: Literal["attention"]
+    config: AttentionConfig
+    model_config = ConfigDict(extra="forbid")
+
 # Union of network configurations
-NetworkConfig = Annotated[Union[NetworkMLP, NetworkGRU], Field(discriminator="type")]
+NetworkConfig = Annotated[Union[NetworkMLP, NetworkGRU, NetworkAttention], Field(discriminator="type")]
 
 # Shared layer network
 class OptionalSharedLayers(BaseModel):
@@ -1106,6 +1146,40 @@ class ActorCriticConfig(OptionalSharedLayers):
                 raise ValueError(
                     "output_activation_sigma is only valid when use_mu_sigma_head is true"
                 )
+
+        return self
+
+    @model_validator(mode="after")
+    def _validate_attention_constraints(self):
+        # Collect the architecture types in use across actor, critic, and shared layers.
+        types = {self.actor.type, self.critic.type}
+        if self.shared_layers is not None:
+            types.add(self.shared_layers.type)
+
+        if "attention" not in types:
+            return self
+
+        # Attention operates on the raw per-SKU observation layout, so it cannot
+        # sit on top of (or be used as) shared layers.
+        if self.shared_layers is not None:
+            raise ValueError(
+                "attention architecture cannot be combined with shared_layers; "
+                "set shared_layers to null when actor/critic use attention"
+            )
+
+        # The mu/sigma head path only supports mlp/gru backbones.
+        if self.use_mu_sigma_head:
+            raise ValueError(
+                "attention architecture does not support use_mu_sigma_head; set it to false"
+            )
+
+        # Attention is non-recurrent; mixing it with a GRU backbone in the same
+        # actor-critic config would force sequence-mode inputs onto the attention
+        # network and is unsupported.
+        if "gru" in types:
+            raise ValueError(
+                "attention and gru architectures cannot be mixed in the same actor-critic config"
+            )
 
         return self
 

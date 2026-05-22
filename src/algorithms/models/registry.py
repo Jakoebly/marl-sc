@@ -41,8 +41,9 @@ def get_architecture(name: str) -> Type['NetworkArchitecture']:
 
 
 # Register all architectures
-from .architectures import MLPArchitecture, GRUArchitecture
+from .architectures import MLPArchitecture, GRUArchitecture, AttentionArchitecture
 
 register_architecture("mlp", MLPArchitecture)
 register_architecture("gru", GRUArchitecture)
+register_architecture("attention", AttentionArchitecture)
 

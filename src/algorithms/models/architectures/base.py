@@ -18,6 +18,7 @@ class NetworkArchitecture(ABC):
         config: Dict[str, Any],
         action_space: Optional[Space] = None,
         name: str = "",
+        obs_layout: Optional[Dict[str, Any]] = None,
     ) -> nn.Module:
         """Builds a network module.
 
@@ -27,7 +28,10 @@ class NetworkArchitecture(ABC):
             config (Dict[str, Any]): Architecture-specific configuration dictionary
             action_space (Optional[Space]): Action space for the network.
             name (str): Optional name prefix for layers (for debugging)
-            
+            obs_layout (Optional[Dict[str, Any]]): Per-SKU observation layout, used
+                by architectures that tokenize the observation (e.g. attention).
+                Ignored by flat architectures (MLP, GRU).
+
         Returns:
             nn.Module: PyTorch module implementing the architecture
         """

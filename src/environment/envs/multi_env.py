@@ -501,6 +501,130 @@ class InventoryEnvironment(ParallelEnv):
 
         return local_obs_dim
 
+    def _compute_obs_layout(self) -> Dict[str, Any]:
+        """
+        Computes the per-SKU token layout of one warehouse's local observation
+        block, mirroring the exact column order produced by ``_build_local_obs``.
+
+        Per-SKU feature blocks contribute one column per SKU; ``pipeline`` and
+        ``demand_history`` are ``(slots, n_skus)`` raveled row-major, so a SKU's
+        columns within those blocks are strided by ``n_skus``. Aggregates and the
+        (optional) warehouse-id one-hot prefix are non-per-SKU "context" columns.
+
+        Returns:
+            layout (Dict[str, Any]): Dictionary with:
+                - ``block_size`` (int): Length of one warehouse block
+                  (equals ``_compute_local_obs_dim()``).
+                - ``n_skus`` (int): Number of SKUs (per-SKU token count).
+                - ``per_sku_indices`` (List[List[int]]): For each SKU, the column
+                  offsets (within one block) that belong to that SKU. Every SKU
+                  has the same number of columns.
+                - ``context_indices`` (List[int]): Column offsets (within one
+                  block) that are not per-SKU (warehouse-id one-hot, aggregates).
+        """
+
+        # Extract parameters
+        n_skus = self.n_skus
+        max_lead_time = self.max_expected_lead_time
+        rolling_window = self.rolling_window
+        features = self.feature_config
+
+        # Initialize per-SKU and context indices
+        per_sku: List[List[int]] = [[] for _ in range(n_skus)]
+        context: List[int] = []
+        offset = 0
+
+        # Helper functions to add contiguous and strided per-SKU blocks
+        # A per-SKU block laid out as [sku_0, sku_1, ..., sku_{n-1}].
+        def add_contiguous_per_sku():
+            nonlocal offset
+            for s in range(n_skus):
+                per_sku[s].append(offset + s)
+            offset += n_skus
+
+        # A block laid out as (n_slots, n_skus) raveled row-major, so a SKU's
+        # columns are strided by n_skus (e.g. pipeline, demand_history).
+        def add_strided_per_sku(n_slots: int):
+            nonlocal offset
+            for slot in range(n_slots):
+                for s in range(n_skus):
+                    per_sku[s].append(offset + slot * n_skus + s)
+            offset += n_slots * n_skus
+
+        # Add a single context column
+        def add_context(count: int = 1):
+            nonlocal offset
+            for _ in range(count):
+                context.append(offset)
+                offset += 1
+
+        # Mirror _build_local_obs block order exactly.
+        # 1. Inventory
+        if features.inventory:
+            add_contiguous_per_sku()
+            if features.inventory_aggregate:
+                add_context()
+        # 2. Pipeline
+        if features.pipeline:
+            add_strided_per_sku(max_lead_time)
+            if features.pipeline_aggregate:
+                add_context()
+        # 3. Incoming demand home
+        if features.incoming_demand_home:
+            add_contiguous_per_sku()
+            if features.incoming_demand_home_aggregate:
+                add_context()
+        # 4. Units shipped home
+        if features.units_shipped_home:
+            add_contiguous_per_sku()
+        # 5. Units shipped away
+        if features.units_shipped_away:
+            add_contiguous_per_sku()
+            if features.units_shipped_away_aggregate:
+                add_context()
+        # 6. Stockout
+        if features.stockout:
+            add_contiguous_per_sku()
+        # 7. Rolling demand mean
+        if features.rolling_demand_mean:
+            add_contiguous_per_sku()
+            if features.rolling_demand_mean_aggregate:
+                add_context()
+        # 8. Demand forecast
+        if features.demand_forecast:
+            add_contiguous_per_sku()
+            if features.demand_forecast_aggregate:
+                add_context()
+        # 9. Days of supply
+        if features.days_of_supply:
+            add_contiguous_per_sku()
+        # 10. Net inventory position
+        if features.net_inventory_position:
+            add_contiguous_per_sku()
+        # 11. Demand variability
+        if features.demand_variability:
+            add_contiguous_per_sku()
+        # 12. Demand history
+        if features.demand_history:
+            add_strided_per_sku(rolling_window)
+
+        # _build_local_obs prepends the warehouse-id one-hot AFTER assembling the
+        # feature blocks, so it occupies the first n_warehouses columns and shifts
+        # every feature column to the right by n_warehouses.
+        if self.include_warehouse_id:
+            shift = self.n_warehouses
+            per_sku = [[c + shift for c in row] for row in per_sku]
+            context = [c + shift for c in context]
+            context = list(range(shift)) + context
+            offset += shift
+
+        return {
+            "block_size": int(offset),
+            "n_skus": int(n_skus),
+            "per_sku_indices": [[int(c) for c in row] for row in per_sku],
+            "context_indices": [int(c) for c in context],
+        }
+
     def _initialize_inventory(self, rng: Optional[np.random.Generator] = None) -> np.ndarray:
         """
         Initializes inventory levels for each warehouse and SKU. 

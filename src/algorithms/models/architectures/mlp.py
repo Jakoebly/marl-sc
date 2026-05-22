@@ -18,6 +18,7 @@ class MLPArchitecture(NetworkArchitecture):
         config: Dict[str, Any],
         action_space: Optional[Space] = None,
         name: str = "",
+        obs_layout: Optional[Dict[str, Any]] = None,
     ) -> nn.Module:
         """Builds an MLP network.
         

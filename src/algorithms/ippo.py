@@ -88,6 +88,7 @@ class IPPOWrapper(BaseAlgorithmWrapper):
             "critic_obs_type": ippo_params.critic_obs_type,
             "local_obs_dim": self.local_obs_dim,
             "global_obs_dim": self.global_obs_dim,
+            "obs_layout": self.env._compute_obs_layout(),
             "logstd_init": ippo_params.logstd_init,
             "logstd_floor": ippo_params.logstd_floor,
         }
