@@ -20,7 +20,7 @@
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit_lumechs"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
