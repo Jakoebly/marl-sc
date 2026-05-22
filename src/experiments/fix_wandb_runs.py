@@ -1,7 +1,7 @@
 import wandb
 api = wandb.Api()
 
-ids = ["3e1ae650", "a3658ab0"] 
+ids = ["a3658ab0"] 
 for rid in ids:
     path = f"gowiththetensorflow/marl-sc/{rid}"
     try:
