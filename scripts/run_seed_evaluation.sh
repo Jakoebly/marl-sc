@@ -20,7 +20,7 @@
 #SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%A_%a.out                  # Standard output
 #SBATCH --error=scripts/logs/%x_%A_%a.err                   # Standard error
-#SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705    # <-- ADJUST THIS!
+##SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705    # <-- ADJUST THIS!
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
 CLUSTER="lrz"
