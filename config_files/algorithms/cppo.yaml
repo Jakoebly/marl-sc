@@ -26,7 +26,7 @@ algorithm:
     vf_clip_param: 10.0
     logstd_init: 0
     logstd_floor: -2.0
-    obs_normalization: "meandstd_custom"
+    obs_normalization: "meanstd_custom"
     networks:
       shared_layers: null
       use_mu_sigma_head: false
