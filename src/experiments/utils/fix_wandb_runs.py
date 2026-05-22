@@ -1,7 +1,7 @@
 import wandb
 api = wandb.Api()
 
-ids = ["0592c48d", "b3ffc974", "c139a447"]  # + the 2 MAPPO_NoPS run ids from its group
+ids = ["3e1ae650", "a3658ab0"] 
 for rid in ids:
     path = f"gowiththetensorflow/marl-sc/{rid}"
     try:
