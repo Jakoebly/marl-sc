@@ -68,13 +68,13 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs/Runs/E1/MAPPO_PS_HeteroTransfer_E1.1"
-EXPERIMENT_NAME="MAPPO_PS_Visual_3WH_5SKUS_DemandHetero_E1.1"
+EXPERIMENT_NAME="MAPPO_PS_Visual_3WH_5SKUS_CombinedHetero_E1.1.1"
 
 # Run training
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_demand_hetero_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/mappo_ps_E0.yaml \
+    --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
+    --algorithm-config ./config_files/algorithms/algorithms_E0/mappo_ps_E0.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
