@@ -68,12 +68,12 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs/Runs/E1/MAPPO_PS_HeteroTransfer_E1.1"
-EXPERIMENT_NAME="MAPPO_PS_Visual_3WH_5SKUS_CostHetero_E1.1.1"
+EXPERIMENT_NAME="MAPPO_PS_Visual_3WH_5SKUS_SKUHetero_E1.1.1"
 
 # Run training
 python src/experiments/run_experiment.py \
     --mode single \
-    --env-config ./config_files/environments/env_cost_hetero_3WH5SKU.yaml \
+    --env-config ./config_files/environments/env_sku_hetero_3WH5SKU.yaml \
     --algorithm-config ./config_files/algorithms/algorithms_E0/mappo_ps_E0.yaml \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
