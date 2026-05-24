@@ -12,7 +12,7 @@
 ##SBATCH --partition=serial_std                              # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node
-#SBATCH --cpus-per-task=2                                  # CPU cores per task
+#SBATCH --cpus-per-task=3                                  # CPU cores per task
 #SBATCH --mem=32G                                           # Memory allocation
 #SBATCH --time=4:00:00                                     # Max walltime per worker
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
