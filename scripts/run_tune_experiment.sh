@@ -68,7 +68,7 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO"
+EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_DemandHetero_Optuna_FIFO"
 
 # Run tune experiment.
 # python src/experiments/run_experiment.py \
