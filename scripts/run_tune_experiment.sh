@@ -76,7 +76,7 @@ python src/experiments/run_experiment.py \
     --env-config ./config_files/environments/env_sku_hetero_3WH5SKU.yaml \
     --algorithm-config ./config_files/algorithms/algorithms_E2/mappo_ps_sku_hetero_a4.yaml \
     --tune-config ./config_files/experiments/experiments_E2/tune_config_sku_hetero_E2.yaml \
-    --num-samples 1000 \
+    --num-samples 150 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --wandb-project marl-sc \
