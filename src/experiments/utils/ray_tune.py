@@ -415,7 +415,7 @@ def get_tune_search_algorithm(
                 seed=seed, 
                 constant_liar=True, 
                 multivariate=True, 
-                n_startup_trials=50,
+                n_startup_trials=25,
             ),
             **kwargs,
         )

@@ -31,6 +31,7 @@ experiment_outputs/*
 !experiment_outputs/.gitkeep
 wandb/
 scripts/logs/*
+playground.py
 
 
 # =========================
