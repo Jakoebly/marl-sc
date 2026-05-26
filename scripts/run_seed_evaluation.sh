@@ -5,9 +5,9 @@
 # ============================================================================
 
 #SBATCH --job-name=marl-seed-eval                           # Name of the job
-#SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
-##SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
-##SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+##SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
 ##SBATCH --clusters=serial                                   # Cluster LRZ        <-- ADJUST THIS!
 ##SBATCH --partition=serial_std                              # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
@@ -23,7 +23,7 @@
 #SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705    # <-- ADJUST THIS!
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-lumechs"
+CLUSTER="lrz"
 
 
 # ============================================================================
