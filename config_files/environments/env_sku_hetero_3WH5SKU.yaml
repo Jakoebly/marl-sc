@@ -1,5 +1,5 @@
 environment:
-  feature_config_path: config_files/features/features_E0/feature_config_cppo_E0.yaml
+  feature_config_path: config_files/features/features_E1/feature_config_mappo_ps_sku_hetero_E1.yaml
   action_space:
     type: demand_centered
     params:

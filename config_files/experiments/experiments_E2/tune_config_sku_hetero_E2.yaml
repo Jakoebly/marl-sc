@@ -13,7 +13,7 @@ search_space:
       low: 0.015560
       high: 0.140044
     vf_loss_coeff:
-      type: uniform
+      type: loguniform
       low: 0.093035
       high: 0.837319
 
