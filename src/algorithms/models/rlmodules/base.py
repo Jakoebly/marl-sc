@@ -283,13 +283,13 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
             obs_layout=self.obs_layout,
         )
     
-        # Count parameters
-        _n = lambda m: sum(p.numel() for p in m.parameters() if p.requires_grad)
-        _logstd = self.log_std.numel() if hasattr(self, "log_std") else 0
-        print(
-            f"[PARAMCOUNT] actor_in={actor_input_dim} actor_params={_n(self.actor) + _logstd} "
-            f"critic_in={critic_input_dim} critic_params={_n(self.critic)}"
-        )
+        # # Count parameters
+        # _n = lambda m: sum(p.numel() for p in m.parameters() if p.requires_grad)
+        # _logstd = self.log_std.numel() if hasattr(self, "log_std") else 0
+        # print(
+        #     f"[PARAMCOUNT] actor_in={actor_input_dim} actor_params={_n(self.actor) + _logstd} "
+        #     f"critic_in={critic_input_dim} critic_params={_n(self.critic)}"
+        # )
 
     def _get_obs_dim(self, space: Space, key: Optional[str] = None) -> int:
         """

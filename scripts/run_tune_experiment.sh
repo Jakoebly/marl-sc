@@ -79,7 +79,6 @@ python src/experiments/run_experiment.py \
     --num-samples 100 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
-    --wandb-project marl-sc \
     --root-seed 42 \
     --eval-seed 123
 
