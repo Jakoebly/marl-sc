@@ -15,14 +15,14 @@
 #SBATCH --cpus-per-task=5                                   # CPU cores per task
 #SBATCH --mem=32G                                           # Memory allocation
 #SBATCH --time=10:00:00                                     # Maximum walltime
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 ##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-jakobeh"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
@@ -67,8 +67,8 @@ source scripts/lib/start_ray.sh
 # ============================================================================
 
 # Set output directory and experiment name
-STORAGE_DIR="./experiment_outputs/Runs/E1/IPPO_PS_HeteroTransfer_E1.1"
-EXPERIMENT_NAME="IPPO_PS_Visual_3WH_5SKUS_CombinedHetero_E1.1"
+STORAGE_DIR="./experiment_outputs/Runs/E1/CPPO_HeteroTransfer_E1.1"
+EXPERIMENT_NAME="CPPO_Visual_3WH_5SKUS_DemandHetero_E1.1"
 
 # Run training
 python src/experiments/run_experiment.py \
