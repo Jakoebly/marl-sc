@@ -13,14 +13,14 @@
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
 #SBATCH --time=12:00:00                                     # Maximum walltime 
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 ##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-jakobeh"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
