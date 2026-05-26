@@ -68,7 +68,7 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="./experiment_outputs/Runs/E1/MAPPO_PS_HeteroTransfer_E1.1"
-EXPERIMENT_NAME="MAPPO_PS_SeedEval_3WH_5SKUS_DemandHetero_E1.1"
+EXPERIMENT_NAME="MAPPO_PS_Visual_3WH_5SKUS_DemandHetero_E1.1"
 
 # Run training
 python src/experiments/run_experiment.py \
