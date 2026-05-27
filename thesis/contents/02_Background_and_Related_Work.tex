@@ -1,178 +1,35 @@
 \chapter{Background and Related Work}
+\label{chap:background-and-related-work}
+
+Since its formal inception in the early twentieth century, the inventory control problem has undergone considerable methodological development from closed-form deterministic solutions to modern data-driven and learning-based approaches. This section provides the methodological background for the remainder of this thesis and reviews the relevant body of literature. While \autoref{sec:classical-inventory-control} reviews classical approaches to inventory control, \autoref{sec:rl-inventory-control} turns to reinforcement learning and discusses how data-driven methods address settings in which the assumptions of classical models no longer apply.\\
+
 \section{Classical Approaches to Inventory Control}
 \label{sec:classical-inventory-control}
 
-The study of inventory control under uncertainty begins with the single-period newsvendor
-model, which balances the cost of holding unsold stock against the cost of unmet demand and
-places the optimal order quantity at the critical fractile of the demand distribution
-[CITE: newsvendor model and critical fractile, e.g. Zipkin 2000 or Silver, Pyke and Thomas 2017].
-Across multiple periods this trade-off becomes the dynamic stochastic inventory problem
-[CITE: Arrow, Harris and Marschak 1951 as the foundational dynamic stochastic inventory work],
-for which the structure of the optimal replenishment policy is well understood. When each
-replenishment incurs a fixed ordering cost, the optimal policy takes the $(s,S)$ form and places
-an order to raise the inventory position to $S$ whenever it falls to or below $s$
-[CITE: Scarf 1960 optimality of (s,S) policies]. When no fixed ordering cost is present, this
-reduces to a base-stock or order-up-to policy that raises the inventory position to a single
-target level each period [CITE: base-stock policy optimality, e.g. Veinott 1966 and Zipkin 2000].
-The deterministic special case in which demand is constant is the classical economic order
-quantity model [CITE: Harris 1913 EOQ and Erlenkotter 1990 historical account]. The network
-studied in this thesis carries no fixed ordering cost, so the base-stock policy is the relevant
-optimal class and underlies the reference policies it evaluates.
+While early research in inventory management focused on deterministic single-location formulations, models advanced toward stochastic multi-echelon networks that are increasingly capable of capturing the complexity of real supply chains. The following section outlines this development and highlights the foundational contributions along the two complementary axes of demand assumptions and system structure.
 
-A second strand of the classical literature concerns how the parameters of a chosen policy are
-computed. When demand follows a tractable distribution and unmet demand is backordered,
-base-stock levels admit closed-form or readily computable expressions
-[CITE: analytical base-stock levels, Zipkin 2000]. This tractability is lost under the lost-sales
-assumption adopted in this thesis, where unmet demand disappears rather than carrying over and the
-optimal policy has no simple closed form [CITE: Zipkin 2008 old and new methods for lost-sales
-systems], a setting whose reliance on approximations and numerical procedures is documented in
-dedicated reviews [CITE: Bijvank and Vis 2011 lost-sales review]. Two practical responses recur.
-The first calibrates policy parameters analytically from estimated demand statistics, as in
-newsvendor-style safety-stock formulas. The second treats the simulator as a black box and searches
-for the parameters that minimise simulated cost, an approach known as simulation optimisation
-[CITE: simulation optimisation for inventory base-stock levels]. Forecast-driven and adaptive
-heuristics that update their parameters from observed demand occupy the middle ground between the
-two [CITE: adaptive or forecast-based replenishment heuristics, Silver, Pyke and Thomas 2017]. The
-reference policies used in this thesis instantiate this spectrum from analytically derived to
-simulation-optimised base-stock levels.
+\paragraph{\textbf{Deterministic Foundations}} Deterministic models form the historical foundation of inventory control theory. One of the earliest formal treatments of the problem is generally attributed to \citet{harris1913eoq}, who introduced what later became known as the \gls{acr:eoq} model. The model determines the optimal order quantity by balancing ordering costs against linear holding costs for a single product under the assumptions of constant and known demand, instantaneous single-batch replenishment, fixed price and cost parameters, and no shortages. The same formula was subsequently refined and applied to a production management context by \citet{camp1922eoq} and \citet{andler1929eoq} and gained broader practical visibility through the work of \citet{wilson1934eoq}, who systematized and popularized it in operations management practice. 
 
-Moving from a single location to a network introduces coordination across stocking points. The
-multi-echelon literature, beginning with the analysis of serial systems, establishes that echelon
-base-stock policies are optimal under suitable conditions and provides the foundation for inventory
-control across tiered supply chains [CITE: Clark and Scarf 1960 multi-echelon serial systems].
-Related work extends these ideas to repairable-item and service-parts networks
-[CITE: Sherbrooke 1968 METRIC]. The setting closest to the present work is the single-echelon,
-multi-location distribution system in which warehouses serve a set of demand regions, for which the
-optimal allocation policy is generally intractable and is addressed through heuristics
-[CITE: Eppen and Schrage 1981 and Federgruen and Zipkin 1984 one-warehouse multi-retailer]. Within
-such networks, lateral transshipment allows stock to move between locations of the same echelon to
-cover demand that cannot be met locally [CITE: Paterson et al. 2011 lateral transshipment review].
-The environment in this thesis realises a reactive form of this mechanism implicitly through its
-greedy fulfilment of demand from the cheapest stocked warehouse. Comprehensive surveys catalogue
-the assumptions and methods of this body of work and note that most models assume a single echelon
-or a strictly tiered structure [CITE: de Kok et al. 2018 typology and review of stochastic
-multi-echelon inventory models].
+Despite its simplicity, the model has proven remarkably influential and laid the groundwork for subsequent work. A first natural extension was introduced by \citet{taft1918eoqextension}, who developed the \gls{acr:epq} model by relaxing the assumption of instantaneous replenishment and considering a finite production rate. In addition, \citet{wagner1958eoqextension} addressed time-varying demand and proposed an exact dynamic programming solution. Further contributions extended the basic model by considering planned backorders, quantity discounts, deterioration, and multi-product settings with shared ordering costs \citep[e.g.,][]{hadley1963eoqextension, ghare1963eoqextension, crowther1964eoqextension, goyal1977eoqextension}. 
 
-Two features limit the reach of these classical methods in the setting this thesis studies. First,
-their tractability rests on structural and distributional assumptions that rarely hold in realistic
-networks, and the dynamic programmes that characterise optimal policies suffer from the curse of
-dimensionality as the number of locations and products grows [CITE: curse of dimensionality in
-inventory networks, e.g. de Kok et al. 2018]. Optimal policies for general distribution systems are
-therefore unknown, and practice relies on heuristics whose quality is difficult to certify. Second,
-the analytically convenient cases are typically symmetric across locations and assume centralised
-information, whereas the networks of interest here are heterogeneous and operate under decentralised
-local information. These limitations motivate data-driven and learning-based methods, which
-approximate replenishment policies directly from interaction with the system rather than from
-closed-form analysis [CITE: Boute, Gijsbrechts, van Jaarsveld and Vanvuchelen 2022 DRL for
-inventory control roadmap]. The remainder of this chapter reviews reinforcement learning as such an
-approach.</parameter>
+While these extensions remain widely used in both theory and practice \citep{shekarian2017eoquse, alnahhal2024eoquse}, they all rest on the assumption that demand is known in advance. However, it is clear that real-world inventory systems are rarely deterministic, which directly motivates the necessity for models that incorporate environment uncertainty.\\
 
-------------------------------------------------------------------------------------------------
+\paragraph{\textbf{Stochastic Demand Models}}
+Stochastic demand models form the analytical core of modern inventory control theory. While the first formal treatment of an inventory problem under uncertainty is commonly traced back to \citet{edgeworth1888newsvendor}, who used the central limit theorem to determine optimal cash reserves against random withdrawals, the modern formulation of the newsvendor problem in the context of inventory management relates to \citet{arrow1951newsvendor}. In its basic single-period form, a decision maker must choose an order quantity for a perishable product before observing realized demand. In turn, he either incurs an underage cost for each unit of unmet demand or an overage cost for each unit of leftover stock. \citet{arrow1951newsvendor} showed that the optimal order quantity for this single-period model follows a closed-form critical-fractile solution that balances both costs against each other and depends only on their ratio and on the demand distribution. The authors further embed this static problem into a dynamic context, in which replenishment decisions are made repeatedly over a planning horizon. In fact, when inventory carries over from one period to the next and a fixed ordering cost is present, the cost function loses both convexity and separability, which breaks the marginal-balance argument behind the critical-fractile formula and rules out any closed-form solution. To make the problem tractable, \citet{arrow1951newsvendor} assumed a simple $(s, S)$ rule that triggers a replenishment up to $S$ once inventory drops to $s$ and minimized the resulting long-run expected loss numerically, without establishing optimality of $(s, S)$ rules in general.
 
-Research on stochastic inventory control originates with the single-period newsvendor model, in
-which a single order is placed before demand is observed and the order quantity balances the
-expected cost of overage against that of underage. The cost-minimising quantity equates the
-marginal costs of the two errors and is given by the critical fractile of the demand distribution
-[CITE: newsvendor model and critical fractile, e.g. Zipkin 2000]. Arrow, Harris and Marschak (1951)
-[CITE: Arrow, Harris and Marschak 1951, Optimal Inventory Policy] generalise this static decision
-into a multi-period dynamic programme and give the first integrated account of inventory decisions
-under sequential demand uncertainty. Scarf (1960) [CITE: Scarf 1960, optimality of (s,S) policies]
-characterises the optimal policy for the periodic-review problem with a fixed ordering cost. He
-introduces the notion of $K$-convexity and uses it to prove that an $(s,S)$ policy is optimal,
-under which an order raising the inventory position to $S$ is placed whenever the position drops to
-or below $s$. Veinott (1966) [CITE: Veinott 1966, conditions for (s,S) optimality] later weakens
-the conditions required for this result. In the absence of a fixed ordering cost the reorder point
-and the order-up-to level coincide, and the optimum reduces to a base-stock policy with a single
-target level [CITE: base-stock optimality, Veinott 1966 and Zipkin 2000]. The deterministic
-antecedent of this work is the economic order quantity of Harris (1913) [CITE: Harris 1913 EOQ and
-Erlenkotter 1990 historical account], which trades a fixed ordering cost against a linear holding
-cost under constant demand and remains the textbook entry point to the field.
+The conjecture that an $(s, S)$ rule is in fact optimal in this dynamic inventory problem problem motivated a substantial stream of subsequent research. \citet{scarf1960sSoptimality} provided the first rigorous proof of optimality for the finite-horizon case with linear holding and shortage costs and a fixed ordering cost. Specifically, he introduced $K$-convexity that bounds the deviation from the convexity inequality by $K$ and proved that because this property is preserved under the dynamic-programming recursion, the optimal ordering decision takes the $(s, S)$ form in every period. \citet{iglehart1963sSoptimality} extended this result to the infinite-horizon case by showing that the finite-horizon optimal policies converge to a stationary $(s, S)$ policy as the horizon grows. Similarly, \citet{karlin1960sSoptimality} studied the special case of no fixed ordering cost and established that under non-stationary demand distributions the $(s, S)$ rule collapses into a base-stock policy, which is also known as a $(S-1, S)$ policy that orders up to a single critical level $S$ whenever inventory falls below it. \citet{veinott1965sSoptimality} generalized this finding to a multi-product, infinite-horizon setting with nonstationary costs and demand, delivery lags, and discounting. Building on these structural results, further studies focused on the efficient computation of the optimal $(s, S)$ levels \citep[e.g.,][]{veinott1965computingsS, federgruen1984computingsS, zheng1991computingsS}.
 
-A parallel question is how the parameters of these policies are computed once their structure is
-fixed. In the backorder case, where unmet demand carries to later periods, base-stock levels follow
-from tractable newsvendor-type expressions [CITE: analytical base-stock computation, Zipkin 2000].
-The lost-sales case, where unmet demand is simply lost, is markedly harder. Zipkin (2008) [CITE:
-Zipkin 2008, lost-sales inventory systems] re-examines it and shows that the optimal policy is no
-longer of base-stock form and depends on the full vector of outstanding orders. Bijvank and Vis
-(2011) [CITE: Bijvank and Vis 2011, lost-sales review] survey the resulting literature and find that
-analysis proceeds almost entirely through restricted policy classes and approximations rather than
-optimal rules. Where analytical levels are unavailable, a practical alternative evaluates a
-candidate policy by simulation and searches the parameter space for the configuration of lowest
-cost, an approach studied under the name of simulation optimisation [CITE: simulation optimisation
-for inventory systems]. Adaptive heuristics occupy the ground between these extremes, re-estimating
-demand from a moving window and updating their order-up-to levels online [CITE: adaptive or
-forecast-based replenishment, Silver, Pyke and Thomas 2017].
+Subsequent research has relaxed many of the central assumptions of the standard newsvendor problem. Distribution-free formulations \citep[e.g.,][]{scarf1958distributionfree, gallego1993distributionfree, gallego2001distributionfree} drop the requirement of a fully known demand distribution and instead optimize against the worst case over a moment-based ambiguity set. Further extensions cover lost sales \citep{karlin1958lostsales},
+perishable goods \citep{fries1975perishable, nahmias1975perishable}, stochastic lead times \citep{kaplan1970stochasticleadtimes}, and capacitated replenishment \citep{federgruen1986capacitatedreplenishment}. More recently, data-driven and censored-demand variants such as those of \citet{burnetas2000datadriven, levi2007datadriven}, and \citet{huh2009datadriven} replace distributional knowledge with sample information.
 
-Extending these results from one stocking point to a network is the concern of multi-echelon
-inventory theory. Clark and Scarf (1960) [CITE: Clark and Scarf 1960, multi-echelon serial systems]
-analyse a serial system and show that it decomposes into a sequence of single-stage problems linked
-by induced penalty functions, establishing that an echelon base-stock policy, defined on the stock
-of a stage together with all stock downstream of it, is optimal. Sherbrooke (1968) [CITE:
-Sherbrooke 1968, METRIC] develops the METRIC model for repairable-item networks at the RAND
-Corporation and sets stock levels across a two-echelon depot and base structure by approximating
-the expected backorders at each base under compound Poisson demand. For distribution systems, in
-which a depot supplies several retailers facing independent demand, the optimal policy is generally
-intractable. Eppen and Schrage (1981) [CITE: Eppen and Schrage 1981, one-warehouse multi-retailer]
-obtain closed-form results under a balance assumption that permits negative allocations, and
-Federgruen and Zipkin (1984) [CITE: Federgruen and Zipkin 1984, multilocation approximations]
-construct approximations for the general multilocation problem. A closely related mechanism is
-lateral transshipment, the movement of stock between locations of the same echelon. Paterson et al.
-(2011) [CITE: Paterson et al. 2011, lateral transshipment review] survey this work and separate
-proactive transshipments, carried out at predetermined times, from reactive transshipments that
-respond to stockouts. The assumptions and solution methods spanning these models are catalogued by
-de Kok et al. (2018) [CITE: de Kok et al. 2018, typology and review], whose typology shows that
-most tractable formulations rest on a single echelon or a strictly serial structure.
+Although the contributions discussed so far provide a solid theoretical framework for inventory control under uncertainty, the underlying models are limited to a single stocking location. To accurately capture real distribution systems, the inclusion of network considerations into these frameworks is thus necessary.
 
-Two limitations run through this body of work. First, its tractable results depend on strong
-structural assumptions, and the exact dynamic programmes behind them become computationally
-prohibitive as the number of locations, products and lead-time stages grows, a difficulty long
-known as the curse of dimensionality [CITE: curse of dimensionality in inventory, e.g. de Kok et
-al. 2018]. For general distribution networks the optimal policy is unknown, and the field proceeds
-through heuristics whose optimality gap is seldom quantified. Second, the analytically convenient
-models are largely symmetric across locations and assume a central planner with full network
-information, whereas real distribution networks are heterogeneous across sites and are operated from
-local information. These gaps have motivated a shift toward data-driven methods that learn
-replenishment policies from interaction rather than deriving them in closed form, a direction
-surveyed for inventory control by Boute et al. (2022) [CITE: Boute et al. 2022, DRL for inventory
-control roadmap]. The remainder of this chapter reviews the reinforcement learning methods on which
-that approach rests.
+\paragraph{\textbf{Multi-Location and Networked Systems}}
+In multi-echelon settings, replenishment decisions at different stocking locations interact through delivery lead times, capacity constraints, and shared sources of supply, which makes the joint determination of order policies considerably more challenging than in the single-stage case. The first rigorous treatment of such a setting is generally attributed to \citet{clark1960multiechelon}, who studied finite-horizon multi-echelon systems with stochastic demand, linear holding and backorder costs and showed that for serial systems and in the absence of fixed costs echelon base-stock policies are optimal. \citet{federgruen1984multiechelon} extended this result to the infinite-horizon case under both discounted and average-cost criteria. 
 
+Since then, networked inventory models have been extended to richer network structures and to different sets of assumptions. \citet{rosling1989multiechelon} showed that any convergent assembly system under proportional costs and a long-run balance condition on initial inventories reduces to an equivalent serial system so that the echelon base-stock structure remains optimal. For divergent distribution systems \citet{eppen1981multiechelon} introduced their allocation assumption that permits negative shipments and thereby restores analytical tractability for multi-warehouse systems under normal demand. Moreover, \citet{sherbrooke1968multiechelon} introduced the METRIC model for continuous-review divergent networks of expensive low-demand recoverable items under one-for-one replenishment, which was later complemented by the simple recursive cost-evaluation procedures of \citet{axsater1990multiechelon} that underpin much of the subsequent heuristic literature.
+A related line of work enriches these networked models with operational flexibility measures such as lateral transshipments, which redistribute stock proactively or reactively between locations of the same echelon to buffer local demand shocks \citep[see][]{paterson2011multiechelon}.
 
-\section{Reinforcement Learning}
-\label{sec:reinforcement-learning}
-\subsection{Single-Agent Reinforcement Learning}
-\label{sec:single-agent-rl}
+Despite the elegance of these analytical results, they rest on restrictive assumptions and remain provably optimal only for systems with infinite capacity, no fixed lot sizes, constant or exponential lead times, and stationary demand \citep{dekok2018multiechelon}. Once such assumptions are relaxed the curse of dimensionality of the underlying dynamic program quickly renders exact methods intractable. To address this gap, a substantial line of literature has developed around simulation-based optimization, in which a parametric policy class such as echelon base-stock levels is fixed in advance and its parameters are tuned through repeated simulation. While gradient-based methods estimate cost-function derivatives directly from sample paths \citep[e.g.,][]{glasserman1995multiechelon, woerner2018multiechelon}, derivative-free approaches instead search the parameter space directly without gradient information. Examples include metaheuristics such as genetic algorithms \citep{daniel2005multiechelon, daniel2006multiechelon, kimbrough2002multiechelon}, fuzzy-set theory \citep{petrovic1999multiechelon, giannoccaro2003multiechelon}, or ranking-and-selection procedures \citep{tsai2013multiechelon}. These methods relax the structural assumptions of the analytical literature but typically rely on extensive parameter tuning and provide no guarantee of optimality. 
 
-\begin{itemize}
-    \item Single Agent RL general 
-    \item Markov Decision Process
-    \item Overview of Approaches
-    \item Policy Gradient Approaches and PPO
-\end{itemize}
-
-
-\subsection{Multi-Agent Reinforcement Learning}
-
-\begin{itemize}
-    \item General MARL concepts
-    \item Types of Games and Dec-POMDP
-    \item Challenges (non-stationarity, credit assignment, ...)
-    \item Overview of Approaches (Independent Learners, Joint Learners, cdte, parameter sharing, mappo, ippo, evtl. also mention value decomposition, ...)
-    \item Policy Gradient Approaches and PPO
-\end{itemize}
-
-\section{Heterogeneity in Multi-Agent Reinforcement Learning}
-
-\section{2.4  Research Gap and Research Questions}
-
-\paragraph{\textbf{G1. Studied inventory control problems are in most cases symmetric.}}
-
-\paragraph{\textbf{G2. No framework links heterogeneity types to failure modes.}}
-
-\paragraph{\textbf{G3. Existing remedies are untargeted.}}
-
-\paragraph{\textbf{RQ1}} 
-\textit{While cooperative multi-agent reinforcement learning with parameter sharing achieves strong results on symmetric multi-warehouse environments, real-world supply chain settings are inherently heterogeneous. Under such heterogeneity, does parameter-shared multi-agent PPO degrade relative to a symmetric baseline of matched network throughput and if so, what failure modes explain the gap? Can environment-specific hyperparameter tuning recover this lost performance?}
-
-\paragraph{\textbf{RQ2}}  
-\textit{Parameter sharing imposes a single inductive bias across all agents, which becomes a liability when agents operate in heterogeneous conditions. Which architectural modifications relax this constraint sufficiently to recover performance and are the same modifications effective across all heterogeneity types or does each heterogeneity type demand a distinct architectural response?}
+Taken together, the classical literature on multi-echelon inventory control offers a rich but fragmented toolbox, in which exact analytical results are restricted to stylized structures and computational methods scale only with substantial tuning effort. This motivates the use of learning-based approaches as a natural alternative, which are the subject of the next section.\\

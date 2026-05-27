@@ -1,2 +1,17 @@
 \chapter{Problem Formulation}
 \label{chap:problem-formulation}
+
+
+Customer demand is the only exogenous stochastic driver of the system and is
+generated independently for each region in every period. The model departs from
+the aggregate per-region demand rate used in most prior multi-agent inventory
+studies [\textbf{CITE: MARL inventory work that models demand as an aggregate per-period quantity per region or SKU}] and instead represents demand at the level of individual customer orders. An order is a single request that may span several \glspl{acr:sku} at once, and it is the unit at which the network allocatesfulfilment and incurs outbound shipment cost. Representing demand at the order
+level rather than as an aggregate quantity per \gls{acr:sku} is therefore not a
+cosmetic choice. It is what allows the fulfilment logic of
+Section~\ref{sec:fulfillment} to charge shipment cost per dispatched order and to
+split a single order across warehouses, and it is one of the features that
+distinguishes the present environment from the symmetric single-quantity
+formulations reviewed in Chapter~\ref{chap:background}.
+
+
+

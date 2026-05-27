@@ -31,6 +31,12 @@
 %%
 %% The warehouse index i is reused intentionally as the agent index in the
 %% Methodology chapter ("warehouse i is controlled by agent i").
+%%
+%% Casing convention:
+%%   uppercase Latin (N, Z, Q, D)   random variables
+%%   lowercase Latin (i, j, k, t, o) indices
+%%   Greek and p                    parameters
+%%   roman superscripts (ord, qty, sku) descriptive tags, not variables
 %% ===========================================================================
 
 %% Indices
@@ -46,21 +52,25 @@
 \newnotation{horizon}{\ensuremath{T}}{planning horizon, the number of periods in one episode}{b-T}
 
 %% Network structure
-\newnotation{homeRegion}{\ensuremath{h(i)}}{home region of warehouse $i$, the closest region by distance, equal to $i$ under the symmetric labelling used here}{c-h}
+\newnotation{homeRegion}{\ensuremath{h(i)}}{home region of warehouse $i$, the closest region by distance, equal to $i$ under the symmetric labeling used here}{c-h}
 \newnotation{distance}{\ensuremath{d_{ij}}}{distance from warehouse $i$ to demand region $j$}{c-d}
 \newnotation{skuWeight}{\ensuremath{w_{k}}}{unit weight of stock-keeping unit $k$}{c-w}
-\newnotation{leadTime}{\ensuremath{L_{ik}}}{replenishment lead time for warehouse $i$ and SKU $k$, the number of periods between placing an order and its availability for fulfilment}{c-L}
+\newnotation{leadTime}{\ensuremath{L_{ik}}}{replenishment lead time for warehouse $i$ and SKU $k$, the number of periods between placing an order and its availability for fulfillment}{c-L}
 
 %% Demand model
+\newnotation{orderSet}{\ensuremath{O_{jt}}}{set of customer orders arriving in region $j$ during period $t$, with $|O_{jt}| = N^{\mathrm{ord}}_{jt}$}{d-O}
 \newnotation{numOrders}{\ensuremath{N^{\mathrm{ord}}_{jt}}}{number of customer orders arriving in region $j$ during period $t$}{d-N}
 \newnotation{rateOrders}{\ensuremath{\lambda^{\mathrm{ord}}_{j}}}{Poisson rate of customer orders per period in region $j$}{d-lambdaord}
 \newnotation{probSku}{\ensuremath{p^{\mathrm{sku}}_{jk}}}{probability that SKU $k$ is included in a given order from region $j$}{d-psku}
 \newnotation{rateQty}{\ensuremath{\lambda^{\mathrm{qty}}_{jk}}}{Poisson rate of the requested quantity of SKU $k$ in an order from region $j$ that includes it}{d-lambdaqty}
-\newnotation{orderDemand}{\ensuremath{D^{o}_{k}}}{quantity of SKU $k$ requested by order $o$}{d-Do}
-\newnotation{regionDemand}{\ensuremath{D_{jkt}}}{realised demand for SKU $k$ in region $j$ during period $t$, aggregated over all orders}{d-D}
+\newnotation{inclusionIndicator}{\ensuremath{Z^{o}_{kt}}}{Bernoulli indicator that order $o$ includes SKU $k$ in period $t$}{d-Z}
+\newnotation{orderQuantity}{\ensuremath{Q^{o}_{kt}}}{Poisson quantity of SKU $k$ requested by order $o$ in period $t$ when it is included}{d-Q}
+\newnotation{orderDemand}{\ensuremath{D^{o}_{kt}}}{realized demand of order $o$ for SKU $k$ in period $t$, equal to $Z^{o}_{kt}\,Q^{o}_{kt}$}{d-Do}
+\newnotation{regionDemand}{\ensuremath{D_{jkt}}}{realized demand for SKU $k$ in region $j$ during period $t$, aggregated over all orders}{d-D}
 
 %% State and decision variables
 \newnotation{orderQty}{\ensuremath{q_{ikt}}}{replenishment order quantity placed by warehouse $i$ for SKU $k$ in period $t$}{e-q}
+\newnotation{arrival}{\ensuremath{q^{\mathrm{arr}}_{ikt}}}{replenishment of SKU $k$ received by warehouse $i$ at the start of period $t$, equal to $q_{i,k,t-L_{ik}}$ under fixed lead times}{e-qarr}
 \newnotation{inventory}{\ensuremath{I_{ikt}}}{on-hand inventory of SKU $k$ at warehouse $i$ at the decision epoch of period $t$, always non-negative under lost sales}{e-I}
 \newnotation{shipped}{\ensuremath{f_{ijkt}}}{units of SKU $k$ shipped by warehouse $i$ to region $j$ in period $t$}{e-f}
 \newnotation{lostSales}{\ensuremath{U_{jkt}}}{unfulfilled (lost) demand for SKU $k$ in region $j$ during period $t$}{e-U}
