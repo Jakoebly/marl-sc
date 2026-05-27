@@ -61,11 +61,11 @@
 \newnotation{orderSet}{\ensuremath{O_{jt}}}{set of customer orders arriving in region $j$ during period $t$, with $|O_{jt}| = N^{\mathrm{ord}}_{jt}$}{d-O}
 \newnotation{numOrders}{\ensuremath{N^{\mathrm{ord}}_{jt}}}{number of customer orders arriving in region $j$ during period $t$}{d-N}
 \newnotation{rateOrders}{\ensuremath{\lambda^{\mathrm{ord}}_{j}}}{Poisson rate of customer orders per period in region $j$}{d-lambdaord}
-\newnotation{probSku}{\ensuremath{p^{\mathrm{sku}}_{jk}}}{probability that SKU $k$ is included in a given order from region $j$}{d-psku}
+\newnotation{probSku}{\ensuremath{p^{\mathrm{sku}}_{j}}}{probability that any given SKU is included in an order from region $j$}{d-psku}
 \newnotation{rateQty}{\ensuremath{\lambda^{\mathrm{qty}}_{jk}}}{Poisson rate of the requested quantity of SKU $k$ in an order from region $j$ that includes it}{d-lambdaqty}
-\newnotation{inclusionIndicator}{\ensuremath{Z^{o}_{kt}}}{Bernoulli indicator that order $o$ includes SKU $k$ in period $t$}{d-Z}
-\newnotation{orderQuantity}{\ensuremath{Q^{o}_{kt}}}{Poisson quantity of SKU $k$ requested by order $o$ in period $t$ when it is included}{d-Q}
-\newnotation{orderDemand}{\ensuremath{D^{o}_{kt}}}{realized demand of order $o$ for SKU $k$ in period $t$, equal to $Z^{o}_{kt}\,Q^{o}_{kt}$}{d-Do}
+\newnotation{inclusionIndicator}{\ensuremath{Z^{o}_{jkt}}}{Bernoulli indicator that order $o$ from region $j$ includes SKU $k$ in period $t$}{d-Z}
+\newnotation{orderQuantity}{\ensuremath{Q^{o}_{jkt}}}{Poisson quantity of SKU $k$ requested by order $o$ from region $j$ in period $t$ when it is included}{d-Q}
+\newnotation{orderDemand}{\ensuremath{D^{o}_{jkt}}}{realized demand of order $o$ from region $j$ for SKU $k$ in period $t$, equal to $Z^{o}_{jkt}\,Q^{o}_{jkt}$}{d-Do}
 \newnotation{regionDemand}{\ensuremath{D_{jkt}}}{realized demand for SKU $k$ in region $j$ during period $t$, aggregated over all orders}{d-D}
 
 %% State and decision variables

@@ -1,17 +1,30 @@
 \chapter{Problem Formulation}
-\label{chap:problem-formulation}
 
+\section{Demand Model}
+\label{sec:demand-model}
 
-Customer demand is the only exogenous stochastic driver of the system and is
-generated independently for each region in every period. The model departs from
-the aggregate per-region demand rate used in most prior multi-agent inventory
-studies [\textbf{CITE: MARL inventory work that models demand as an aggregate per-period quantity per region or SKU}] and instead represents demand at the level of individual customer orders. An order is a single request that may span several \glspl{acr:sku} at once, and it is the unit at which the network allocatesfulfilment and incurs outbound shipment cost. Representing demand at the order
-level rather than as an aggregate quantity per \gls{acr:sku} is therefore not a
-cosmetic choice. It is what allows the fulfilment logic of
-Section~\ref{sec:fulfillment} to charge shipment cost per dispatched order and to
-split a single order across warehouses, and it is one of the features that
-distinguishes the present environment from the symmetric single-quantity
-formulations reviewed in Chapter~\ref{chap:background}.
+Prior multi-agent inventory studies almost exclusively represent demand as a single aggregate rate per \gls{acr:sku} [CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU]. In contrast, we model demand at the level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice. Since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} demand stream, the granularity of our demand model matches what a warehouse observes in practice. Second, it decomposes demand into separate components so that we can introduce different kinds of asymmetry by controlling each one independently.\\
+
+To simulate this order-level demand process, we model the demand of each region as a multi-stage procedure in which order arrivals, basket composition, and quantities are drawn sequentially. Formally, we write $O_{jt}$ for the set of customer orders that arrive in region $j$ in period $t$ and $o \in O_{jt}$ for an individual order and define the demand generation process for region $j$ in period $t$ according to the following three steps:
+
+\begin{enumerate}
+  \item \textbf{Order arrival.} Sample the number of customer orders $N^{\mathrm{ord}}_{jt} = |O_{jt}|$:
+  \begin{equation}
+    N^{\mathrm{ord}}_{jt} \sim \mathrm{Poisson}\!\left(\lambda^{\mathrm{ord}}_{j}\right)
+  \end{equation}
+
+  \item \textbf{\gls{acr:sku} inclusion.} Sample an inclusion indicator $Z^{o}_{jkt}$ independently for every order \mbox{$o \in O_{jt}$} and \gls{acr:sku} $k$ to decide whether the order includes $k$ with region-specific probability $p^{\mathrm{sku}}_{j}$:
+  \begin{equation}
+    Z^{o}_{jkt} \sim \mathrm{Bernoulli}\!\left(p^{\mathrm{sku}}_{j}\right)
+  \end{equation}
+
+    \item \textbf{\gls{acr:sku} quantity.} Sample the requested quantity $Q^{o}_{jkt}$ independently for every order \mbox{$o \in O_{jt}$} and \gls{acr:sku} $k$:
+    \begin{equation}
+      Q^{o}_{jkt} \sim \mathrm{Poisson}\!\left(\lambda^{\mathrm{qty}}_{jk}\right)
+    \end{equation}
+\end{enumerate}
+
+Equation~\eqref{eq:order-demand} admits a case in which a \gls{acr:sku} is included in an order, so $Z^{o}_{kt} = 1$, yet draws a zero quantity, so $Q^{o}_{kt} = 0$. One natural way to rule this out is to clamp every included quantity to at least one unit, and we deliberately do not do so. Clamping the quantity to a minimum of one raises the expected line quantity of an included \gls{acr:sku} from $\lambda^{\mathrm{qty}}_{jk}$ to $\lambda^{\mathrm{qty}}_{jk} + e^{-\lambda^{\mathrm{qty}}_{jk}}$, a relative inflation of $e^{-\lambda^{\mathrm{qty}}_{jk}} / \lambda^{\mathrm{qty}}_{jk}$. This inflation is negligible when the rate is large but grows without bound as the rate falls, and it exceeds one hundred percent once the rate drops below roughly one unit. Because we rely on the configured rates $\lambda^{\mathrm{qty}}_{jk}$ to set expected demand exactly, and because some \glspl{acr:sku} are intentionally assigned small rates, such a clamp would silently distort the very quantities we control and break the correspondence between the configured rate and the realized mean. We therefore impose no lower floor. An included \gls{acr:sku} that draws a zero quantity simply contributes nothing to its order, and an order whose included \glspl{acr:sku} all draw zero contains no units and produces no shipment. The realized assortment of an order is thus the set of \glspl{acr:sku} with strictly positive quantity, while the number of orders is unaffected.
 
 
 
