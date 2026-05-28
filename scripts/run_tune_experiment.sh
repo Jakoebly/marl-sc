@@ -76,7 +76,7 @@ python src/experiments/run_experiment.py \
     --env-config ./config_files/environments/env_demand_hetero_3WH5SKU.yaml \
     --algorithm-config ./config_files/algorithms/algorithms_E1/mappo_ps_demand_hetero_E1.yaml \
     --tune-config ./config_files/experiments/experiments_E2/tune_config_demand_hetero_E2.yaml \
-    --num-samples 100 \
+    --num-samples 1000 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
     --root-seed 42 \
