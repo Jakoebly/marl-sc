@@ -23,7 +23,7 @@
 #SBATCH --exclude=node1620,node1621,node1622,node1623,node1624,node1625,node2704,node2705    # <-- ADJUST THIS!
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-jakobeh"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
