@@ -1,17 +1,17 @@
 algorithm:
-  name: "ippo"
+  name: "cppo"
   shared:
     num_iterations: 300
     checkpoint_freq: 100
-    batch_size: 16000
-    num_epochs: 15
-    num_minibatches: 4
-    learning_rate: 0.0000730063075420203
+    batch_size: 8000
+    num_epochs: 20
+    num_minibatches: 10
+    learning_rate: 0.00007300630754202035
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
-    eval_interval: 5  
-    num_eval_episodes: 5  
+    eval_interval: 5
+    num_eval_episodes: 5
     evaluation_parallel_to_training: false
 
   algorithm_specific:
@@ -19,23 +19,20 @@ algorithm:
     lam: 0.9
     gamma: 0.95
     use_kl_loss: true
-    grad_clip: 5
+    grad_clip: 5.0
     entropy_coeff: 0.0026618694478383683
     vf_loss_coeff: 1.1511211736566789
     clip_param: 0.2
     vf_clip_param: 6770.050857630565
     logstd_init: -1.0501892686535763
-    logstd_floor: -1.5452834562173021
+    logstd_floor: 1.5452834562173021
     obs_normalization: "meanstd_custom"
-    parameter_sharing: true
-    actor_obs_type: "local"
-    critic_obs_type: "local"
     networks:
       shared_layers: null
       use_mu_sigma_head: false
       actor:
         type: "mlp"
-        config:        
+        config:
           hidden_sizes: [128, 256]
           activation: "relu"
           output_activation: null
@@ -45,4 +42,3 @@ algorithm:
           hidden_sizes: [512]
           activation: "relu"
           output_activation: null
-
