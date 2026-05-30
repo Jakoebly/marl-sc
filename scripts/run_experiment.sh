@@ -90,7 +90,7 @@ python src/experiments/run_experiment.py \
     --root-seed 42
 
 
-CPPO_Tune_3WH_5SKUS_DemandHetero_Optuna_FIFO
-CPPO_Tune_3WH_5SKUS_SKUHetero_Optuna_FIFO
+
+
 CPPO_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO  
 CPPO_HeteroTransfer_E1.1
