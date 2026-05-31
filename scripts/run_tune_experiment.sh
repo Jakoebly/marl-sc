@@ -68,12 +68,12 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="CPPO_Tune_3WH_5SKUS_CostHetero_Optuna_FIFO"
+EXPERIMENT_NAME="CPPO_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO"
 
 # Run tune experiment.
 python src/experiments/run_experiment.py \
     --mode tune \
-    --env-config ./config_files/environments/env_cost_hetero_3WH5SKU.yaml \
+    --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
     --algorithm-config ./config_files/algorithms/algorithms_E0/cppo_E0.yaml \
     --tune-config ./config_files/experiments/experiments_E1/tune_config_E1.yaml \
     --num-samples 1000 \
