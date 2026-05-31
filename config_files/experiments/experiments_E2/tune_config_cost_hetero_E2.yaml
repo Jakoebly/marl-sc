@@ -1,0 +1,26 @@
+search_space:
+  # --- Shared (algorithm-agnostic) hyperparameters ---
+  shared:
+    learning_rate:
+      type: loguniform
+      low: 5.463e-4
+      high: 4.917e-3
+
+  # --- Algorithm-specific hyperparameters ---
+  algorithm_specific:
+    entropy_coeff:
+      type: loguniform
+      low: 6.478e-4
+      high: 5.830e-3
+    vf_loss_coeff:
+      type: loguniform
+      low: 0.239586
+      high: 2.156275
+
+scheduler:
+  type: fifo
+
+search_algorithm:
+  type: optuna
+
+

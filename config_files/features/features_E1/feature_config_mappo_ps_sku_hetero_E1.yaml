@@ -19,7 +19,7 @@ features:
   demand_variability: true
 
   # Aggregate toggles (only valid when parent feature is enabled)
-  pipeline_aggregate: true
+  pipeline_aggregate: false
   incoming_demand_home_aggregate: false
   units_shipped_away_aggregate: false
   rolling_demand_mean_aggregate: false
