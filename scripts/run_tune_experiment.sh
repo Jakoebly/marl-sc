@@ -89,3 +89,11 @@ python src/experiments/run_experiment.py \
 #   --storage-dir "${STORAGE_DIR}" \
 #   --wandb-project marl-sc \
 #   --eval-seed 123
+
+
+
+for rank_dir in ~/projects/marl-sc/experiment_outputs/Tuning/MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO/seed_evaluation/*/; do
+  rank=$(basename "$rank_dir")
+  count=$(find "$rank_dir" -maxdepth 2 -type d -name "checkpoint_final" | wc -l)
+  echo "${rank}: ${count}/10"
+done
