@@ -1,30 +1,193 @@
 \chapter{Problem Formulation}
+\label{chap:problem-formulation}
 
-\section{Demand Model}
-\label{sec:demand-model}
+Building on the limitations identified in the existing literature, we focus on a stylized yet realistic intra-company supply chain. The setting is inspired by a real-world case in which a manufacturing firm operates multiple geographically distributed warehouses that use independent \gls{acr:erp} systems and therefore make replenishment decisions without full visibility of each others' inventories or actions. In fact, this kind of decentralization is not a single exception but the operating reality of many large distribution networks, where heterogeneous information systems expose no shared real-time view of the network state and the integrated central planner assumed by classical multi-location inventory theory is therefore not readily available  [\textbf{CITE: empirical accounts of decentralized inventory operations in multi-warehouse distribution networks}].
 
-Prior multi-agent inventory studies almost exclusively represent demand as a single aggregate rate per \gls{acr:sku} [CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU]. In contrast, we model demand at the level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice. Since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} demand stream, the granularity of our demand model matches what a warehouse observes in practice. Second, it decomposes demand into separate components so that we can introduce different kinds of asymmetry by controlling each one independently.\\
+The remainder of this chapter formalizes this setting as a discrete-time, multi-agent inventory control problem with stochastic demand, stochastic fulfillment, and lost sales. \autoref{sec:network-structure} fixes the static structure of the network, namely its warehouses, its regions, and its \glspl{acr:sku} together with the distances and weights that describe them. The sections that follow then trace the flow of a single period. \autoref{sec:demand-model} specifies how customer demand is generated at the level of individual orders. \autoref{sec:fulfillment} describes how that demand is served from inventory, how warehouses help each other through transshipment, and how unmet demand becomes lost sales. \autoref{sec:replenishment} explains how warehouses replenish their stock from external suppliers under a fixed lead time. \autoref{sec:dynamics} collects these elements into the per-period sequence of events and the resulting inventory dynamics, and \autoref{sec:costs} defines the cost structure and the system objective. \\
 
-To simulate this order-level demand process, we model the demand of each region as a multi-stage procedure in which order arrivals, basket composition, and quantities are drawn sequentially. Formally, we write $O_{jt}$ for the set of customer orders that arrive in region $j$ in period $t$ and $o \in O_{jt}$ for an individual order and define the demand generation process for region $j$ in period $t$ according to the following three steps:
-
+\section{Network Structure}
+\label{sec:network-structure}
+We model the problem as an intra-organizational, single-echelon inventory control setting that consists of set of geographically distributed warehouses $\mathcal{W} = \{1, \dots, W\}$ and a set of distinct demand regions $\mathcal{R} = \{1, \dots, R\}$. We index warehouses by $i$ and regions by $j$ and assume throughout that $W=R$ so that each warehouse can be assigned a distinct home demand region. Warehouse $i$ and region $j=i$ are thus co-located and no other warehouse $i'\ne i$ has the same home demand region $i$. Nevertheless, we keep the warehouse index $i$ and the region index $j$ separate in the notation to emphasize that warehouses and regions are conceptually different objects. Although each warehouse is assigned a primary demand region, the network is coupled through a fully connected transshipment network that permits cross-regional demand fulfillment. All warehouses in the network stock the same set of \glspl{acr:sku} $\mathcal{K} = \{1, \dots, K\}$, where each \gls{acr:sku} $k$ has unit weight $w_k$ and can be replenished from a separate uncontrolled upstream supply. Therefore, our setting treats both downstream distribution and upstream supply as exogenous and focuses solely on intra-firm replenishment dynamics. A visual representation of the network structure is provided in \autoref{fig:sc-network}. The system evolves according to a fixed decision sequence. Within each  discrete time step $t$, the following chain of events is repeated for all warehouses simultaneously:
 \begin{enumerate}
-  \item \textbf{Order arrival.} Sample the number of customer orders $N^{\mathrm{ord}}_{jt} = |O_{jt}|$:
-  \begin{equation}
-    N^{\mathrm{ord}}_{jt} \sim \mathrm{Poisson}\!\left(\lambda^{\mathrm{ord}}_{j}\right)
-  \end{equation}
-
-  \item \textbf{\gls{acr:sku} inclusion.} Sample an inclusion indicator $Z^{o}_{jkt}$ independently for every order \mbox{$o \in O_{jt}$} and \gls{acr:sku} $k$ to decide whether the order includes $k$ with region-specific probability $p^{\mathrm{sku}}_{j}$:
-  \begin{equation}
-    Z^{o}_{jkt} \sim \mathrm{Bernoulli}\!\left(p^{\mathrm{sku}}_{j}\right)
-  \end{equation}
-
-    \item \textbf{\gls{acr:sku} quantity.} Sample the requested quantity $Q^{o}_{jkt}$ independently for every order \mbox{$o \in O_{jt}$} and \gls{acr:sku} $k$:
-    \begin{equation}
-      Q^{o}_{jkt} \sim \mathrm{Poisson}\!\left(\lambda^{\mathrm{qty}}_{jk}\right)
-    \end{equation}
+  \item Each warehouse places replenishment orders for all \glspl{acr:sku} at
+  \gls{acr:sku}-specific external suppliers. Suppliers are uncapacitated and each
+  order arrives after a fixed delivery lead time.
+  \item Replenishment orders placed earlier whose lead time has elapsed arrive and
+  are added to the warehouse's on-hand inventory.
+  \item New customer demand is realized in each region. Each order requests one or
+  more \glspl{acr:sku} and is drawn from a stochastic demand process.
+  \item Incoming demand is fulfilled from on-hand inventory. A warehouse that cannot
+  fully serve an order passes the residual to other warehouses when possible, and
+  any demand that no warehouse can serve becomes a lost sale.
 \end{enumerate}
 
-Equation~\eqref{eq:order-demand} admits a case in which a \gls{acr:sku} is included in an order, so $Z^{o}_{kt} = 1$, yet draws a zero quantity, so $Q^{o}_{kt} = 0$. One natural way to rule this out is to clamp every included quantity to at least one unit, and we deliberately do not do so. Clamping the quantity to a minimum of one raises the expected line quantity of an included \gls{acr:sku} from $\lambda^{\mathrm{qty}}_{jk}$ to $\lambda^{\mathrm{qty}}_{jk} + e^{-\lambda^{\mathrm{qty}}_{jk}}$, a relative inflation of $e^{-\lambda^{\mathrm{qty}}_{jk}} / \lambda^{\mathrm{qty}}_{jk}$. This inflation is negligible when the rate is large but grows without bound as the rate falls, and it exceeds one hundred percent once the rate drops below roughly one unit. Because we rely on the configured rates $\lambda^{\mathrm{qty}}_{jk}$ to set expected demand exactly, and because some \glspl{acr:sku} are intentionally assigned small rates, such a clamp would silently distort the very quantities we control and break the correspondence between the configured rate and the realized mean. We therefore impose no lower floor. An included \gls{acr:sku} that draws a zero quantity simply contributes nothing to its order, and an order whose included \glspl{acr:sku} all draw zero contains no units and produces no shipment. The realized assortment of an order is thus the set of \glspl{acr:sku} with strictly positive quantity, while the number of orders is unaffected.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.75\linewidth, height=0.17\textheight, keepaspectratio]{images/sc_network.png}
+  \caption{Structure of the distribution network. Each warehouse is co-located with
+  its home region and can additionally ship to foreign regions through transshipment,
+  while replenishing from external suppliers under a fixed lead time.}
+  \label{fig:sc-network}
+\end{figure}
 
+\section{Demand Generation}
+\label{sec:demand-model}
+The network faces stochastic demand for each of the $K$ \glspl{acr:sku} that is realized across the $R$ demand regions. Most prior multi-agent inventory studies represent this demand as a single aggregate rate per \gls{acr:sku} \textbf{CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU}]. In contrast, we model demand at the  level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} stream. Second, it decomposes demand into separate components that can be controlled independently, which we exploit later to design environment variants.
 
+To be able to simulate order-level demand, we model the generation process as a multistage procedure in which order arrivals, basket composition, and quantities are drawn sequentially.  Specifically, we compute the demand for region $j$ in period $t$ as follows. First, we sample the number of customer orders $N^{\mathrm{ord}}_{jt} = |O_{jt}|$ from a Poisson distribution with region-specific arrival rate $\lambda^{\mathrm{ord}}_{j}$, where $O_{jt}$ denotes the set of arriving orders. For each order $o \in O_{jt}$ and every \gls{acr:sku} $k$, we then independently draw an inclusion indicator $Z^{o}_{jkt}$ from a Bernoulli distribution with region-specific probability $p^{\mathrm{sku}}_{j}$ to determine whether order $o$ contains \gls{acr:sku} $k$. Finally, we sample the requested quantity $Q^{o}_{jkt}$ for each included \gls{acr:sku} $k$ independently from a Poisson distribution with region and \gls{acr:sku} specific rate $\lambda^{\mathrm{qty}}_{jk}$. In summary, the demand generation process is given by
+\begin{equation}
+\label{eq:demand-process}
+\begin{aligned}
+  N^{\mathrm{ord}}_{jt} &\sim \mathrm{Poisson}(\lambda^{\mathrm{ord}}_{j}), \\
+  Z^{o}_{jkt}           &\sim \mathrm{Bernoulli}(p^{\mathrm{sku}}_{j}), \\
+  Q^{o}_{jkt}           &\sim \mathrm{Poisson}(\lambda^{\mathrm{qty}}_{jk}),
+\end{aligned}
+\end{equation}
+independently across orders $o \in O_{jt}$ and \glspl{acr:sku} $k$. Note that we index $p^{\mathrm{sku}}_{j}$ by region alone since $\lambda^{\mathrm{qty}}_{jk}$ already carries \gls{acr:sku}-level demand variation and a per-\gls{acr:sku} inclusion probability would thus be redundant for the mean. Given the process in \autoref{eq:demand-process}, it follows that the demand for \gls{acr:sku} $k$ in order $o$ is $D^{o}_{jkt} = Z^{o}_{jkt}\,Q^{o}_{jkt}$ and summing over all orders $o \in O_{jt}$ yields the total period demand for \gls{acr:sku} $k$,
+\begin{equation}
+\label{eq:total-demand}
+  D_{jkt} = \sum_{o \in O_{jt}} D^{o}_{jkt}.
+\end{equation}
 
+In formulating the demand model above, we rely on three modelling assumptions. First, we consider the stationary case where the demand rates $\lambda^{\mathrm{ord}}_{j}$, $p^{\mathrm{sku}}_{j}$, and $\lambda^{\mathrm{qty}}_{jk}$ are constant across periods such that there are no trends within an episode. Second, we model all random variables in \autoref{eq:demand-process} as mutually independent across orders and across \glspl{acr:sku} within an order, which directly implies the absence of cross-\gls{acr:sku} correlation. Finally, we model both the order count and the per-line quantity as Poisson such that each has variance equal to its mean.
+As a result, $D_{jkt}$ follows a compound Poisson law and, by the law of total expectation, its mean factorizes cleanly into the three rate parameters, 
+\begin{equation}
+\label{eq:expected-demand}
+  \mathbb{E}[D_{jkt}] = \lambda^{\mathrm{ord}}_{j}\,p^{\mathrm{sku}}_{j}\,
+  \lambda^{\mathrm{qty}}_{jk}. 
+\end{equation}
+Each rate thus acts as one multiplicative factor such that changing one of them scales expected demand proportionally while leaving the other two untouched. Therefore, the three rate variables are the only free parameters of the demand process, which is exactly the property we use to reliably construct heterogeneous variants of the environment later. As with the mean, the same compound Poisson structure combined with the law of total variance give the variance of $D_{jkt}$,
+\begin{equation}
+\label{eq:demand-variance}
+  \mathrm{Var}[D_{jkt}] = \lambda^{\mathrm{ord}}_{j}\,p^{\mathrm{sku}}_{j}\,\lambda^{\mathrm{qty}}_{jk}\,\bigl(1+\lambda^{\mathrm{qty}}_{jk}\bigr).
+\end{equation}
+Thus, it can be directly seen that in the compound model the variance exceeds the mean by a factor $1+\lambda^{\mathrm{qty}}_{jk}$ such that the order-level demand is over-dispersed relative to a simple per-\gls{acr:sku} Poisson stream. This over-dispersion arises directly from the compound structure of the model, in which random per-line quantities are bundled into a random number of orders. We retain this property since we do not regard it as a shortcoming but rather as a more faithful reflection of real demand, which is commonly over-dispersed rather than clean Poisson \citep{kourentzes2013intermittent}. 
+
+Note that in the demand-generation process as defined above an included \gls{acr:sku} with $Z^{o}_{jkt} = 1$ may still draw a zero quantity such that $D^{o}_{jkt} = 0$. To address this, one could either sample $Q^{o}_{jkt}$ from a zero-truncated Poisson or impose a lower bound of one unit on all included quantities. However, we deliberately keep the untruncated Poisson. Forcing positivity would inflate the expected quantity per included \gls{acr:sku} above $\lambda^{\mathrm{qty}}_{jk}$ and make $\lambda^{\mathrm{qty}}_{jk}$ enter \autoref{eq:expected-demand} as a nonlinear function of itself rather than as a clean multiplicative factor. In our model, the realized assortment of an order is instead the set of \glspl{acr:sku} with a strictly positive quantity rather than the full set of included \glspl{acr:sku}.
+
+The price of this choice is purely interpretational. Because inclusion no longer coincides with appearance, $p^{\mathrm{sku}}_{j}$ is only a nominal inclusion probability rather than the fraction of orders in which a \gls{acr:sku} appears with positive quantity. We accept this deviation because it leaves the factorization in \autoref{eq:expected-demand} unaffected such that the three rate parameters retain their multiplicative roles in expected demand.\\
+
+\section{Demand Fulfillment and Lost Sales}
+\label{sec:fulfillment}
+Once region demand has been generated, warehouses must fulfill it from their inventories. Since the network is fully connected and the agents control only replenishment rather than routing, the decision of which warehouse supplies each order is made by the system rather than learned. We model this assignment with a greedy rule, which we adopt for its simplicity and because a cheapest-first dispatch is a reasonable myopic stand-in for how a firm routes orders without central fulfillment planning.
+
+The greedy allocator processes orders one at a time. Let $I_{ikt}$ denote the on-hand inventory of \gls{acr:sku} $k$ at warehouse $i$ available for fulfillment in period $t$ and let $c^{\mathrm{out}}_{ij}$ denote the outbound shipment cost per unit of weight from warehouse $i$ to region~$j$. We assume no per-order fixed costs such that an order's shipment cost scales purely with the weight shipped. For each order $o \in O_{jt}$, the allocator ranks the warehouses by their outbound shipment cost to region $j$ and tries them cheapest first. Each warehouse in turn fulfills the requested \gls{acr:sku} up to its on-hand inventory $I_{ikt}$. and any demand that it cannot cover passes to the next-cheapest warehouse in the ranking. This continues until the order is fully served or all warehouses have been tried. Note that the cost ranking turns the home-region structure introduced in \autoref{sec:network-structure} into a fulfillment priority. Because $c^{\mathrm{out}}_{ij}$ scales with distance, every warehouse ships to its home region more cheaply than any other warehouse ships to a foreign region. The home warehouse is therefore tried first for each order from its own region and a foreign warehouse is reached only when the home warehouse cannot supply the requested \gls{acr:sku}. The greedy allocator produces the shipment quantities $S_{ijkt}$ that warehouse $i$ ships to region $j$ in period $t$. Since a warehouse can never ship more of a \gls{acr:sku} than it holds, $S_{ijkt}$ must satisfy,
+  \begin{equation}
+  \label{eq:shipment-feasibility}
+  \sum_{j \in \mathcal{R}} S_{ijkt} \le I_{ikt}, 
+\end{equation}
+for all warehouses $i$, \glspl{acr:sku} $k$, and periods $t$. Any shipment $S_{ijkt}$ with $j \ne i$ serves a foreign region and is called a lateral transshipment. We model such a transshipment as a direct shipment from warehouse $i$ to region $j$ rather than a transfer through region $j$'s home warehouse such that the unit travels the full distance and is charged the higher foreign-region rate $c^{\mathrm{out}}_{ij}$ with no separate transfer cost. Moreover, transshipment is entirely reactive rather than predictive [\textbf{CITE: reactive vs.\ proactive lateral transshipment taxonomy}] and is not an active decision by the warehouses. More generally, because the allocator clears each order against the inventories of all warehouses at once, the entire shipment array is a function of their joint on-hand inventory rather than of any single warehouse's  stock,
+\begin{equation}
+\label{eq:allocation-map}
+  \{S_{ijkt}\}_{i,j,k} = \mathcal{F}\!\left(\{O_{jt}\}_{j},\, \{I_{ikt}\}_{i,k}\right),
+\end{equation}
+where $\mathcal{F}$ denotes the greedy rule described above. This joint dependence is the channel through which the warehouses are coupled since a stockout at one warehouse raises the transshipments that its neighbors must make, even though each warehouse controls only its own replenishment.
+
+Any demand that the allocator cannot place is lost such that there are no backorders. The lost demand of \gls{acr:sku} $k$ in region $j$ is therefore the portion of its total demand $D_{jkt}$ that no warehouse fills,
+\begin{equation}
+\label{eq:lost-sales}
+  U_{jkt} = D_{jkt} - \sum_{i \in \mathcal{W}} S_{ijkt} \ \ge\ 0,
+\end{equation}
+where the inequality holds because the allocator never ships more than was demands. Each warehouse then incurs a per\gls{acr:sku} penalty rate $c^{\mathrm{pen}}_k$ for each lost unit that it is responsible for. However, while responsibility is clear when a single warehouse serves a region, it becomes equivocal whenever a region is served by multiple warehouses. We resolve this ambiguity with a shipment-proportional rule that assigns the lost demand of a region in proportion to the volume that each warehouse shipped to that region. 
+Specifically, the share of region $j$'s lost demand assigned to warehouse $i$  is given by 
+\begin{equation}
+\label{eq:attribution-weight}
+  \beta_{ijt} =
+  \begin{cases}
+    \dfrac{S_{ijt}}{\sum_{i' \in \mathcal{W}} S_{i'jt}} & \text{if } \sum_{i' \in \mathcal{W}} S_{i'jt} > 0, \\[2.2ex]
+    \mathbf{1}\{\,i = j\,\} & \text{otherwise,}
+  \end{cases}
+\end{equation}
+where $S_{ijt} = \sum_{k \in \mathcal{K}} S_{ijkt}$ is the total volume that warehouse $i$ shipped to region $j$ across all \glspl{acr:sku}. The first case splits lost sales in proportion to participation such that the warehouse that supplied most of a region's volume also absorbs most of its loss. The second case covers a region that received no shipments in which case the whole loss falls to its home warehouse $i=j$. 
+Aggregating shares across regions then yields warehouse $i$'s total attributed lost sales, 
+\begin{equation}
+\label{eq:attributed-lost-sales}
+  U^{\mathrm{attr}}_{ikt} = \sum_{j \in \mathcal{R}} \beta_{ijt}\, U_{jkt}.
+\end{equation}
+Note that the weight $\beta_{ijt}$ is computed from shipped volume aggregated over \glspl{acr:sku} and is then applied to the loss of every \gls{acr:sku} such that the attribution is decided per warehouse-region pair rather than per \gls{acr:sku}.
+Since $\beta_{ijt}$ sums to one across warehouses, the attribution preserves the total lost demand of each \gls{acr:sku} and yields $\sum_{i \in \mathcal{W}} U^{\mathrm{attr}}_{ikt} = \sum_{j \in \mathcal{R}} U_{jkt}$.\\
+
+\section{Replenishment and Inventory Dynamics}
+\label{sec:replenishment}
+Since fulfilling demand depletes inventory, warehouses need to continually replenish their stock. To do so, in every period $t$ each warehouse $i$ chooses order quantities $q_{ikt} \ge 0$ and places them with an external suppliers. We assume that each \gls{acr:sku} $k$ has its own dedicated supplier such that the warehouses face no sourcing decision. Moreover, each supplier is uncapacitated and accepts each order in full. Hence, no two warehouses compete with another for supply so that every order is accepted in full and no two warehouses compete for supply and the replenishment of one warehouse never constrains another. As with the outbound case, each \gls{acr:sku} replenishment order that warehouse $i$ places incurs an inbound cost $c^{\mathrm{in}}_{ik}$ per unit of weight ordered. We again assume no fixed costs such that the replenishment cost of an order scales purely with the ordered weight.
+
+Replenishment orders do not arrive in the period in which they are placed but are instead subject to a fixed lead time $L_{ik}$ such that an order placed in period $t$ arrives at the start of period $t + L_{ik}$. The quantity $A_{ikt}$ of \gls{acr:sku} $k$ that arrives at warehouse $i$ in period $t$ is then
+\begin{equation}
+\label{eq:arrivals}
+  A_{ikt} = q_{ik,\,t-L_{ik}},
+\end{equation}
+where any order with a non-positive time index is zero. Between placement and arrival the ordered units are in transit and are thus not yet available to the warehouse. We refer to the total quantity that warehouse $i$ has ordered for \gls{acr:sku} $k$ but not yet received as the pipeline and define it as,
+\begin{equation}
+\label{eq:pipeline}
+  P_{ikt} = \sum_{s = t - L_{ik} + 1}^{t} q_{iks},
+\end{equation}
+
+Since arrivals add stock and fulfillment removes it, on-hand inventory naturally evolves over time. Specifically, the inventory available to warehouse $i$ for \gls{acr:sku} $k$ evolves as
+\begin{equation}
+\label{eq:inventory-dynamics}
+  I_{ik,t+1} = I_{ikt} - \sum_{j \in \mathcal{R}} S_{ijkt} + A_{ik,t+1},
+\end{equation}
+which remains non-negative due to the feasibility constraint in \autoref{eq:shipment-feasibility}. In the special case of $t=0$, each warehouse starts with a configured initial inventory $I_{ik,0}$ and and empty pipeline. Likewise, in the case of $t=T$, any order with $t + L_{ik} > T$ will never arrive and is simply discarded. The complete physical state of the network at any period is therefore the on-hand inventory together with the pipeline of every warehouse and \gls{acr:sku}.
+
+\section{Cost Structure and Objective}
+\label{sec:costs}
+
+At the end of period $t$, each warehouse $i$ is subject to a range of costs. 
+
+The holding cost charges each warehouse for the stock it carries into the next period. With
+a holding rate $c_h$ per unit weight per period it is
+\begin{equation}
+\label{eq:holding-cost}
+  C^{\mathrm{hold}}_{it} = c_h \sum_k w_k\, I_{ik,t+1},
+\end{equation}
+so heavier \glspl{acr:sku} are more expensive to hold because the cost scales with unit
+weight.
+
+The penalty cost charges each warehouse for the lost sales attributed to it. With a
+per-\gls{acr:sku} penalty rate $c^{\mathrm{pen}}_k$ it is
+\begin{equation}
+\label{eq:penalty-cost}
+  C^{\mathrm{pen}}_{it} = \sum_k c^{\mathrm{pen}}_k\, \ell_{ikt}.
+\end{equation}
+Unlike the holding cost, the penalty is charged per unit of unmet demand and does not scale
+with weight. A heavy \gls{acr:sku} is therefore costly to hold but no costlier to lose than
+a light one, and this asymmetry is central to the \gls{acr:sku}-heterogeneity behavior we
+study later.
+
+The outbound shipment cost charges each warehouse for the units it ships to regions. With
+an outbound rate $c^{\mathrm{out}}_{ij}$ per unit weight from warehouse $i$ to region $j$ it
+is
+\begin{equation}
+\label{eq:outbound-cost}
+  C^{\mathrm{out}}_{it} = \sum_j c^{\mathrm{out}}_{ij} \sum_k w_k\, y_{ijkt}.
+\end{equation}
+The rate is low for a warehouse's home region and high for foreign regions, so
+transshipment is more expensive than local fulfillment.
+
+The inbound shipment cost charges each warehouse for the units it replenishes. With an
+inbound rate $c^{\mathrm{in}}_{ik}$ per unit weight it is
+\begin{equation}
+\label{eq:inbound-cost}
+  C^{\mathrm{in}}_{it} = \sum_k c^{\mathrm{in}}_{ik}\, w_k\, q_{ikt}.
+\end{equation}
+
+In every case we model only the variable, weight-proportional part of the shipment cost and
+set the fixed per-order component to zero. A fixed component would reward consolidating
+demand into fewer, larger shipments, which interacts with the lead-time and
+\gls{acr:sku}-mix decisions and would confound the heterogeneity effects we isolate. We
+therefore exclude it and note it as future work in \autoref{sec:limitations}.
+
+Summing the four components gives the per-period cost of warehouse $i$,
+\begin{equation}
+\label{eq:warehouse-cost}
+  C_{it} = C^{\mathrm{hold}}_{it} + C^{\mathrm{pen}}_{it} + C^{\mathrm{out}}_{it}
+           + C^{\mathrm{in}}_{it},
+\end{equation}
+and summing over warehouses gives the total system cost $C_t = \sum_i C_{it}$ in period
+$t$. Because each component is attributable to a single warehouse by construction, this
+per-warehouse decomposition is well defined. The control objective is to minimize the
+expected total system cost accumulated over the planning horizon of $T$ periods,
+\begin{equation}
+\label{eq:objective}
+  \min\ \mathbb{E}\!\left[\sum_{t=0}^{T-1} C_t\right].
+\end{equation}
