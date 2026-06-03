@@ -42,6 +42,9 @@ algorithm:
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [176, 356]
+          hidden_sizes: [176, 359]
           activation: "relu"
           output_activation: null
+
+
+  

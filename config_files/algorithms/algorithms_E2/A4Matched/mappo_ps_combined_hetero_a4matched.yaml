@@ -36,12 +36,12 @@ algorithm:
       actor:
         type: "mlp"
         config:        
-          hidden_sizes: [304, 156]
+          hidden_sizes: [1120]
           activation: "relu"
           output_activation: null
       critic:
         type: "mlp"
         config:
-          hidden_sizes: [176, 356]
+          hidden_sizes: [492]
           activation: "relu"
           output_activation: null
