@@ -18,7 +18,7 @@ from ray.tune import RunConfig, CLIReporter
 from src.experiments.utils.args import parse_args, DEFAULT_EVAL_SEED, DEFAULT_EVAL_EPISODES
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
-from src.experiments.utils.wandb import setup_wandb
+from src.experiments.utils.wandb import setup_wandb, find_latest_periodic_checkpoint
 from src.config.loader import (
     load_environment_config,
     load_algorithm_config,
@@ -698,8 +698,14 @@ def trainable(config: Dict[str, Any]):
             root_seed=root_seed,
         )
 
+    # Find the latest periodic checkpoint to resume from
+    resume_from = find_latest_periodic_checkpoint(checkpoint_dir) if checkpoint_dir else None
+    if resume_from:
+        print(f"[RESUME] Trial resuming from periodic checkpoint: {resume_from}")
+
+
     # Run the experiment and report metrics each iteration via report_tune_metrics
-    result = runner.run(tune_callback=report_tune_metrics)
+    result = runner.run(tune_callback=report_tune_metrics, resume_from=resume_from)
 
     # End-of-training deterministic evaluation (DEFAULT_EVAL_EPISODES) to
     # produce a definitive eval metric for Optuna and trial selection.

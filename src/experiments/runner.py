@@ -187,7 +187,7 @@ class ExperimentRunner:
                 tune_callback(result, None)
 
             # If not in tune mode and checkpoint frequency is reached, save periodic checkpoint
-            elif iteration % checkpoint_freq == 0 and self.checkpoint_dir:
+            if iteration % checkpoint_freq == 0 and self.checkpoint_dir:
                 self._save_periodic_checkpoint(iteration)
 
             # Print training progress
