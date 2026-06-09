@@ -622,6 +622,7 @@ class FeatureConfig(BaseModel):
     net_inventory_position: bool = False
     demand_variability: bool = False
     demand_history: bool = False
+    sku_weight: bool = False
 
     # Aggregate toggles (only valid when parent feature is enabled)
     inventory_aggregate: bool = True
@@ -897,6 +898,13 @@ class EnvironmentConfig(BaseModel):
                 raise ValueError(
                     "sku_weights must be specified when using custom data source. "
                 )
+
+        # Static SKU-weight feature requires sku_weights to be defined
+        if self.features.sku_weight and self.cost_structure.sku_weights is None:
+            raise ValueError(
+                "features.sku_weight=True (intervention A2) requires "
+                "cost_structure.sku_weights to be specified."
+            )
         # Distances validation
         if self.data_source.type == "custom":
             if self.cost_structure.distances is None:

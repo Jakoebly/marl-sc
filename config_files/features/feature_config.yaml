@@ -17,6 +17,7 @@ features:
   net_inventory_position: false
   demand_history: false
   demand_variability: false
+  sku_weight: false
 
   # Aggregate toggles (only valid when parent feature is enabled)
   pipeline_aggregate: false

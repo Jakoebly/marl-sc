@@ -495,6 +495,8 @@ class InventoryEnvironment(ParallelEnv):
             local_obs_dim += n_skus
         if features.demand_history:
             local_obs_dim += self.rolling_window * n_skus
+        if features.sku_weight:
+            local_obs_dim += n_skus
 
         if self.include_warehouse_id:
             local_obs_dim += self.n_warehouses
@@ -607,6 +609,9 @@ class InventoryEnvironment(ParallelEnv):
         # 12. Demand history
         if features.demand_history:
             add_strided_per_sku(rolling_window)
+        # 13. Static SKU weight feature
+        if features.sku_weight:
+            add_contiguous_per_sku()
 
         # _build_local_obs prepends the warehouse-id one-hot AFTER assembling the
         # feature blocks, so it occupies the first n_warehouses columns and shifts
@@ -817,6 +822,11 @@ class InventoryEnvironment(ParallelEnv):
             for i, demand in enumerate(reversed(list(self._demand_history_home))):
                 history[i] = demand[warehouse_idx]
             blocks.append(history.ravel())
+
+        # 13. Static SKU weight feature: weight scalar for each SKU
+        if features.sku_weight:
+            sku_weights = np.asarray(self.cost_structure.sku_weights, dtype=np.float32)
+            blocks.append(sku_weights)
 
         local = np.concatenate(blocks).astype(np.float32)
 

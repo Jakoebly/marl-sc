@@ -101,6 +101,10 @@ def compute_obs_statistics(
         else:
             obs_mean = all_local_obs.mean(axis=0)
             obs_std = all_local_obs.std(axis=0)
+            if env.feature_config.sku_weight:
+                weight_block = all_local_obs[:, -n_skus:]
+                obs_mean[-n_skus:] = weight_block.mean()
+                obs_std[-n_skus:] = weight_block.std()
 
     obs_std = np.where(obs_std < 1e-8, 1.0, obs_std)
 
@@ -167,6 +171,8 @@ def _compute_grouped_stats(
         groups.append((n_skus, False))
     if features.demand_history:
         groups.append((rolling_window * n_skus, False))
+    if features.sku_weight:
+        groups.append((n_skus, False))
 
     # Initialize mean and std arrays
     feature_dim = all_obs.shape[1]
