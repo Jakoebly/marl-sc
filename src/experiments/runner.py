@@ -82,16 +82,16 @@ class ExperimentRunner:
         # Initialize environment (template only; actual train/eval envs are created by RLlib)
         self.env = InventoryEnvironment(self.env_config)
 
-        # Precompute observation statistics for meanstd_custom / meanstd_grouped
+        # Precompute observation statistics for meanstd_custom / meanstd_sku_grouped / meanstd_wh_grouped
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
-        if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
+        if obs_norm_mode in ("meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped"):
             self.env.obs_stats = compute_obs_statistics(
                 env_config,
                 seed_manager=self.seed_manager,
                 mode=obs_norm_mode,
                 n_episodes=100,
             )
-        
+
         # Initialize algorithm with separate train and eval seeds
         self.algorithm = get_algorithm(
             self.algorithm_config.name, 
@@ -509,9 +509,9 @@ class EvaluationRunner:
         # Create template environment (seed=None; eval envs get eval_seed via evaluation_config)
         self.env = InventoryEnvironment(self.env_config)
 
-        # Precompute observation statistics for meanstd_custom / meanstd_grouped
+        # Precompute observation statistics for meanstd_custom / meanstd_sku_grouped / meanstd_wh_grouped
         obs_norm_mode = algorithm_config.algorithm_specific.obs_normalization
-        if obs_norm_mode in ("meanstd_custom", "meanstd_grouped"):
+        if obs_norm_mode in ("meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped"):
             self.env.obs_stats = compute_obs_statistics(
                 env_config,
                 seed_manager=self.seed_manager,

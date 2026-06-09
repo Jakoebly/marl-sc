@@ -1215,7 +1215,7 @@ class PPOConfig(BaseModel):
 class IPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
     warmstart_weights_path: Optional[str] = None
@@ -1262,7 +1262,7 @@ class IPPOConfig(BaseModel):
 class MAPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
     warmstart_weights_path: Optional[str] = None
@@ -1301,7 +1301,7 @@ class MAPPOConfig(BaseModel):
 class CPPOSpecificConfig(PPOConfig):
     """Configuration for algorithm-specific parameters."""
 
-    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_grouped", "ratio"] = "off"
+    obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped", "ratio"] = "off"
     warmstart_weights_path: Optional[str] = None
     networks: ActorCriticConfig
     model_config = ConfigDict(extra="forbid")

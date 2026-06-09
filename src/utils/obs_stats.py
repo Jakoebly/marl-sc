@@ -16,27 +16,37 @@ def compute_obs_statistics(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes per-feature mean and std by running a random policy for
-    ``n_episodes``. Supports two modes:
+    ``n_episodes``. Supports three modes:
 
-    - ``meanstd_custom``: each feature dimension gets its own (mean, std).
-    - ``meanstd_grouped``: per-SKU dimensions within each feature group share
-      a single (mean, std); aggregate dimensions get their own independent
-      (mean, std).
+    - ``meanstd_custom``: pooled across warehouses; each feature dimension
+      gets its own (mean, std).
+    - ``meanstd_sku_grouped``: pooled across warehouses; per-SKU dimensions
+      within each feature group share a single (mean, std); aggregate
+      dimensions get their own independent (mean, std).
+    - ``meanstd_wh_grouped`` (intervention A1): per-warehouse statistics
+      with the same SKU-grouping rule as ``meanstd_sku_grouped`` applied
+      independently inside each warehouse's bucket.
 
-    The returned arrays have shape ``(local_obs_dim,)`` where the dimension
-    is computed dynamically from the environment's feature config.
-    Features with near-zero std are set to 1.0.
+    For the pooled modes the returned arrays have shape ``(local_obs_dim,)``.
+    For ``meanstd_wh_grouped`` they have shape
+    ``(n_warehouses, local_obs_dim)``; the environment indexes them by
+    warehouse index when applying normalization. In both cases the
+    dimension is computed dynamically from the environment's feature
+    config and entries with near-zero std are set to 1.0.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
         seed_manager (SeedManager): Experiment-level seed manager. Must have
             ``'obs_stats'`` registered (it is part of ``EXPERIMENT_SEEDS``).
-        mode (str): ``"meanstd_custom"`` or ``"meanstd_grouped"``.
+        mode (str): ``"meanstd_custom"``, ``"meanstd_sku_grouped"``, or
+            ``"meanstd_wh_grouped"``.
         n_episodes (int): Number of episodes to collect.
 
     Returns:
-        (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing the mean and standard deviation of the observations. 
-            Shape of each np.ndarray: (local_obs_dim,).
+        (obs_mean, obs_std) (Tuple[np.ndarray, np.ndarray]): Tuple containing
+            the mean and standard deviation of the observations. Shape is
+            ``(local_obs_dim,)`` for the pooled modes and
+            ``(n_warehouses, local_obs_dim)`` for ``meanstd_wh_grouped``.
     """
 
     from src.environment.envs.multi_env import InventoryEnvironment
@@ -51,15 +61,16 @@ def compute_obs_statistics(
 
     # Initialize action RNG with the action seed
     action_rng = np.random.default_rng(action_seed)
-    
-    # Run random policy for n_episodes and collect local observations
-    all_local_obs = []
+
+    # Run random policy for n_episodes and collect local observations,
+    # bucketed by agent so per-warehouse modes can compute independent stats.
+    per_agent_obs = {agent_id: [] for agent_id in env.agents}
     for _ in range(n_episodes):
         obs, _ = env.reset()
         done = False
         while not done:
             for agent_id in env.agents:
-                all_local_obs.append(obs[agent_id][:local_obs_dim])
+                per_agent_obs[agent_id].append(obs[agent_id][:local_obs_dim])
             actions = {
                 agent_id: action_rng.uniform(-1, 1, size=(n_skus,)).astype(np.float32)
                 for agent_id in env.agents
@@ -67,24 +78,42 @@ def compute_obs_statistics(
             obs, _, terms, truncs, _ = env.step(actions)
             done = all(truncs.values()) or all(terms.values())
         for agent_id in env.agents:
-            all_local_obs.append(obs[agent_id][:local_obs_dim])
+            per_agent_obs[agent_id].append(obs[agent_id][:local_obs_dim])
 
-    all_local_obs = np.array(all_local_obs, dtype=np.float32)
+    per_agent_arr = {
+        agent_id: np.array(samples, dtype=np.float32)
+        for agent_id, samples in per_agent_obs.items()
+    }
 
     # Compute mean and std for the observations based on the mode
-    if mode == "meanstd_grouped":
-        obs_mean, obs_std = _compute_grouped_stats(
-            all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,
-        )
+    if mode == "meanstd_wh_grouped":
+        means, stds = [], []
+        for agent_id in env.agents:
+            m, s = _compute_grouped_stats(
+                per_agent_arr[agent_id], n_skus, env.max_expected_lead_time, env.feature_config,
+            )
+            means.append(m)
+            stds.append(s)
+        obs_mean = np.stack(means, axis=0)
+        obs_std = np.stack(stds, axis=0)
     else:
-        obs_mean = all_local_obs.mean(axis=0)
-        obs_std = all_local_obs.std(axis=0)
+        all_local_obs = np.concatenate(
+            [per_agent_arr[agent_id] for agent_id in env.agents], axis=0,
+        )
+        if mode == "meanstd_sku_grouped":
+            obs_mean, obs_std = _compute_grouped_stats(
+                all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,
+            )
+        else:
+            obs_mean = all_local_obs.mean(axis=0)
+            obs_std = all_local_obs.std(axis=0)
 
     obs_std = np.where(obs_std < 1e-8, 1.0, obs_std)
 
+    n_samples = sum(arr.shape[0] for arr in per_agent_arr.values())
     print(
         f"[INFO] Computed obs statistics ({mode}) from {n_episodes} episodes "
-        f"({len(all_local_obs)} samples, feature_dim={local_obs_dim})"
+        f"({n_samples} samples, feature_dim={local_obs_dim})"
     )
 
     return obs_mean, obs_std

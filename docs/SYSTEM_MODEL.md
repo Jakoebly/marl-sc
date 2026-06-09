@@ -192,7 +192,8 @@ Five normalization modes are supported, selected via `algorithm_specific.obs_nor
 - **Ratio** (`"ratio"`): Per-SKU features within a feature block are divided by the block's per-SKU total (so the block sums to 1). Aggregate scalars are appended in raw form.
 - **Mean-std** (`"meanstd"`): Raw features are passed to RLlib's built-in running mean/std filter (`MeanStdFilter` env-to-module connector).
 - **Custom mean-std** (`"meanstd_custom"`): At the start of training, [src/utils/obs_stats.py](src/utils/obs_stats.py) rollouts a random-policy to estimate per-feature means and standard deviations. These fixed statistics are then used to normalize observations as `(obs − mean) / std` throughout training.
-- **Grouped mean-std** (`"meanstd_grouped"`): Same data-collection procedure as `meanstd_custom`, but per-SKU dimensions inside each feature block share a single `(mean, std)`; aggregate dimensions get their own independent statistics.
+- **SKU-grouped mean-std** (`"meanstd_sku_grouped"`): Same data-collection procedure as `meanstd_custom`, but per-SKU dimensions inside each feature block share a single `(mean, std)`; aggregate dimensions get their own independent statistics. Pooled across warehouses.
+- **Warehouse-grouped mean-std** (`"meanstd_wh_grouped"`): Statistics are computed independently per warehouse with the same SKU-grouping rule as `meanstd_sku_grouped` applied inside each warehouse's bucket. This is intervention A1 (see SCOPE.md §7).
 
 ## 5. Algorithms
 
