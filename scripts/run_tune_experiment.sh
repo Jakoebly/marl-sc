@@ -68,13 +68,13 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CostHetero_A2_Optuna_FIFO"
+EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CostHetero_A1_Optuna_FIFO"
 
 # Run tune experiment.
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_cost_hetero_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/algorithms_E2/A2/mappo_ps_cost_hetero_A2_E2.yaml \
+    --algorithm-config ./config_files/algorithms/algorithms_E2/A1/mappo_ps_cost_hetero_A1_E2.yaml \
     --tune-config ./config_files/experiments/experiments_E2/tune_config_cost_hetero_E2.yaml \
     --num-samples 100 \
     --storage-dir "${STORAGE_DIR}" \
