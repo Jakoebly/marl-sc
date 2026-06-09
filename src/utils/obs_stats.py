@@ -23,16 +23,9 @@ def compute_obs_statistics(
     - ``meanstd_sku_grouped``: pooled across warehouses; per-SKU dimensions
       within each feature group share a single (mean, std); aggregate
       dimensions get their own independent (mean, std).
-    - ``meanstd_wh_grouped`` (intervention A1): per-warehouse statistics
+    - ``meanstd_wh_grouped``: per-warehouse statistics
       with the same SKU-grouping rule as ``meanstd_sku_grouped`` applied
       independently inside each warehouse's bucket.
-
-    For the pooled modes the returned arrays have shape ``(local_obs_dim,)``.
-    For ``meanstd_wh_grouped`` they have shape
-    ``(n_warehouses, local_obs_dim)``; the environment indexes them by
-    warehouse index when applying normalization. In both cases the
-    dimension is computed dynamically from the environment's feature
-    config and entries with near-zero std are set to 1.0.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
@@ -62,8 +55,7 @@ def compute_obs_statistics(
     # Initialize action RNG with the action seed
     action_rng = np.random.default_rng(action_seed)
 
-    # Run random policy for n_episodes and collect local observations,
-    # bucketed by agent so per-warehouse modes can compute independent stats.
+    # Run random policy for n_episodes and collect local observations
     per_agent_obs = {agent_id: [] for agent_id in env.agents}
     for _ in range(n_episodes):
         obs, _ = env.reset()
@@ -90,7 +82,8 @@ def compute_obs_statistics(
         means, stds = [], []
         for agent_id in env.agents:
             m, s = _compute_grouped_stats(
-                per_agent_arr[agent_id], n_skus, env.max_expected_lead_time, env.feature_config,
+                per_agent_arr[agent_id], n_skus, env.max_expected_lead_time,
+                env.rolling_window, env.feature_config,
             )
             means.append(m)
             stds.append(s)
@@ -102,7 +95,8 @@ def compute_obs_statistics(
         )
         if mode == "meanstd_sku_grouped":
             obs_mean, obs_std = _compute_grouped_stats(
-                all_local_obs, n_skus, env.max_expected_lead_time, env.feature_config,
+                all_local_obs, n_skus, env.max_expected_lead_time,
+                env.rolling_window, env.feature_config,
             )
         else:
             obs_mean = all_local_obs.mean(axis=0)
@@ -123,6 +117,7 @@ def _compute_grouped_stats(
     all_obs: np.ndarray,
     n_skus: int,
     max_expected_lead_time: int,
+    rolling_window: int,
     feature_config: FeatureConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -164,14 +159,14 @@ def _compute_grouped_stats(
         groups.append((n_skus, features.rolling_demand_mean_aggregate))
     if features.demand_forecast:
         groups.append((n_skus, features.demand_forecast_aggregate))
-    # if features.days_of_supply:
-    #     groups.append((n_skus, False))
-    # if features.net_inventory_position:
-    #     groups.append((n_skus, False))
-    # if features.demand_variability:
-    #     groups.append((n_skus, False))
-    # if features.demand_history:
-    #     groups.append((rolling_window * n_skus, False))
+    if features.days_of_supply:
+        groups.append((n_skus, False))
+    if features.net_inventory_position:
+        groups.append((n_skus, False))
+    if features.demand_variability:
+        groups.append((n_skus, False))
+    if features.demand_history:
+        groups.append((rolling_window * n_skus, False))
 
     # Initialize mean and std arrays
     feature_dim = all_obs.shape[1]
@@ -194,5 +189,11 @@ def _compute_grouped_stats(
             obs_mean[idx] = float(agg_col.mean())
             obs_std[idx] = float(agg_col.std())
             idx += 1
+
+    # Guard against silent drift from _build_local_obs
+    assert idx == feature_dim, (
+        f"grouped-stats layout covers {idx} columns but the observation "
+        f"dimension is {feature_dim}!"
+    )
 
     return obs_mean, obs_std

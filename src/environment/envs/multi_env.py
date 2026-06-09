@@ -820,11 +820,14 @@ class InventoryEnvironment(ParallelEnv):
 
         local = np.concatenate(blocks).astype(np.float32)
 
-        # Apply meanstd_custom / meanstd_sku_grouped / meanstd_wh_grouped
-        # normalization if enabled. For the per-warehouse mode the stats arrays
-        # are 2D (n_warehouses, local_obs_dim) and are indexed by warehouse_idx;
-        # the pooled modes share a single 1D (mean, std) across all warehouses.
-        if self.obs_normalization in ("meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped") and self.obs_stats is not None:
+        # Apply meanstd_custom, meanstd_sku_grouped, or meanstd_wh_grouped
+        # normalization if enabled
+        if (
+            self.obs_normalization in (
+                "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped"
+                )
+                and self.obs_stats is not None
+            ):
             obs_mean, obs_std = self.obs_stats
             if obs_mean.ndim == 2:
                 obs_mean = obs_mean[warehouse_idx]
