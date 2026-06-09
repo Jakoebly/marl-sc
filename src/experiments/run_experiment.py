@@ -18,7 +18,7 @@ from ray.tune import RunConfig, CLIReporter
 from src.experiments.utils.args import parse_args, DEFAULT_EVAL_SEED, DEFAULT_EVAL_EPISODES
 from src.config.schema import EnvironmentConfig, AlgorithmConfig
 from src.experiments.runner import ExperimentRunner, EvaluationRunner
-from src.experiments.utils.wandb import setup_wandb, find_latest_periodic_checkpoint
+from src.experiments.utils.wandb import setup_wandb
 from src.config.loader import (
     load_environment_config,
     load_algorithm_config,
@@ -48,6 +48,7 @@ from src.experiments.utils.experiment_utils import (
     find_checkpoint_dir,
     find_experiment_dir_from_checkpoint,
     generate_experiment_name,
+    find_latest_periodic_checkpoint,
 )
 from src.experiments.utils.seed_evaluation import (
     build_seed_evaluation_configs,
