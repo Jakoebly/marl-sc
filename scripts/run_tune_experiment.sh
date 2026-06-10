@@ -13,14 +13,14 @@
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
 #SBATCH --time=12:00:00                                     # Maximum walltime 
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 ##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-jakobeh"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
@@ -68,13 +68,13 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_A1_Optuna_FIFO"
+EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_A2_Optuna_FIFO"
 
 # Run tune experiment.
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/algorithms_E2/A1/mappo_ps_combined_hetero_A1_E2.yaml \
+    --algorithm-config ./config_files/algorithms/algorithms_E2/A2/mappo_ps_combined_hetero_A2_E2.yaml \
     --tune-config ./config_files/experiments/experiments_E2/tune_config_combined_hetero_E2.yaml \
     --num-samples 100 \
     --storage-dir "${STORAGE_DIR}" \
@@ -85,7 +85,7 @@ python src/experiments/run_experiment.py \
 # Resume existing tune experiment
 # python src/experiments/run_experiment.py \
 #   --mode tune \
-#   --resume-from "${EXPERIMENT_NAME}" \
+#   --resume-from "${EXPERIMENT_NAME}" \y
 #   --storage-dir "${STORAGE_DIR}" \
 #   --wandb-project marl-sc \
 #   --eval-seed 123
