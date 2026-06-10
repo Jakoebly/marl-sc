@@ -73,7 +73,7 @@ EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_A1_Optuna_FIFO"
 # Run tune experiment.
 python src/experiments/run_experiment.py \
     --mode tune \
-    --env-config ./config_files/environments/env_cost_hetero_3WH5SKU.yaml \
+    --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
     --algorithm-config ./config_files/algorithms/algorithms_E2/A1/mappo_ps_combined_hetero_A1_E2.yaml \
     --tune-config ./config_files/experiments/experiments_E2/tune_config_combined_hetero_E2.yaml \
     --num-samples 100 \
