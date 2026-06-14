@@ -85,7 +85,7 @@ EXPERIMENT_NAME="IPPO_PS_Tune_3WH_5SKUS_DemandHetero_Optuna_FIFO"
 # Resume existing tune experiment
 python src/experiments/run_experiment.py \
   --mode tune \
-  --resume-from "${EXPERIMENT_NAME}" \y
+  --resume-from "${EXPERIMENT_NAME}" \
   --storage-dir "${STORAGE_DIR}" \
   --wandb-project marl-sc \
   --eval-seed 123
