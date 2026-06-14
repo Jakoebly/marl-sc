@@ -191,10 +191,10 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         self.logstd_init = self.model_config.get("logstd_init", -1.0)
         self.logstd_floor = self.model_config.get("logstd_floor", -2.0)
 
-        # Raw input dimensions based on obs type settings.
-        # "global" means the full flat observation (local + global) so the
-        # network can identify which agent it belongs to (via warehouse ID in
-        # the local prefix) while also seeing all other agents' states.
+        # Get the number of value-function outputs
+        self.value_head_dim = self.model_config.get("value_head_dim", 1)
+
+        # Get the raw input dimensions based on obs type settings
         full_obs_dim = self.local_obs_dim + self.global_obs_dim
         actor_raw_dim = full_obs_dim if self.actor_obs_type == "global" else self.local_obs_dim
         critic_raw_dim = full_obs_dim if self.critic_obs_type == "global" else self.local_obs_dim
@@ -233,9 +233,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
                     f"use_mu_sigma_head is not supported with actor type '{self.actor_type}'"
                 )
 
-            # Build actor as backbone (outputs backbone_dim features).
-            # Strip all output activation params — the backbone produces raw
-            # features, per-head activations are handled by MuSigmaHead.
+            # Build the actor backbone
             backbone_config = dict(self.actor_config)
             output_activation_mu = backbone_config.pop("output_activation_mu", None)
             output_activation_sigma = backbone_config.pop("output_activation_sigma", None)
@@ -277,7 +275,7 @@ class ActorCriticRLModule(BaseRLModule, ValueFunctionAPI):
         self.critic = self.build_network(
             architecture_type=self.critic_type,
             input_dim=critic_input_dim,
-            output_dim=1,
+            output_dim=self.value_head_dim,
             architecture_config=self.critic_config,
             name="critic",
             obs_layout=self.obs_layout,

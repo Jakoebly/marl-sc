@@ -16,6 +16,7 @@ from src.environment.registry import (
 from src.environment.components.base import StochasticComponent
 from src.environment.components.demand_sampler import Order
 from src.environment.components.demand_allocator import AllocationResult
+from src.environment.components.reward_calculator import REWARD_PER_SKU_INFO_KEY
 from src.utils.seed_manager import SeedManager, ENVIRONMENT_SEEDS, STOCHASTIC_SEEDS
 
 
@@ -160,6 +161,12 @@ class InventoryEnvironment(ParallelEnv):
         self.include_warehouse_id = False
         if env_meta is not None:
             self.include_warehouse_id = env_meta.get("include_warehouse_id", False)
+
+        # Set per-SKU reward decomposition flag for per-SKU value heads
+        self.reward_decomposition = False
+        if env_meta is not None:
+            self.reward_decomposition = env_meta.get("reward_decomposition", False)
+        self.reward_calculator.decompose = self.reward_decomposition
 
         # Eval episode cycling: when set, the episode counter resets to 0
         # every N episodes so that each eval round replays the same episodes.
@@ -362,7 +369,14 @@ class InventoryEnvironment(ParallelEnv):
             infos = {agent: step_info for agent in self.agents}
         else:
             infos = {agent: {} for agent in self.agents}
-        
+
+        # Store per-SKU reward vectors in each agent's info dict to let the learner 
+        # connector compute per-SKU advantages (training only)
+        if self.reward_decomposition:
+            reward_per_sku = self.reward_calculator._reward_per_sku  # Shape: (n_warehouses, n_skus)
+            for i, agent_id in enumerate(self.agents):
+                infos[agent_id][REWARD_PER_SKU_INFO_KEY] = reward_per_sku[i].astype(np.float32)
+
         return observations, rewards, terminations, truncations, infos
     
     def observation_space(self, agent: str) -> Box:

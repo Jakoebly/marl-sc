@@ -7,6 +7,11 @@ from src.environment.context import EnvironmentContext
 from src.config.schema import RewardCalculatorConfig
 
 
+# Info-dict key under which the env carries the per-SKU reward channels from the
+# calculator to the learner (per-SKU reward decomposition)
+REWARD_PER_SKU_INFO_KEY = "reward_per_sku"
+
+
 class BaseRewardCalculator(ABC):
     """
     Implements a base class for reward calculator components. Reward calculators compute rewards 
@@ -92,7 +97,12 @@ class CostRewardCalculator(BaseRewardCalculator):
             self.scope = params["scope"]
             self.scale_factor = params["scale_factor"]
             self.cost_weights = np.array(params["cost_weights"], dtype=float)
-    
+
+        # Initialize per-SKU reward decomposition parameters so the env can edit these
+        # when reward_decomposition is enabled
+        self.decompose = False
+        self._reward_per_sku = None  # Shape: (n_warehouses, n_skus) if decompose
+
     def calculate(
         self, 
         inventory: np.ndarray, 
@@ -179,13 +189,101 @@ class CostRewardCalculator(BaseRewardCalculator):
         if self.scale_factor:
             costs_per_warehouse = costs_per_warehouse * self.scale_factor # Shape: (n_warehouses,)
 
-        # Convert to rewards (negative costs) and apply scale factor
+        # Convert to rewards (negative costs)
         rewards = -costs_per_warehouse # Shape: (n_warehouses,)
         
         # If team scope is enabled, sum per-warehouse rewards and use as reward for all warehouses
         if self.scope == "team":
-            total_reward = rewards.sum() 
+            total_reward = rewards.sum()
             rewards = np.full(self.n_warehouses, total_reward)
-        
+
+        # If per-SKU reward decomposition is enabled, store the per-SKU reward
+        # channels that sum exactly to the scalar reward computed above
+        if self.decompose:
+            self._reward_per_sku = self._compute_reward_per_sku(
+                inventory, ordered_skus, lost_sales, shipment_quantities_by_sku, rewards
+            )
+
         return rewards
+
+    def _compute_reward_per_sku(
+        self,
+        inventory: np.ndarray,
+        ordered_skus: np.ndarray,
+        lost_sales: np.ndarray,
+        shipment_quantities_by_sku: np.ndarray,
+        rewards: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Decomposes the per-warehouse reward into one channel per SKU.
+
+        Each channel is the negative of a SKU's costs (holding, lost-sales, inbound, 
+        and outbound variable). Fixed outbound costs are non-separable but are asserted 
+        to be zero here to ensure that the channels reconstruct the scalar reward: 
+        sum_s reward_per_sku[w, s] == reward[w]
+
+        Args:
+            inventory (np.ndarray): Current inventory levels. Shape: (n_warehouses, n_skus)
+            ordered_skus (np.ndarray): Ordered SKUs by each warehouse. Shape: (n_warehouses, n_skus)
+            lost_sales (np.ndarray): Lost sales assigned to each warehouse. Shape: (n_warehouses, n_skus)
+            shipment_quantities_by_sku (np.ndarray): Units shipped per warehouse-region-SKU combination.
+                Shape: (n_warehouses, n_regions, n_skus)
+            rewards (np.ndarray): Scalar per-warehouse reward returned by ``calculate``,
+                used to validate the decomposition. Shape: (n_warehouses,)
+
+        Returns:
+            reward_per_sku (np.ndarray): Per-SKU reward channels. Shape: (n_warehouses, n_skus).
+        """
+
+        # Compute per-SKU holding cost
+        if isinstance(self.holding_cost, np.ndarray): 
+            holding = inventory * self.holding_cost[np.newaxis, :]  # Shape: (n_warehouses, n_skus)
+        else:  
+            holding = inventory * self.sku_weights[np.newaxis, :] * self.holding_cost  # Shape: (n_warehouses, n_skus)
+
+        # Compute per-SKU penalty cost
+        if isinstance(self.penalty_cost, np.ndarray):  
+            penalty = lost_sales * self.penalty_cost[np.newaxis, :]  # Shape: (n_warehouses, n_skus)
+        else: 
+            penalty = lost_sales * self.sku_weights[np.newaxis, :] * self.penalty_cost  # Shape: (n_warehouses, n_skus)
+
+
+        # Compute per-SKU outbound variable shipment cost
+        outbound_variable = (
+            shipment_quantities_by_sku
+            * self.sku_weights[np.newaxis, np.newaxis, :]
+            * self.outbound_variable_cost_per_weight[:, :, np.newaxis]
+        ).sum(axis=1)  # Shape: (n_warehouses, n_skus)
+
+        # Compute per-SKU inbound fixed cost
+        order_counts = (ordered_skus > 0).astype(int)  # Shape: (n_warehouses, n_skus)
+        inbound_fixed = order_counts * self.inbound_fixed_cost_per_order  # Shape: (n_warehouses, n_skus)
+
+        # Compute per-SKU inbound variable shipment cost
+        inbound_variable = (
+            ordered_skus * self.sku_weights[np.newaxis, :] * self.inbound_variable_cost_per_weight
+        )  # Shape: (n_warehouses, n_skus)
+
+        # Compute the total cost per-SKU cost
+        cost_per_sku = holding + penalty + outbound_variable + inbound_fixed + inbound_variable  # Shape: (n_warehouses, n_skus)
+
+        # Apply scale factor if enabled
+        if self.scale_factor:
+            cost_per_sku = cost_per_sku * self.scale_factor
+
+        # Convert to per-SKU rewards (negative costs)
+        reward_per_sku = -cost_per_sku  # Shape: (n_warehouses, n_skus)
+
+        # If team scope is enabled, sum per-SKU rewards across warehouses 
+        if self.scope == "team":
+            reward_per_sku = np.tile(reward_per_sku.sum(axis=0), (self.n_warehouses, 1))  # Shape: (n_warehouses, n_skus)
+
+        # Enforce that the per-SKU rewards sum exactly to the scalar reward. 
+        assert np.allclose(reward_per_sku.sum(axis=1), rewards, atol=1e-6), (
+            "Per-SKU reward channels do not sum to the scalar reward. The fixed per-order "
+            "outbound shipment cost must be zero when reward_decomposition is enabled "
+            "since it is non-separable."
+        )
+
+        return reward_per_sku
 

@@ -1226,6 +1226,7 @@ class IPPOSpecificConfig(PPOConfig):
     obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
+    reward_decomposition: bool = False
     warmstart_weights_path: Optional[str] = None
     actor_obs_type: Literal["local", "global"] = "local"
     critic_obs_type: Literal["local", "global"] = "local"
@@ -1238,6 +1239,20 @@ class IPPOSpecificConfig(PPOConfig):
         if v is not None and (v <= 0.0 or v > 1.0):
             raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
         return v
+
+    @model_validator(mode="after")
+    def _validate_reward_decomposition(self):
+        if self.reward_decomposition:
+            if self.hysteretic_beta is not None:
+                raise ValueError(
+                    "reward_decomposition (A3) and hysteretic_beta cannot be combined; "
+                    "both replace the PPO learner."
+                )
+            if extract_gru_configs_from_model(self):
+                raise ValueError(
+                    "reward_decomposition (A3) is incompatible with GRU backbones."
+                )
+        return self
 
     @model_validator(mode="after")
     def _validate_shared_layers_obs_types(self):
@@ -1273,6 +1288,7 @@ class MAPPOSpecificConfig(PPOConfig):
     obs_normalization: Literal["off", "meanstd", "meanstd_custom", "meanstd_sku_grouped", "meanstd_wh_grouped", "ratio"] = "off"
     parameter_sharing: bool = False
     hysteretic_beta: Optional[float] = None
+    reward_decomposition: bool = False
     warmstart_weights_path: Optional[str] = None
     actor_obs_type: Literal["local", "global"] = "local"
     critic_obs_type: Literal["local", "global"] = "global"
@@ -1285,6 +1301,20 @@ class MAPPOSpecificConfig(PPOConfig):
         if v is not None and (v <= 0.0 or v > 1.0):
             raise ValueError("hysteretic_beta must be in (0.0, 1.0]")
         return v
+
+    @model_validator(mode="after")
+    def _validate_reward_decomposition(self):
+        if self.reward_decomposition:
+            if self.hysteretic_beta is not None:
+                raise ValueError(
+                    "reward_decomposition (A3) and hysteretic_beta cannot be combined; "
+                    "both replace the PPO learner."
+                )
+            if extract_gru_configs_from_model(self):
+                raise ValueError(
+                    "reward_decomposition (A3) is incompatible with GRU backbones."
+                )
+        return self
 
     @model_validator(mode="after")
     def _validate_shared_layers_obs_types(self):

@@ -57,6 +57,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         mappo_params = self.mappo_config.algorithm_specific
         networks_params = mappo_params.networks.model_dump()
         self.parameter_sharing = mappo_params.parameter_sharing
+        self.reward_decomposition = mappo_params.reward_decomposition
         self.max_seq_len = self.extract_max_seq_len(networks_params)
         self.num_env_runners = shared_params.num_env_runners
         self.num_envs_per_env_runner = shared_params.num_envs_per_env_runner
@@ -88,6 +89,7 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             "obs_layout": self.env._compute_obs_layout(),
             "logstd_init": mappo_params.logstd_init,
             "logstd_floor": mappo_params.logstd_floor,
+            "value_head_dim": env.n_skus if self.reward_decomposition else 1,
         }
         if self.max_seq_len is not None:
             model_config["max_seq_len"] = self.max_seq_len
@@ -127,6 +129,8 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
         }
         if self.include_warehouse_id:
             train_env_config["include_warehouse_id"] = True
+        if self.reward_decomposition:
+            train_env_config["reward_decomposition"] = True
 
         # Build eval env_config for RLlib
         eval_env_config = {
@@ -162,6 +166,9 @@ class MAPPOWrapper(BaseAlgorithmWrapper):
             training_kwargs["learner_config_dict"] = {
                 "hysteretic_beta": mappo_params.hysteretic_beta,
             }
+        if mappo_params.reward_decomposition:
+            from src.algorithms.learners.reward_decomposition_learner import RewardDecompositionPPOTorchLearner
+            training_kwargs["learner_class"] = RewardDecompositionPPOTorchLearner
 
         # Build environment runners config for RLlib
         env_runners_kwargs = {
