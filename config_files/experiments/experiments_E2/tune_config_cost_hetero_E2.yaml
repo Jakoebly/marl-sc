@@ -14,7 +14,7 @@ search_space:
       high: 5.830e-3
     vf_loss_coeff:
       type: loguniform
-      low: 0.239586
+      low: 7.188e-5
       high: 2.156275
 
 scheduler:
