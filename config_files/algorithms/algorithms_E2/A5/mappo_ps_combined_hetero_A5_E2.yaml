@@ -2,7 +2,7 @@ algorithm:
   name: "mappo"
   shared:
     num_iterations: 300
-    checkpoint_freq: 100
+    checkpoint_freq: 50
     batch_size: 16000
     num_epochs: 5
     num_minibatches: 4
