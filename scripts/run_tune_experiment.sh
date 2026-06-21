@@ -74,8 +74,8 @@ EXPERIMENT_NAME="MAPPO_PS_Tune_3WH_5SKUS_DemandHetero_A5_Optuna_FIFO"
 python src/experiments/run_experiment.py \
     --mode tune \
     --env-config ./config_files/environments/env_demand_hetero_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/algorithms_E2/A5/mappo_ps_demand_hetero_A5_E2.yaml \        
-    --tune-config ./config_files/experiments/experiments_E2/tune_config_demand_hetero_E2.yaml \       
+    --algorithm-config ./config_files/algorithms/algorithms_E2/A5/mappo_ps_demand_hetero_A5_E2.yaml \
+    --tune-config ./config_files/experiments/experiments_E2/tune_config_demand_hetero_E2.yaml \
     --num-samples 100 \
     --storage-dir "${STORAGE_DIR}" \
     --experiment-name "${EXPERIMENT_NAME}" \
@@ -88,5 +88,3 @@ python src/experiments/run_experiment.py \
 #   --resume-from "${EXPERIMENT_NAME}" \
 #   --storage-dir "${STORAGE_DIR}" \
 #   --wandb-project marl-sc \
-
-
