@@ -35,15 +35,25 @@ algorithm:
       shared_layers: null
       use_mu_sigma_head: false
       actor:
-        type: "mlp"
-        config:        
-          hidden_sizes: [512, 512]
+        type: "attention"
+        config:
+          d_model: 64
+          n_heads: 2
+          n_layers: 1
+          ff_hidden: 64
+          head_hidden_sizes: [128]
           activation: "relu"
+          dropout: 0.0
           output_activation: null
       critic:
-        type: "mlp"
+        type: "attention"
         config:
-          hidden_sizes: [256]
+          d_model: 64
+          n_heads: 2
+          n_layers: 1
+          ff_hidden: 64
+          head_hidden_sizes: [64]
           activation: "relu"
+          dropout: 0.0
           output_activation: null
 
