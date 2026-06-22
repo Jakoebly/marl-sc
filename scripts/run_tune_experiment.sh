@@ -87,4 +87,4 @@ python src/experiments/run_experiment.py \
   --mode tune \
   --resume-from "${EXPERIMENT_NAME}" \
   --storage-dir "${STORAGE_DIR}" \
-  --wandb-project marl-sc \go56luf2@cm4login2:~/projects/marl-sc>
+  --wandb-project marl-sc \
