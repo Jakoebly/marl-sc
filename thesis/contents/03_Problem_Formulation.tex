@@ -127,74 +127,69 @@ Since arrivals add stock and fulfillment removes it, on-hand inventory naturally
 \label{eq:inventory-dynamics}
   I_{ik,t+1} = I_{ikt} - \sum_{j \in \mathcal{R}} S_{ijkt} + A_{ik,t+1},
 \end{equation}
-which remains non-negative due to the feasibility constraint in \autoref{eq:shipment-feasibility}. In the special case of $t=0$, each warehouse starts with a configured initial inventory $I_{ik,0}$ and and empty pipeline. Likewise, in the case of $t=T$, any order with $t + L_{ik} > T$ will never arrive and is simply discarded. The complete physical state of the network at any period is therefore the on-hand inventory together with the pipeline of every warehouse and \gls{acr:sku}.
+which remains non-negative due to the feasibility constraint in \autoref{eq:shipment-feasibility}. In the special case of $t=0$, each warehouse starts with a configured initial inventory $I_{ik,0}$ and and empty pipeline. Likewise, in the case of $t=T$, any order with $t + L_{ik} > T$ will never arrive and is simply discarded. The complete physical state of the network at any period is therefore the on-hand inventory together with the pipeline of every warehouse and \gls{acr:sku}.\\
+
 
 \section{Cost Structure and Objective}
 \label{sec:costs}
+At the end of each period $t$, every warehouse $i$ incurs costs on excess inventory, lost sales, fulfillment, and procurement. 
 
-At the end of period $t$, each warehouse $i$ is subject to a range of costs. 
-
-The holding cost charges each warehouse for the stock it carries into the next period. With
-a holding rate $c_h$ per unit weight per period it is
+Since holding inventory is typically associated with extra costs such as storage, cleaning, electricity, etc., each warehouse pays a holding cost on excess inventory, which is defined as, 
 \begin{equation}
 \label{eq:holding-cost}
   C^{\mathrm{hold}}_{it} = c_h \sum_k w_k\, I_{ik,t+1},
 \end{equation}
-so heavier \glspl{acr:sku} are more expensive to hold because the cost scales with unit
-weight.
+where $c_h$ is the holding rate per unit weight per period. Since holding cost scales with weight, stocking one unit of a heavier \glspl{acr:sku} is proportionally more expensive than one unit of a lighter item.
 
-The penalty cost charges each warehouse for the lost sales attributed to it. With a
-per-\gls{acr:sku} penalty rate $c^{\mathrm{pen}}_k$ it is
+To avoid lost revenue due to unmet demand, each warehouse is penalized for each lost unit of demand attributed to it. This penalty charge is formulated as,
 \begin{equation}
 \label{eq:penalty-cost}
-  C^{\mathrm{pen}}_{it} = \sum_k c^{\mathrm{pen}}_k\, \ell_{ikt}.
+  C^{\mathrm{pen}}_{it} = \sum_k c^{\mathrm{pen}}_k\, U^{\mathrm{attr}}_{ikt},
 \end{equation}
-Unlike the holding cost, the penalty is charged per unit of unmet demand and does not scale
-with weight. A heavy \gls{acr:sku} is therefore costly to hold but no costlier to lose than
-a light one, and this asymmetry is central to the \gls{acr:sku}-heterogeneity behavior we
-study later.
+where $c^{\mathrm{pen}}_k$ is the per-\gls{acr:sku} penalty rate. Unlike the holding cost, the penalty does not scale with weight since it reflects the lost value of an unserved unit of demand rather than a physical handling cost.
 
-The outbound shipment cost charges each warehouse for the units it ships to regions. With
-an outbound rate $c^{\mathrm{out}}_{ij}$ per unit weight from warehouse $i$ to region $j$ it
-is
+For every unit shipped during fulfillment, a warehouse has to pay outbound shipment costs,
 \begin{equation}
 \label{eq:outbound-cost}
-  C^{\mathrm{out}}_{it} = \sum_j c^{\mathrm{out}}_{ij} \sum_k w_k\, y_{ijkt}.
+  C^{\mathrm{out}}_{it} = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}}
+  c^{\mathrm{out}}_{ij} \, w_k \, S_{ijkt},
 \end{equation}
-The rate is low for a warehouse's home region and high for foreign regions, so
-transshipment is more expensive than local fulfillment.
+where $c^{\mathrm{out}}_{ij}$ is the outbound rate per unit of weight. Since the sum runs over all regions, the outbound cost includes both the shipments a warehouse makes to its own home region and the transshipments it makes to foreign regions.
 
-The inbound shipment cost charges each warehouse for the units it replenishes. With an
-inbound rate $c^{\mathrm{in}}_{ik}$ per unit weight it is
+When placing replenishment orders, each warehouse incurs procurement costs. These inbound shipment costs are given by
 \begin{equation}
 \label{eq:inbound-cost}
-  C^{\mathrm{in}}_{it} = \sum_k c^{\mathrm{in}}_{ik}\, w_k\, q_{ikt}.
+  C^{\mathrm{in}}_{it} = \sum_{k \in \mathcal{K}} c^{\mathrm{in}}_{ik} \, w_k \,
+  q_{ikt},
 \end{equation}
+where $c^{\mathrm{in}}_{ik}$ is the inbound rate per unit of weight. Note that inbound costs are incured in the period the order is placed rather than when the order arrives. Like the holding and outbound costs, it scales with weight such that a heavier \gls{acr:sku} is more expensive to replenish.\\
 
-In every case we model only the variable, weight-proportional part of the shipment cost and
-set the fixed per-order component to zero. A fixed component would reward consolidating
-demand into fewer, larger shipments, which interacts with the lead-time and
-\gls{acr:sku}-mix decisions and would confound the heterogeneity effects we isolate. We
-therefore exclude it and note it as future work in \autoref{sec:limitations}.
-
-Summing the four components gives the per-period cost of warehouse $i$,
+Summing the four components gives the total cost of warehouse $i$ in period $t$,
 \begin{equation}
 \label{eq:warehouse-cost}
   C_{it} = C^{\mathrm{hold}}_{it} + C^{\mathrm{pen}}_{it} + C^{\mathrm{out}}_{it}
-           + C^{\mathrm{in}}_{it},
-\end{equation}
-and summing over warehouses gives the total system cost $C_t = \sum_i C_{it}$ in period
-$t$. Because each component is attributable to a single warehouse by construction, this
-per-warehouse decomposition is well defined. The control objective is to minimize the
-expected total system cost accumulated over the planning horizon of $T$ periods,
-\begin{equation}
-\label{eq:objective}
-  \min\ \mathbb{E}\!\left[\sum_{t=0}^{T-1} C_t\right].
+  + C^{\mathrm{in}}_{it},
 \end{equation}
 
-The control objective is to minimize the
-expected total system cost accumulated over the planning horizon of $T$ periods,
+The total system cost in period $t$ can then be determined by aggregating $C_{it}$ across warehouses as follows, 
+
+\begin{equation}
+\label{eq:system-cost}
+  C_{t} = \sum_{i \in \mathcal{W}} C_{it}.
+\end{equation}
+
+Accumulating the system cost over the planning horizon of $T$ periods yields the \gls{acr:tscc},
+\begin{equation}
+\label{eq:tscc}
+  \mathrm{\gls{acr:tscc}} = \sum_{t=0}^{T-1} C_t,
+\end{equation}
+which we use as the headline performance measure of a policy throughout the thesis. Since
+demand is stochastic, the $\mathrm{\gls{acr:tscc}}$ is a random variable and the control objective is to minimize
+its expectation,
 \begin{equation}
 \label{eq:objective}
-  \min\ \mathbb{E}\!\left[\sum_{t=0}^{T-1} C_t\right].
+  \min\ \mathbb{E}\!\left[\mathrm{TSCC}\right].
 \end{equation}
+
+
+[TRANSITION]

@@ -6,7 +6,7 @@ algorithm:
     batch_size: 4000
     num_epochs: 20
     num_minibatches: 10
-    learning_rate: 0.0007345822647944794
+    learning_rate: 0.0006443682613793064
     num_env_runners: 2
     num_envs_per_env_runner: 10
     num_cpus_per_env_runner: 1
@@ -20,8 +20,8 @@ algorithm:
     gamma: 0.995
     use_kl_loss: true
     grad_clip: 10.0
-    entropy_coeff: 0.0012346146679243712
-    vf_loss_coeff: 0.9893210052751762
+    entropy_coeff: 0.0014460426525981919
+    vf_loss_coeff: 0.011361674488548338
     clip_param: 0.3
     vf_clip_param: 156.40087830594456
     logstd_init: -1.3093671623165593
