@@ -1,0 +1,77 @@
+\chapter{Background}
+\label{chap: background}
+
+This section will lay the theoretical foundations for the approach used in this work. Since our method is one from the \gls{acr:marl} domain, basic concepts of \gls{acr:rl} are introduced and it is described how the multi-agent setting differs from the single-agent one. It is further outlined how multi-agent sequential decision-making instances can be modeled as a \gls{acr:pomg} and how the basic mechanics of the \gls{acr:ppo} algorithm function. To conclude this section, the central challenges of \gls{acr:marl} and potential remedies are described.\\
+
+\section{Reinforcement Learning and Decision Processes}
+\label{sec:rl-decision-processes}
+Contrary to supervised and unsupervised learning, \gls{acr:rl} does not rely on a preexisting data set. An \gls{acr:rl} algorithm, which we refer to as an agent, instead learns to make decisions through direct interaction with an environment in a trial-and-error fashion. The agent thereby generates its own data by repeatedly associating its decisions with rewards and reinforcing the decisions that prove advantageous [\textbf{CITE: Sutton and Barto (2018), reinforcement learning textbook}].
+
+Most formulations of this type of learning assume a single agent that controls the entire system from a global perspective. While this assumption is convenient for modeling reasons, it is restrictive by design. Specifically, the single-agent perspective often does not align with reality as systems of realistic size rarely expose one controller with full visibility. Moreover, the size of a joint decision grows as the number of controlled units increases such that scaling a single global control algorithm is often intractable. \gls{acr:marl} removes this narrow assumption and lets several agents act and learn in the same environment at the same time. Each agent then decides from its own local information, which reflects realistic decentralized settings much more accurately. 
+
+The trial-and-error learning of \gls{acr:rl} highlights that the core mechanic is inherently sequential, where executing actions and observing the resulting rewards is necessary for agents to evaluate the quality of their choices. To model these dynamics, we need a sequential decision making model that is capable of capturing several agents, their partial views, and their joint effect on a shared environment. One such model is a \gls{acr:pomg}, which is an abstract framework that can be applied to a wide variety of settings, including the one in this work. Therefore, the following sections will formulate a \gls{acr:pomg} formally and use it as the mathematical basis to define joint policies and value functions that are necessary to introduce the mechanics of the \gls{acr:ppo} algorithm.\\
+
+
+\subsection{Partially Observable Markov Game}
+\label{sec:pomg}
+In this work, we consider a finite-horizon, discounted \gls{acr:pomg}. Formally, it is characterized by the tuple \mbox{$\big\langle\, \mathcal{I},\ \mathcal{S},\ \{\mathcal{A}^i\},\ P,\ \{R^i\},\ \{\mathcal{O}^i\},\ \{O^i\},\ \mu,\ \gamma,\ T \,\big\rangle$},
+where $\mathcal{I}=\{1,\dots,N\}$ is the set of agents indexed by $i$, $\mathcal{S}$ is the set of global states, and $\mathcal{A}^i$ is the action space of agent $i$. We denote by $\mathcal{A} = \mathcal{A}^1\times\dots\times\mathcal{A}^N$ the joint action space of all agents. $P:\mathcal{S}\times\mathcal{A}\times\mathcal{S}\to[0,1]$ is the global state transition function, $R^i:\mathcal{S}\times\mathcal{A}\times\mathcal{S}\to\mathbb{R}$ is the per-agent reward function, and $\mathcal{O}^i$ is the observation space of agent $i$. We denote by $\mathcal{O}=\mathcal{O}^1\times\dots\times\mathcal{O}^N$ the joint observation space of all agents. Finally, $O^i:\mathcal{S}\to\mathcal{O}^i$ is the observation function of agent $i$, $\mu$ is the initial state distribution, $\gamma\in(0,1]$ is the discount factor, and $T$ is the time horizon. Each episode begins in an initial state $s_0\in\mathcal{S}$ sampled from $\mu$ and evolves over a finite horizon of $T$ steps. At each time $t=0,\dots,T-1$, each agent $i\in \mathcal{I}$ receives an observation $o^i_t\in\mathcal{O}^i$ according to its observation function $O^i(s_t)$, resulting in the joint observation $\mathbf{o}_t=(o_t^1,\dots,o_t^N)$. Using its observation, each agent then chooses an action $a^i_t\in\mathcal{A}^i$ based on a stochastic policy $\pi^i(a^i_t \mid \mathbf{h}^i_t)$. Since $s_t$ is not directly observable, $\pi^i(a^i_t \mid \mathbf{h}^i_t)$ conditions on the local observation history $\mathbf{h}^i_t = (o^i_0, \dots, o^i_t)$ rather than $o^i_t$ alone such that the agent can better infer the possible current states $s_t$. Given the joint action $\mathbf{a}_t=(a_t^1,\dots,a_t^N)$, the system then transitions from state $s_t$ to $s_{t+1}$ with transition probability $P(s_{t+1}\mid s_t,\mathbf{a}_t)$ and generates the reward vector $\mathbf{r}_t = (r_t^1,\dots,r_t^N)$, where the per-agent rewards $r_t^i$ are produced according to the individual reward functions $R^i(s_t, \mathbf{a}_t, s_{t+1})$. This decision sequence is then iteratively repeated for $T$ steps, after which the episode terminates in the final state $s_T$. When executed for one episode, the \gls{acr:pomg} produces a trajectory of the form $\tau = \big(s_0, \mathbf{o}_0, \mathbf{a}_0, \mathbf{r}_0,\ \dots,\ s_{T-1}, \mathbf{o}_{T-1}, \mathbf{a}_{T-1}, \mathbf{r}_{T-1},\, s_T\big)$, where $\mathbf{o}_t=(o_t^1,\dots,o_t^N)$ is the joint observation.\\ 
+
+
+\subsection{Learning Objective and Value Functions}
+\label{sec:objective-values}
+The objective of each agent $i$ is to optimize the average return per episode. For each time step $t$, the return of agent $i$ can be computed as the discounted sum of all future rewards $r_t^i$ from that time onward. Thus, the return in period $t$ for agent $i$ is given by
+\begin{equation}
+    G^i_t = \sum_{k=0}^{T-1-t} \gamma^{k}\, r^i_{t+k},
+\end{equation}
+where $\gamma\in (0,1]$ is the discount rate. Since the behavior of all agents is described by the joint policy  $\boldsymbol{\pi} = (\pi^1, \dots, \pi^N)$, the learning objective of agent $i$ is to maximize its expected return in the starting state under this joint policy, 
+\begin{equation}
+    J^i(\boldsymbol{\pi}) = \mathbb{E}_{s_0\sim\mu,\,\boldsymbol{\pi}}\!\left[ G^i_0 \right] 
+    = \mathbb{E}_{s_0\sim\mu,\,\boldsymbol{\pi}}\!\left[\sum_{t=0}^{T-1} \gamma^t r^i_t \right],
+\end{equation}
+where $\mathbb{E}_{s_0\sim\mu,\,\boldsymbol{\pi}} [ \cdot ]$ is the expectation under the joint policy $\boldsymbol{\pi}$ and initial state $s_0$. While a general \gls{acr:pomg} may also involve agents with conflicting objectives whose interaction must be described through game-theoretic equilibrium concepts, we focus on a fully cooperative setting in which all agents pursue a shared goal. Although each agent $i$ receives a local reward $r^i_t$, all agents therefore act to maximize the joint learning objective
+\begin{equation}
+    J(\boldsymbol{\pi}) 
+    = \sum_{i \in \mathcal{I}} J^i(\boldsymbol{\pi}) 
+    = \mathbb{E}_{s_0\sim\mu,\,\boldsymbol{\pi}}\!\left[
+        \sum_{t=0}^{T-1} \gamma^t \sum_{i \in \mathcal{I}} r^i_t
+      \right],
+\end{equation}
+which aggregates the expected discounted rewards into a single shared optimization target for the multi-agent system.\\
+
+To improve its policy, an agent needs to know how desirable its current state is before an episode ends. Mathematically, this is expressed in the form of a
+state-value function $V^i_{\boldsymbol{\pi}}(s)$, which gives the expected return of agent $i$ when the system is in state $s$ and all agents follow the joint policy thereafter. Hence, the value function is defined as 
+\begin{equation}
+    V^i_{\boldsymbol{\pi}}(s) = \mathbb{E}_{\boldsymbol{\pi}}\!\left[\, G^i_t \mid s_t = s \,\right].
+\end{equation}
+It directly follows that $J^i(\boldsymbol{\pi})=\mathbb{E}_{s_0\sim\mu}\big[V^i_{\boldsymbol{\pi}}(s_0)\big]$, so that the agent tries to maximize the value of the starting state. State values can likewise be given in the form of action-value functions $Q^i_{\boldsymbol{\pi}}(s, \mathbf{a})$, which give the expected future return when the system is in state $s$ and all agents take the joint action $\mathbf{a}$. Hence, the action-value function is defined as
+\begin{equation}
+    Q^i_{\boldsymbol{\pi}}(s, \mathbf{a}) = \mathbb{E}_{\boldsymbol{\pi}}\!\left[\, G^i_t \mid s_t = s,\, \mathbf{a}_t = \mathbf{a} \,\right],
+\end{equation}
+where conditioning on the joint action instead of on the action of agent $i$ alone reflects that the outcome for one agent depends on the choices of the others. 
+
+Combining both the state- and action-value functions yields the advantage $AV^i_{\boldsymbol{\pi}}(s, \mathbf{a})$, which measures the relative utility of a joint action by quantifying how much better it is than the expected return of the current policy in a given state $s$. Hence, it is defined by
+\begin{equation}
+    AV^i_{\boldsymbol{\pi}}(s, \mathbf{a}) = Q^i_{\boldsymbol{\pi}}(s, \mathbf{a}) - V^i_{\boldsymbol{\pi}}(s).
+\end{equation}
+Note that the environment state $s$ is not directly observable in practice such that agents cannot compute the true values $V^i_{\boldsymbol{\pi}}(s)$, $Q^i_{\boldsymbol{\pi}}(s, \mathbf{a})$, and $AV^i_{\boldsymbol{\pi}}(s, \mathbf{a})$. Instead, each agent $i$ uses its local observation history $\mathbf{h}_t^i$ to approximate the true state $s$, resulting in the history-conditioned estimates $V^i_{\boldsymbol{\pi}}(\mathbf{h}_t^i)$, $Q^i_{\boldsymbol{\pi}}(\mathbf{h}_t^i, \mathbf{a}_t)$, and $AV^i_{\boldsymbol{\pi}}(\mathbf{h}_t^i, \mathbf{a}_t)$.\\
+
+\subsection{Policy-Gradient Methods and Proximal Policy Optimization}
+\label{sec:pg-ppo}
+Since many problem settings exhibit extremely large state and observation spaces, explicit representation of policies and value functions is practically intractable such that approximation methods are needed. Although  numerous estimation techniques exist, one high-impact approach to address the curse of dimensionality involves the use of \glspl{acr:nn}, which are typically used to estimate the policy or the value function. Specifically, we denote by $\pi_{\theta^i}(a^i_t \mid \mathbf{h}^i_t)$ the policy of agent $i$ parameterized by weights $\theta^i$ and $V^i_{\phi^i}(\mathbf{h}^i_t)$ the value function of agent $i$ parameterized by weights $\phi^i$. Since each agent's policy is now represented by $\pi_{\theta^i}$, the joint policy $\boldsymbol{\pi}$ is fully determined by the joint weights $\boldsymbol{\theta}=(\theta^1,\dots,\theta^N)$ such that the objective of agent $i$ can be expressed as $J^i(\boldsymbol{\theta})$ instead of $J^i(\boldsymbol{\pi})$.
+
+Given a parameterized policy $\pi_{\theta^i}$, \gls{acr:pg} methods can be used to directly optimize it. The general idea is to update $\pi_{\theta^i}$ by deriving the gradient $\nabla_{\theta^i} J^i(\boldsymbol{\theta})$ of the objective function $J^i(\boldsymbol{\theta})$ and then applying gradient ascent to update the parameters $\theta^i$. However, since $J^i(\boldsymbol{\theta})$ is an expectation over trajectories whose distribution depends on the environment's transition dynamics, which are typically unknown, the gradient $\nabla_{\theta^i} J^i(\boldsymbol{\theta})$ cannot be computed directly. To address this, \gls{acr:pg} techniques instead use a surrogate objective $J^{\text{PG},i}(\theta^i)$ whose gradient yields a sample-based estimate of $\nabla_{\theta^i} J^i(\boldsymbol{\theta})$. Following the multi-agent policy gradient theorem [\textbf{CITE: Suttonetal1999, Lowe et al. 2017; Foerster, Farquhar, et al. 2018; Kuba et al. 2021; Lyu et al. 2023}], $J^{\text{PG},i}(\theta^i)$ is given by  
+\begin{equation} 
+\label{eq:mapg}
+    J^{\text{PG},i}(\theta^i) = \hat{\mathbb{E}}_{\boldsymbol{\pi}, t}\!\left[ \ln \pi_{\theta^i}(a^i_t \mid \mathbf{h}^i_t)\, \widehat{AV}^i_t \right],
+\end{equation}
+where $\hat{\mathbb{E}}_{\boldsymbol{\pi}, t}[\cdot]$ is the empirical average over a finite batch of samples generated under the joint policy $\boldsymbol{\pi}$ and $\widehat{AV}^i_t$ is an estimate of the advantage $AV^i_{\boldsymbol{\pi}}(\mathbf{h}^i_t,\mathbf{a}_t)$, which is typically computed via \gls{acr:gae} [\textbf{CITE: Schulman}].
+
+A key challenge in \gls{acr:pg} methods is to stabilize learning since overly large policy updates can degrade performance. \gls{acr:ppo} [\textbf{CITE: {schulman2017}}] specifically addresses this issue by using a distinctive surrogate objective function $J^{\text{CLIP},i}(\theta^i)$ to guide policy updates within a clipped range. Specifically, \gls{acr:ppo} uses the probability ratio \smash[t]{$\rho^i_t(\theta^i) = \frac{\pi_{\theta^i}(a^i_t \mid \mathbf{h}^i_t)}{\pi_{\theta^i_{\mathrm{old}}}(a^i_t \mid \mathbf{h}^i_t)}$} between the updated and the sampling policy and restricts it to a specific trust region. Thus, the clipped objective function is 
+\begin{equation} 
+\label{eq:ppo}
+    J^{\text{CLIP},i}(\theta^i) = \hat{\mathbb{E}}_{\boldsymbol{\pi_\mathrm{old}}, t}\!\left[ \min\!\Big( \rho^i_t(\theta^i)\, \widehat{AV}^i_t,\; \operatorname{clip}\big( \rho^i_t(\theta^i),\, 1-\epsilon,\, 1+\epsilon \big)\, \widehat{AV}^i_t \Big) \right],
+\end{equation}
+where the tunable hyperparameter $\epsilon$ bounds the size of the policy update. The first term within the $\min$-operator is the unclipped surrogate objective $\rho^i_t(\theta^i),\widehat{AV}^i_t$ that pushes the update towards actions that yield a high advantage. The second term is a clipped version of the surrogate that clips the probability ratio $\rho^i_t(\theta^i)$ to some interval $[1 - \epsilon, 1 + \epsilon]$. Thus, if the considered state-action pair resulted in positive advantage $\widehat{AV}^i_{t}$, the algorithm tries to elevate the probability of this action by increasing $\rho^i_t(\theta^i)$ as much as possible. However, this increase is bound since the $\operatorname{min}$-operator caps the objective at $\rho^i_t(\theta^i) > 1 + \epsilon$ and thus limits the incentive to update the probability ratio beyond that threshold. Contrarily, if the action chosen was poor and resulted in negative advantage $\widehat{AV}^i_{t}$, the algorithm tries to reduce its probability by decreasing $\rho^i_t(\theta^i)$. However, \gls{acr:ppo} has no incentive to decrease $\rho^i_t(\theta^i)$ below $1 - \epsilon$ as the $\operatorname{min}$-operator once again binds the update. On balance, this mechanism ensures smooth policy updates and thus contributes significantly to \gls{acr:ppo}'s stable learning performance.
+
+The \gls{acr:ppo} algorithm belongs to the actor-critic family and thus consists of two distinct components. The actor portion approximates the policy function $\pi_{\theta^i}$, which is used to generate sample data. In contrast, the critic part estimates $V^i_{\phi^i}$ such that $\widehat{AV}^i_t$ (e.g., using \gls{acr:gae}) can be calculated and used to evaluate the actor's choices. Both are usually \glspl{acr:nn} that can either be completely separate or share parameters through a common backbone. A pseudo code of the standard \gls{acr:ppo} algorithm can be found in \autoref{ap:pseudo-codes}

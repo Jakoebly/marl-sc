@@ -1,3 +1,21 @@
 \appendix
 
 \chapter{Appendix A}
+\label{ap:pseudo-codes}
+
+\begin{algorithm}[htbp]
+\DontPrintSemicolon
+\caption{Standard \gls{acr:ppo} using \gls{acr:gae}}
+\label{alg:ppo}
+\BlankLine
+Initialize $\theta^i$ and $\phi^i$ with random values\;
+\For{$k = 1, 2, \dots, N_{\mathrm{iter}}$}{
+  Run $\pi_{\theta^i_{\mathrm{old}}}$ in the environment to collect trajectories $\mathcal{D}_k = \{\tau_i\}$\;
+  Compute $\widehat{AV}^i_t$ for all $t$ using \gls{acr:gae} and current value estimates $V_{\phi^i}$\;
+  Update $\theta^i$ by optimizing $J^{\mathrm{CLIP},i}(\theta^i)$ for $N_{\mathrm{ep}}$ epochs and minibatch size $B$\;
+  Update $\phi^i$ using mean-squared error for $N_{\mathrm{ep}}$ epochs and minibatch size $B$\;
+}
+\textbf{end for}
+\BlankLine
+\end{algorithm}
+
