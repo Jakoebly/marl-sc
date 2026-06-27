@@ -147,6 +147,12 @@ class PerSkuAttentionNetwork(nn.Module):
             layers.append(_module_activation(output_activation))
         self.head = nn.Sequential(*layers)
 
+        # Attention-weight capture, used only by evaluation rollouts when
+        # --visualize is set. Disabled during training so the forward path and
+        # numerics are unchanged. Toggled on by BaseAlgorithmWrapper.rollout.
+        self._capture_attn = False
+        self._last_attn = None
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
 
@@ -179,7 +185,15 @@ class PerSkuAttentionNetwork(nn.Module):
         # the batch dim so SKUs attend only within their own warehouse block.
         tokens = self.token_proj(sku)  # (batch, n_blocks, n_skus, d_model)
         tokens = tokens.reshape(batch * self.n_blocks, self.n_skus, self.d_model)
-        attended = self.encoder(tokens)  # (batch * n_blocks, n_skus, d_model)
+        # Encode the SKU tokens. In capture mode (eval/visualization) also record
+        # the per-SKU self-attention weights; otherwise use the plain fast path.
+        if self._capture_attn:
+            attended, attn = self._encode_with_attn(tokens)
+            self._last_attn = attn.reshape(
+                batch, self.n_blocks, self.n_skus, self.n_skus
+            ).detach()
+        else:
+            attended = self.encoder(tokens)  # (batch * n_blocks, n_skus, d_model)
         attended = attended.reshape(batch, self.n_blocks * self.n_skus * self.d_model)
 
         # Concatenate the (per-block) context features, if any.
@@ -195,6 +209,30 @@ class PerSkuAttentionNetwork(nn.Module):
 
         # Restore leading dims.
         return out.reshape(*leading, out.shape[-1])
+
+    def _encode_with_attn(self, tokens):
+        """Run the Transformer encoder while capturing self-attention weights.
+
+        Used only for evaluation/visualization (``self._capture_attn``). Returns
+        ``(encoded, attn)`` where ``attn`` is the head-averaged attention matrix
+        averaged over encoder layers, shape ``(N, n_skus, n_skus)`` with
+        ``N = batch * n_blocks``. Assumes ``norm_first=False`` (the PyTorch
+        default used here) so each layer's ``self_attn`` sees its raw input and
+        the captured weights match the encoder's internal computation; the
+        returned ``encoded`` equals ``self.encoder(tokens)`` for this config.
+        """
+        h = tokens
+        mats = []
+        for layer in self.encoder.layers:
+            _, w = layer.self_attn(
+                h, h, h, need_weights=True, average_attn_weights=True
+            )
+            mats.append(w)
+            h = layer(h)
+        if self.encoder.norm is not None:
+            h = self.encoder.norm(h)
+        attn = torch.stack(mats, dim=0).mean(dim=0)
+        return h, attn
 
 
 class AttentionArchitecture(NetworkArchitecture):

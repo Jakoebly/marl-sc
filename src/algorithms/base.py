@@ -150,6 +150,12 @@ class BaseAlgorithmWrapper(ABC):
         if obs_norm_mode == "meanstd":
             obs_filters = self._get_obs_filters()
 
+        # Detect a per-SKU attention actor so the rollout can capture attention
+        # weights for visualization (A4 / A5 policies only). No-op for MLP/GRU.
+        from src.algorithms.models.architectures.attention import PerSkuAttentionNetwork
+        capture_attn = isinstance(getattr(sample_module, "actor", None), PerSkuAttentionNetwork)
+        toggled_attn_nets = set()
+
         # Run manual rollout
         all_episodes = []
         for _ in range(num_episodes):
@@ -175,10 +181,16 @@ class BaseAlgorithmWrapper(ABC):
                 mu_sigma_per_agent = {}
                 obs_raw_per_agent = {}
                 obs_norm_per_agent = {}
+                attn_per_agent = {}
                 for agent_id in env.agents:
                     # Get policy ID and module
                     policy_id = self.policy_mapping_fn(agent_id)
                     module = self.trainer.get_module(module_id=policy_id)
+
+                    # Enable attention capture on this module's actor (A4/A5 only)
+                    if capture_attn:
+                        module.actor._capture_attn = True
+                        toggled_attn_nets.add(module.actor)
 
                     with torch.no_grad():
                         # Store raw observation before normalization
@@ -225,6 +237,14 @@ class BaseAlgorithmWrapper(ABC):
                             "sigma": np.exp(logits_np[action_dim:]),
                         }
 
+                        # Capture per-SKU self-attention weights (A4/A5 only):
+                        # (1, n_blocks, n_skus, n_skus) -> (n_skus, n_skus),
+                        # averaged over warehouse blocks.
+                        if capture_attn and getattr(module.actor, "_last_attn", None) is not None:
+                            attn_per_agent[agent_id] = (
+                                module.actor._last_attn.mean(dim=1).squeeze(0).cpu().numpy()
+                            )
+
                         # Update hidden states for recurrent policies
                         if is_recurrent:
                             states[agent_id] = output.get(Columns.STATE_OUT, {})
@@ -248,6 +268,11 @@ class BaseAlgorithmWrapper(ABC):
                 episode_data["actor_sigma"].append(sigma_array)
                 episode_data["obs_raw"].append(obs_raw_array)
                 episode_data["obs_normalized"].append(obs_norm_array)
+
+                # Per-SKU attention matrices for this step (A4/A5 only)
+                if capture_attn and attn_per_agent:
+                    attn_array = np.array([attn_per_agent[a] for a in env.agents])
+                    episode_data["attention_weights"].append(attn_array)
 
                 # Step environment and record step info 
                 obs_dict, rewards, terms, truncs, infos = env.step(actions)
@@ -273,6 +298,11 @@ class BaseAlgorithmWrapper(ABC):
             episode_data["rolling_window"] = env.rolling_window
             episode_data["home_regions"] = env.home_regions.copy()
             all_episodes.append(episode_data)
+
+        # Restore attention capture flags toggled during the rollout
+        for net in toggled_attn_nets:
+            net._capture_attn = False
+            net._last_attn = None
 
         # Disable step info collection after rollout
         env.collect_step_info = False

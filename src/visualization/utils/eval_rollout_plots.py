@@ -38,6 +38,7 @@ def generate_visualizations(
     plot_shipment_heatmap(episode, viz_dir)
     plot_observations(episode, viz_dir)
     plot_obs_normalization(episode, viz_dir)
+    plot_attention_heatmap(episode, viz_dir)
 
     # Generate episode summary across all episodes
     if len(episodes_data) > 1:
@@ -413,6 +414,69 @@ def plot_shipment_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> N
     # Set x label and save figure
     plt.tight_layout()
     plt.savefig(output_dir / "06_shipment_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_attention_heatmap(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
+    """
+    Plots the per-SKU self-attention matrix for A4/A5 policies (one panel per
+    warehouse). Entry [i, j] is how much SKU i (query) attends to SKU j (key),
+    averaged over the episode's timesteps. Strong off-diagonal mass indicates
+    cross-SKU coordination; a near-diagonal matrix means each SKU attends mostly
+    to itself. The off-diagonal-to-diagonal ratio is shown in the title.
+
+    No-op for non-attention runs (the ``attention_weights`` key is absent).
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict.
+        output_dir (Path): Directory to save the plot.
+    """
+
+    # Only attention (A4/A5) rollouts carry this key
+    attn = episode.get("attention_weights")
+    if attn is None:
+        return
+    attn = np.asarray(attn)
+    if attn.ndim != 4:
+        return
+
+    # Average over timesteps: (T, n_wh, n_skus, n_skus) -> (n_wh, n_skus, n_skus)
+    avg = attn.mean(axis=0)
+    n_wh, n_skus, _ = avg.shape
+
+    # Off-diagonal-to-diagonal ratio (mean across warehouses) as a quick diagnostic
+    eye = np.eye(n_skus, dtype=bool)
+    diag = avg[:, eye].mean()
+    offdiag = avg[:, ~eye].mean()
+    ratio = offdiag / diag if diag > 0 else float("nan")
+
+    # One heatmap panel per warehouse
+    fig, axes = plt.subplots(1, n_wh, figsize=(max(4, n_wh * 3.2), 3.6), squeeze=False)
+    for wh in range(n_wh):
+        ax = axes[0, wh]
+        m = avg[wh]
+        im = ax.imshow(m, cmap="viridis", vmin=0.0, aspect="auto")
+        ax.set_xticks(range(n_skus))
+        ax.set_yticks(range(n_skus))
+        ax.set_xticklabels([f"SKU {j}" for j in range(n_skus)], fontsize=7, rotation=45)
+        ax.set_yticklabels([f"SKU {i}" for i in range(n_skus)], fontsize=7)
+        ax.set_xlabel("Key (attended-to)", fontsize=8)
+        if wh == 0:
+            ax.set_ylabel("Query (attending)", fontsize=8)
+        ax.set_title(f"Warehouse {wh}", fontsize=9)
+        vmax = m.max() if m.max() > 0 else 1.0
+        for i in range(n_skus):
+            for j in range(n_skus):
+                ax.text(j, i, f"{m[i, j]:.2f}", ha="center", va="center",
+                        color="white" if m[i, j] < vmax * 0.6 else "black", fontsize=7)
+        fig.colorbar(im, ax=ax, shrink=0.8)
+
+    fig.suptitle(
+        f"Per-SKU Self-Attention (episode avg)  |  off-diag/diag = {ratio:.2f}",
+        fontsize=12, y=1.03,
+    )
+    plt.tight_layout()
+    plt.savefig(output_dir / "11_attention_heatmap.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
