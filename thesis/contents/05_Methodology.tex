@@ -132,3 +132,45 @@ Note that the Poisson approximation underlying $\sqrt{\mu^D_{ik}\,L_{ik}}$ under
 We set $z = 3.09$, which is deliberately large and chosen for operational rather than statistical reasons. Specifically, a small initial inventory would force the warehouses to spend the first lead times stocking up toward their operating range. This cold-start effect would then dominate the reported return rather than reflecting the behavior of the learned policy. A large $z$ instead starts each episode close to the steady-state operating point. Because \autoref{eq:initial-inventory} adapts to each warehouse and \gls{acr:sku} through its expected demand, it lets us choose initial inventories consistently across the heterogeneous settings introduced later rather than retuning a constant for each one.
 
 Beyond the on-hand inventory, two further quantities require explicit initialization in the first period. First, we initialize the pipeline empty such that no replenishment orders are in transit and the pipeline vector satisfies $\mathbf{I}^{\mathrm{tr}}_{ik,0} = \mathbf{0}$. With a fixed lead time the first arrivals reach a warehouse only at period $L_{ik}$ such that the demand during the first $L_{ik}$ periods is served from the initial inventory alone, which is exactly the lead-time demand that \autoref{eq:initial-inventory} is built to cover. Second, because the $X+Y$ action rule of \autoref{eq:xy-action} requires a demand anchor before any demand is observed, we set $D_{ik,-1} := 0$ so that the first order reduces to $q_{ik,0} = \max\{0,\,y_{ik,0}\}$, as already outline in \autoref{subsec:action-design}. Together, these settings complete the initialization such that every state variable holds a defined value before the agents take their first action. \\
+
+\section{Algorithms and Baselines}
+\label{sec:algorithms-and-baselines}
+
+[TRANSITION]\\
+
+\subsection{Learning Algorithms}
+\label{subsec:learning-algorithms}
+All learning algorithms in this thesis belong to the \gls{acr:ppo} family, which serves as the established backbone for reinforcement learning in inventory control [\textbf{CITE}]. To isolate the contribution of centralized critics, we use \Gls{acr:ippo} [\textbf{CITE: IPPO, de Witt et al. 2020}] as the \gls{acr:il} implementation of \gls{acr:ppo} and \gls{acr:mappo} [\textbf{CITE: MAPPO, Yu et al. 2022}] as the \gls{acr:ctde} version. Additionally, we compare both \gls{acr:ippo} and \gls{acr:mappo} along the dimension of \gls{acr:ps}, which results in the four learners \gls{acr:mappo-ps}, \gls{acr:mappo-nops}, \gls{acr:ippo-ps}, and \gls{acr:ippo-nops}. 
+
+In addition, we complement these four algorithms with \gls{acr:cppo}, which effectively reduces the setting to a single-agent problem by considering only a single controller that observes the joint observation and selects the joint action of all warehouses at once. Therefore, \gls{acr:cppo} follows the \gls{acr:ctce} paradigm and removes every multi-agent difficulty except for scalability. It therefore serves as a centralized upper bound on the performance attainable by any \gls{acr:rl} approach on this problem. An overview of our primary learning algorithms is provided in \autoref{tab:algorithms}
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\caption{The five learning configurations and the role each plays in the study.}
+\label{tab:algorithms}
+\begin{tabular}{@{}l c c l@{}}
+\toprule
+\textbf{Configuration} & \textbf{Critic} & \textbf{Parameter Sharing} & \textbf{Role}\\
+\midrule
+\gls{acr:mappo-ps}   & global & yes            & primary target\\
+\gls{acr:ippo-ps}   & local  & yes            & isolates the centralised critic\\
+\gls{acr:mappo-nops} & global & no             & completes the grid\\
+\gls{acr:ippo-nops}  & local  & no             & completes the grid\\
+\gls{acr:cppo}            & joint  & n/a & upper reference\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Reference Baselines}
+\label{subsec:reference-baselines}
+To evaluate our learning algorithms, we benchmark them against a set of non-learning reference policies that establish clear performance bounds. At the lower end, a random policy (Random) that orders uniformly at random serves as the absolute floor below which no useful policy should fall. As a naive benchmark, we also include a constant order heuristic (ConstantOrder) that places a fixed, demand-calibrated order per warehouse and \gls{acr:sku}. To cover the heuristic range, we additionally evaluate four base-stock policies of increasing complexity. While the first approach computes order-up-to levels analytically using true demand parameters (BS-Newsvendor), the second estimates them adaptively from historical data (BS-Adaptive). The remaining two tune their base-stock levels via simulation optimization, either independently per warehouse (BS-Independent) or jointly across the network (BS-Optimized). Finally, as outlined in \autoref{subsec:learning-algorithms}, \gls{acr:cppo} provides a theoretical \gls{acr:rl} ceiling by removing all multi-agent constraints. We refer to \autoref{ap:baselines} for the full parameterization and tuning details of each baseline.\\
+
+
+\subsection{Network Architecture and Implementation}
+\label{subsec:network-architecture}
+We implement the actor and the critic of each configuration as standalone \glspl{acr:mlp} that do not share weights. Each multi-agent actor takes the local observation $o^i_t$ of \autoref{eq:observation} as input and is thus capable of decentralized policy execution. To form the final input vector, we combine all included features of a specific observation $o_t^i$ into a flat 1D array and arrange them in a fixed order. To ensure the dimensionality of $o^i_t$ remains strictly fixed throughout the episode, we additionally zero-pad active blocks that summarize a trailing window of demand at the start of an episode until the window fills. Finally, we standardize every entry of $o_t^i$ to zero mean and unit variance using fixed statistics estimated once from a short random-policy rollout and prepend the unscaled identity vector $\mathbf{e}_i$ in the case of \gls{acr:ps}. While the critics of \gls{acr:ippo-ps} and \gls{acr:ippo-nops} receive the same local input vector as their actor counterparts, the centralized critics of \gls{acr:mappo-ps} and \gls{acr:mappo-nops} instead process the joint observation, which we form by simply concatenating the standardized local input vector of all agents. Note that the fully centralized \gls{acr:cppo} does not process any local input separately and instead feeds the joint observation vector to both its actor and critic.
+
+The actors of each \gls{acr:ippo} and \gls{acr:mappo} variant produce one output per \gls{acr:sku}. Since \gls{acr:ppo} is a continuous control algorithm and the feasible adjustment range can differ across \glspl{acr:sku}, we do not emit the adjustments $y_{ikt}$ directly. Instead, each network outputs a bounded raw action $a^i_{kt} \in [-1,1]$ for each \gls{acr:sku} $k$ to decouple the policy from the per-\gls{acr:sku} order scale. To convert each $a^i_{kt}$ to the final order quantity $q_{ikt}$, we first scale it to the range $[-\Delta_k,\Delta_k]$ and round it to the nearest integer to obtain the adjustment $y_{ikt}$. We then add the most recently observed home-region demand and clip at zero to produce the final order quantity $q_{ikt}$ (see \autoref{eq:xy-action}). The per-\gls{acr:sku} outputs form the mean of a diagonal Gaussian distribution from which the actor can samples its actions. Note that the standard deviation of this distribution is not produced by the network but obtained by exponentiating a separate parameter that holds one log-standard-deviation entry per \gls{acr:sku} and does not depend on the observation. We adopt this state-independent parameterization because it lets us set the initial exploration scale directly through the parameter's initial value, which a state-dependent standard-deviation head would reach only indirectly through its weights. Since this choice produced more stable training in our early experiments, we keep it for all algorithms. During training, the actor then samples its action from the parameterized Gaussian, whereas during evaluation the action defaults to the distribution mean. In contrast to the actors, the critics of all multi-agent approaches return a single scalar that estimates the value function for the given input. While the fully centralized \gls{acr:cppo} keeps the single-scalar critic, its actor produces the per-\gls{acr:sku} outputs of all warehouses simultaneously.  
