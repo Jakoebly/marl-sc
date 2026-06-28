@@ -151,7 +151,7 @@ class BaseAlgorithmWrapper(ABC):
             obs_filters = self._get_obs_filters()
 
         # Detect a per-SKU attention actor so the rollout can capture attention
-        # weights for visualization (A4 / A5 policies only). No-op for MLP/GRU.
+        # weights for visualization
         from src.algorithms.models.architectures.attention import PerSkuAttentionNetwork
         capture_attn = isinstance(getattr(sample_module, "actor", None), PerSkuAttentionNetwork)
         toggled_attn_nets = set()
@@ -187,7 +187,7 @@ class BaseAlgorithmWrapper(ABC):
                     policy_id = self.policy_mapping_fn(agent_id)
                     module = self.trainer.get_module(module_id=policy_id)
 
-                    # Enable attention capture on this module's actor (A4/A5 only)
+                    # Enable attention capture on this module's actor
                     if capture_attn:
                         module.actor._capture_attn = True
                         toggled_attn_nets.add(module.actor)
@@ -237,9 +237,7 @@ class BaseAlgorithmWrapper(ABC):
                             "sigma": np.exp(logits_np[action_dim:]),
                         }
 
-                        # Capture per-SKU self-attention weights (A4/A5 only):
-                        # (1, n_blocks, n_skus, n_skus) -> (n_skus, n_skus),
-                        # averaged over warehouse blocks.
+                        # Capture per-SKU self-attention weights
                         if capture_attn and getattr(module.actor, "_last_attn", None) is not None:
                             attn_per_agent[agent_id] = (
                                 module.actor._last_attn.mean(dim=1).squeeze(0).cpu().numpy()
@@ -269,7 +267,7 @@ class BaseAlgorithmWrapper(ABC):
                 episode_data["obs_raw"].append(obs_raw_array)
                 episode_data["obs_normalized"].append(obs_norm_array)
 
-                # Per-SKU attention matrices for this step (A4/A5 only)
+                # Per-SKU attention matrices for this step
                 if capture_attn and attn_per_agent:
                     attn_array = np.array([attn_per_agent[a] for a in env.agents])
                     episode_data["attention_weights"].append(attn_array)
