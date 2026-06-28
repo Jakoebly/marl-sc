@@ -389,10 +389,10 @@ Counts in the rightmost column are seed-evaluation training runs only and exclud
 |---|---|---|---|---|---|
 | **E0** | Symmetric baseline | `env_symmetric` | IPPO-PS, IPPO-noPS, MAPPO-PS, MAPPO-noPS, CPPO tuned on symmetric env, 6 reference baselines on symmetric env | 10 | ~500 |
 | **E1** | Diagnostic | 4 hetero | 5 symmetric-tuned algos from E0 transferred to each of the 4 hetero envs, IPPO-PS, IPPO-noPS, MAPPO-PS, MAPPO-noPS, CPPO re-tuned on each of the 4 hetero envs; 6 reference baselines on each of the 4 hetero envs; coupling metric κ computed | 10 | ~2200 |
-| **E2** | Interventions | 4 hetero | MAPPO-PS + A1/A2/A3/A4/A5 and matched-MLP control re-tuned on each of the 4 hetero envs | 10 | ~1200 |
+| **E2** | Interventions | 4 hetero | MAPPO-PS + A1/A2/A3/A4/A5 and matched-MLP control re-tuned on each of the 4 hetero envs | 5 | ~600 |
 | **E3** | Ablation & robustness | 4 hetero | A5 drop-one ablation for each of the 4 hetero envs, per-SKU rollouts of MAPPO-PS variants for all 5 envs, obs- and reward-side sharing variants on `env_combined_hetero` (reward-side at agent-vs-team scope only), warm-start + curriculum training for MAPPO-PS and MAPPO-PS+A5 on `env_combined_hetero` | 10 | ~300 |
 | **E4** | Scalability & transfer | 5WH / 7WH, real-world-inspired | scalability test to 5WH and 7WH, zero-shot transfer of MAPPO-PS+A5 on real-world-inspired instance  | 10 | ~80 |
-| **Total** | | | | | **~4300 new training runs** |
+| **Total** | | | | | **~3700 new training runs** |
 
 ---
 

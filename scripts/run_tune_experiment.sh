@@ -13,14 +13,14 @@
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
 #SBATCH --time=12:00:00                                     # Maximum walltime 
-#SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
+#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 ##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-jakobeh"
+CLUSTER="mit-lumechs"
 
 
 # ============================================================================
@@ -68,12 +68,12 @@ source scripts/lib/start_ray.sh
 
 # Set output directory and experiment name
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_noPS_Tune_3WH_5SKUS_CostHetero_Optuna_FIFO"
+EXPERIMENT_NAME="MAPPO_noPS_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO"
 
 # Run tune experiment.
 # python src/experiments/run_experiment.py \
 #     --mode tune \
-#     --env-config ./config_files/environments/env_sku_hetero_3WH5SKU.yaml \
+#     --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
 #     --algorithm-config ./config_files/algorithms/algorithms_E0/mappo_nops_E0.yaml \
 #     --tune-config ./config_files/experiments/experiments_E1/tune_config_E1.yaml \
 #     --num-samples 1000 \
@@ -88,6 +88,3 @@ python src/experiments/run_experiment.py \
   --resume-from "${EXPERIMENT_NAME}" \
   --storage-dir "${STORAGE_DIR}" \
   --wandb-project marl-sc \
-
-
-
