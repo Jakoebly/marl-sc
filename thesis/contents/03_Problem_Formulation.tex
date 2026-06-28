@@ -32,7 +32,7 @@ We model the problem as an intra-organizational, single-echelon inventory contro
 
 \section{Demand Generation}
 \label{sec:demand-model}
-The network faces stochastic demand for each of the $K$ \glspl{acr:sku} that is realized across the $R$ demand regions. Most prior multi-agent inventory studies represent this demand as a single aggregate rate per \gls{acr:sku} \textbf{CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU}]. In contrast, we model demand at the  level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} stream. Second, it decomposes demand into separate components that can be controlled independently, which we exploit later to design environment variants.
+The network faces stochastic demand for each of the $K$ \glspl{acr:sku} that is realized across the $R$ demand regions. Most prior multi-agent inventory studies represent this demand as a single aggregate rate per \gls{acr:sku} \textbf{CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU}]. In contrast, we model demand at the level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} stream. Second, it decomposes demand into separate components that can be controlled independently, which we exploit later to design environment variants.
 
 To be able to simulate order-level demand, we model the generation process as a multistage procedure in which order arrivals, basket composition, and quantities are drawn sequentially.  Specifically, we compute the demand for region $j$ in period $t$ as follows. First, we sample the number of customer orders $N^{\mathrm{ord}}_{jt} = |\mathcal{C}_{jt}|$ from a Poisson distribution with region-specific arrival rate $\lambda^{\mathrm{ord}}_{j}$, where $\mathcal{C}_{jt}$ denotes the set of arriving customer orders. For each order $o\in\mathcal{C}_{jt}$ and every \gls{acr:sku} $k$, we then independently draw an inclusion indicator $Z^{o}_{jkt}$ from a Bernoulli distribution with region-specific probability $p^{\mathrm{sku}}_{j}$ to determine whether order $o$ contains \gls{acr:sku} $k$. Finally, we sample the requested quantity $Q^{o}_{jkt}$ for each included \gls{acr:sku} $k$ independently from a Poisson distribution with region and \gls{acr:sku} specific rate $\lambda^{\mathrm{qty}}_{jk}$. In summary, the demand generation process is given by
 \begin{equation}
@@ -53,10 +53,10 @@ In formulating the demand model above, we rely on three modelling assumptions. F
 As a result, $D_{jkt}$ follows a compound Poisson law and, by the law of total expectation, its mean factorizes cleanly into the three rate parameters, 
 \begin{equation}
 \label{eq:expected-demand}
-  \mathbb{E}[D_{jkt}] = \lambda^{\mathrm{ord}}_{j}\,p^{\mathrm{sku}}_{j}\,
-  \lambda^{\mathrm{qty}}_{jk}. 
+   \mu^D_{jk} := \mathbb{E}[D_{jkt}] = \lambda^{\mathrm{ord}}_{j}\,p^{\mathrm{sku}}_{j}\,
+  \lambda^{\mathrm{qty}}_{jk},
 \end{equation}
-Each rate thus acts as one multiplicative factor such that changing one of them scales expected demand proportionally while leaving the other two untouched. Therefore, the three rate variables are the only free parameters of the demand process, which is exactly the property we use to reliably construct heterogeneous variants of the environment later. As with the mean, the same compound Poisson structure combined with the law of total variance give the variance of $D_{jkt}$,
+where $\mu_{jk}$ is independent of the period $t$ because the three demand rates are constant across periods. Each rate thus acts as one multiplicative factor such that changing one of them scales expected demand proportionally while leaving the other two untouched. Therefore, the three rate variables are the only free parameters of the demand process, which is exactly the property we use to reliably construct heterogeneous variants of the environment later. As with the mean, the same compound Poisson structure combined with the law of total variance give the variance of $D_{jkt}$,
 \begin{equation}
 \label{eq:demand-variance}
   \mathrm{Var}[D_{jkt}] = \lambda^{\mathrm{ord}}_{j}\,p^{\mathrm{sku}}_{j}\,\lambda^{\mathrm{qty}}_{jk}\,\bigl(1+\lambda^{\mathrm{qty}}_{jk}\bigr).
@@ -127,7 +127,7 @@ Since arrivals add stock and fulfillment removes it, on-hand inventory naturally
 \label{eq:inventory-dynamics}
   I_{ik,t+1} = I_{ikt} - \sum_{j \in \mathcal{R}} S_{ijkt} + A_{ik,t+1},
 \end{equation}
-which remains non-negative due to the feasibility constraint in \autoref{eq:shipment-feasibility}. In the special case of $t=0$, each warehouse starts with a configured initial inventory $I_{ik,0}$ and and empty pipeline. Likewise, in the case of $t=T$, any order with $t + L_{ik} > T$ will never arrive and is simply discarded. The complete physical state of the network at any period is therefore the on-hand inventory together with the pipeline of every warehouse and \gls{acr:sku}.\\
+which remains non-negative due to the feasibility constraint in \autoref{eq:shipment-feasibility}. In the special case of $t=0$, each warehouse starts with a configured initial inventory $I_{ik,0}$ and empty pipeline (see \autoref{subsec:initial-settings}). Likewise, in the case of $t=T$, any order with $t + L_{ik} > T$ will never arrive and is simply discarded. The complete physical state of the network at any period is therefore the on-hand inventory together with the pipeline of every warehouse and \gls{acr:sku}.\\
 
 
 \section{Cost Structure and Objective}
