@@ -65,60 +65,21 @@ Coupling $\kappa$ (BS-Optimized) & [NUMBER PENDING]\\
 
 \subsection{Heterogeneous Variants}
 \label{subsec:heterogeneous-variants}
-Before specifying each heterogeneous variant, we must ensure that any performance difference reflects the heterogeneity dimension alone rather than a change in raw problem size. For instance, a variant that simply moves more goods through the network would report different costs for unrelated reasons and thus confounds the comparison. Therefore, we hold the expected weighted network throughput per step constant across all five environments. Formally, this expected throughput is given by 
-\autoref{eq:expected-demand}, this throughput is
+We now instantiate the four heterogeneous variants, each of which perturbs the symmetric reference along a single dimension while keeping everything else fixed. Before specifying them, we must ensure that any later performance difference reflects the heterogeneity dimension alone rather than a change in raw problem size. For instance, a variant that simply moved more goods through the network would report different costs for reasons unrelated to heterogeneity and would therefore confound the comparison. To rule this out, we hold the expected weighted network throughput per step constant across all five environments. By \autoref{eq:expected-demand}, this throughput is
 \begin{equation}
 \label{eq:throughput-invariant}
   \bar{D} = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}} w_k\, \mu^D_{jk}
     = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}} w_k\, \lambda^{\mathrm{ord}}_{j}\, p^{\mathrm{sku}}_{j}\, \lambda^{\mathrm{qty}}_{jk}.
 \end{equation}
-Note that $\bar{D}$ fixes only the mean of demand and not its variance. However, because the order-level process is compound Poisson, the demand variance depends on the same rates $\lambda^{\mathrm{ord}}{j}, p^{\mathrm{sku}}{j}, \lambda^{\mathrm{qty}}_{jk}$ via \autoref{eq:demand-variance} and therefore shifts with the dimension that each variant modifies. Rather than adding a separate dispersion control, we retain this natural coupling for consistency with \autoref{sec:demand-model} and return to its consequences for interpretation in [\textbf{REF: limitations}]. Since in the symmetric environment $\bar{D}$ evaluates to $\approx200.1$ weight-units per step, each heterogeneous variant is constructed to maintain this value consistently.
+Note that $\bar{D}$ fixes only the mean of demand and not its variance. However, because the order-level process is compound Poisson, the demand variance depends on the same rates $\lambda^{\mathrm{ord}}_{j}$, $p^{\mathrm{sku}}_{j}$, and $\lambda^{\mathrm{qty}}_{jk}$ through \autoref{eq:demand-variance} such that it shifts with whichever dimension a variant modifies. Rather than adding a separate dispersion control, we retain this natural coupling for consistency with the demand model of \autoref{sec:demand-model} and return to its consequences for interpretation in [\textbf{REF: limitations}]. Since the symmetric reference evaluates to $\bar{D}\approx200.1$ weight-units per step, every heterogeneous variant is constructed to preserve this value.
 
-\paragraph{\textbf{\gls{acr:sku} Heterogeneity} (SKUHetero).} This variant makes the \gls{acr:sku}
-portfolio heterogeneous while keeping warehouses and geography symmetric. We assign log-spaced weights
-$w=[0.3,1,3,10,30]$ over two orders of magnitude, which matches the practical span of a distribution catalogue
-from small consumer goods to large appliances. To preserve the throughput invariant we set the per-line quantity
-rates inversely proportional to weight, $\lambda^{\mathrm{qty}}_k=c/w_k$, so that heavier items move in smaller
-per-order quantities as in real catalogues and the weighted demand of every \gls{acr:sku} is equal. Substituting
-this rule into \autoref{eq:throughput-invariant} cancels the weights and fixes $c=5$ at the reference throughput.
-The log-spacing is the deliberate stressor. No single global normalization can recover the correct magnitude for
-both the lightest and the heaviest \gls{acr:sku} at once, and the thirtyfold weight span drives the per-\gls{acr:sku}
-newsvendor service level from roughly $0.94$ for the lightest \gls{acr:sku} to roughly $0.14$ for the heaviest,
-because holding cost scales with weight while the penalty does not. The portfolio therefore demands qualitatively
-different behaviour per \gls{acr:sku}. Because the heaviest \glspl{acr:sku} draw fewer than one unit per line on
-average, we keep the untruncated Poisson quantity of \autoref{sec:demand-model} so that the inverse-weight relation
-and the throughput invariant hold exactly. The adjustment range and initial inventory follow \autoref{eq:delta-rule}
-and \autoref{eq:initial-inventory} applied to the new demand and are reported in \autoref{tab:env-hetero}.
+\paragraph{\textbf{\gls{acr:sku} Heterogeneity} (SKUHetero).} This variant makes the \gls{acr:sku} portfolio heterogeneous while keeping the warehouses and the geography symmetric. We assign log-spaced weights $w=[0.3,1,3,10,30]$ that span two orders of magnitude and match the practical range of a distribution catalogue from small consumer goods to large appliances. To preserve the throughput invariant, we set the per-line quantity rates inversely proportional to weight, $\lambda^{\mathrm{qty}}_k=c/w_k$, so that heavier items move in smaller per-order quantities as in real catalogues and every \gls{acr:sku} contributes the same weighted demand. Substituting this rule into \autoref{eq:throughput-invariant} then cancels the weights and fixes $c=5$ at the reference throughput. The log-spacing itself is the deliberate stressor of this variant. No single global normalization can recover the correct magnitude for the lightest and the heaviest \gls{acr:sku} at once, and the thirtyfold weight span drives the per-\gls{acr:sku} newsvendor service level from roughly $0.94$ for the lightest \gls{acr:sku} to roughly $0.14$ for the heaviest, because holding cost scales with weight while the penalty does not. The portfolio therefore demands qualitatively different behaviour for each \gls{acr:sku}. Because the heaviest \glspl{acr:sku} draw fewer than one unit per line on average, we keep the untruncated Poisson quantity of \autoref{sec:demand-model} so that the inverse-weight relation and the throughput invariant hold exactly. The adjustment range and the initial inventory then follow from \autoref{eq:delta-rule} and \autoref{eq:initial-inventory} applied to the new demand and are reported in \autoref{tab:env-hetero}.
 
-\paragraph{\textbf{Demand Heterogeneity} (DemandHetero).} This variant makes the per-warehouse demand scale
-heterogeneous while keeping \glspl{acr:sku} and geography symmetric. We set the regional order rates to
-$\lambda^{\mathrm{ord}}=[7,4,1]$, which sum to the same $12$ as the reference $[4,4,4]$ and therefore preserve the
-throughput invariant because the remaining factors are unchanged. The triple represents a primary-versus-tail
-pattern in which one region carries the majority of demand and the others handle progressively smaller shares,
-typical of continental networks where demand concentrates in one mature market. The sevenfold span between the
-busiest and the quietest region is large enough to expose a shared policy's inability to differentiate warehouses
-by scale, and the quietest region at one order per step leaves its home warehouse facing frequent zero-demand
-steps. The adjustment range, which takes the maximum expected demand over warehouses in \autoref{eq:delta-rule},
-and the per-warehouse initial inventories follow from the new demand and are reported in \autoref{tab:env-hetero}.
+\paragraph{\textbf{Demand Heterogeneity} (DemandHetero).} This variant makes the per-warehouse demand scale heterogeneous while keeping the \glspl{acr:sku} and the geography symmetric. We set the regional order rates to $\lambda^{\mathrm{ord}}=[7,4,1]$, which sum to the same $12$ as the reference $[4,4,4]$ and leave the remaining factors unchanged such that the throughput invariant still holds. This triple represents a primary-versus-tail pattern in which one region carries the majority of demand and the others handle progressively smaller shares, as is typical of continental networks where demand concentrates in a single mature market. The sevenfold span between the busiest and the quietest region is wide enough to expose a shared policy's inability to differentiate warehouses by scale, and the quietest region at one order per step leaves its home warehouse facing frequent zero-demand steps. The adjustment range takes the maximum expected demand over warehouses through \autoref{eq:delta-rule}, and the per-warehouse initial inventories follow from the new demand. Both are reported in \autoref{tab:env-hetero}.
 
-\paragraph{\textbf{Cost Heterogeneity} (CostHetero).} This variant makes the shipment geography heterogeneous
-while keeping demand and \glspl{acr:sku} symmetric. We replace the two-distance layout with a three-distance one of
-$50$ km, $200$ km, and $5000$ km, with corresponding outbound rates $0.05$, $0.15$, and $1.5$ per unit weight under
-the same freight calibration as the reference. This places two warehouse-region pairs on one continent about $200$
-km apart and a third pair on a second continent about $5000$ km away. The threefold and thirtyfold rate ratios over
-the home cost make cross-continent fulfillment economically prohibitive for the offshore warehouse while leaving
-moderate cross-fulfillment available to the two same-continent warehouses. The three warehouses therefore occupy
-distinct cost geographies that a shared policy must resolve from its observation. All demand-dependent quantities
-are unchanged from the reference because no demand rate or weight is altered.
+\paragraph{\textbf{Cost Heterogeneity} (CostHetero).} This variant makes the shipment geography heterogeneous while keeping the demand and the \glspl{acr:sku} symmetric. We replace the two-distance layout with a three-distance one of $50$ km, $200$ km, and $5000$ km. Under the same freight calibration as the reference, these distances map to outbound rates of $0.05$, $0.15$, and $1.5$ per unit weight. This layout places two warehouse-region pairs on one continent about $200$ km apart and a third pair on a second continent about $5000$ km away. The resulting threefold and thirtyfold rate ratios over the home cost make cross-continent fulfillment economically prohibitive for the offshore warehouse and leave only moderate cross-fulfillment available to the two same-continent warehouses. The three warehouses therefore occupy distinct cost geographies that a shared policy must resolve from its observation alone. Because no demand rate or weight is altered, every demand-dependent quantity stays at its reference value.
 
-\paragraph{\textbf{Combined Heterogeneity} (CombinedHetero).} This variant activates all three axes at once.
-It takes the log-spaced weights and inverse-weight quantity rates of the \gls{acr:sku} variant, the $[7,4,1]$ order
-rates of the demand variant, and the three-distance cost geography of the cost variant. The throughput invariant
-still holds because each axis preserves it independently and the construction in \autoref{eq:throughput-invariant}
-composes. This is the highest-stress environment and the primary target for the combined intervention studied later.
-Because both the \gls{acr:sku} weights and the regional order rates now vary, the adjustment ranges and the
-per-warehouse, per-\gls{acr:sku} initial inventories take their widest spread of any variant, reported in full in
-\autoref{tab:env-hetero}.
+\paragraph{\textbf{Combined Heterogeneity} (CombinedHetero).} This variant activates all three axes at once. It combines the log-spaced weights and inverse-weight quantity rates of the \gls{acr:sku} variant, the $[7,4,1]$ order rates of the demand variant, and the three-distance cost geography of the cost variant. The throughput invariant still holds because each axis preserves it on its own and the construction in \autoref{eq:throughput-invariant} composes across them. This is the highest-stress environment and therefore the primary target for the combined intervention studied later. Because both the \gls{acr:sku} weights and the regional order rates now vary, the adjustment ranges and the per-warehouse, per-\gls{acr:sku} initial inventories take their widest spread of any variant. \autoref{tab:env-hetero} reports them in full.
 
 \begin{table}[ht]
 \centering

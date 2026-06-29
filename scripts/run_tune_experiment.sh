@@ -91,3 +91,26 @@ python src/experiments/run_experiment.py \
 
 
 
+
+
+  # Repeat once per env, swapping the checkpoint path:
+& $py src/experiments/run_experiment.py `
+  --mode evaluate `
+  --checkpoint-dir "./experiment_outputs/Tuning/E0/MAPPO_PS_Tune_3WH_5SKUS_Symmetric_Optuna_FIFO_E0/seed_evaluation/06_trainable_1ae99b5b_897_Seed100/checkpoint_final" `
+  --eval-episodes 100 `
+  --root-seed 123 `
+  --visualize
+
+
+
+PS C:\Users\jakob\Desktop\marl-sc> $envs = [ordered]@{
+   "symmetric"       = "config_files/environments/env_symmetric_3WH5SKU.yaml"
+   "demand_hetero"   = "config_files/environments/env_demand_hetero_3WH5SKU.yaml"
+   "sku_hetero"      = "config_files/environments/env_sku_hetero_3WH5SKU.yaml"
+   "cost_hetero"     = "config_files/environments/env_cost_hetero_3WH5SKU.yaml"
+   "combined_hetero" = "config_files/environments/env_combined_hetero_3WH5SKU.yaml"
+ }
+
+
+
+
