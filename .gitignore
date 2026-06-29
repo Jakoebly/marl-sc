@@ -109,3 +109,4 @@ thesis/**/*.bbl
 thesis/**/*.blg
 thesis/**/*.pdf
 !thesis/coverpage/*.pdf
+!thesis/literature/**/*.pdf
