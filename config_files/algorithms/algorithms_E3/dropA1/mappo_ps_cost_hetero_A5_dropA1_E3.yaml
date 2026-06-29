@@ -1,5 +1,3 @@
-# E3.1 A5 drop-one ablation: A5 minus A1 (obs_normalization reverted meanstd_wh_grouped -> meanstd_custom).
-# Derived from the locked E2.6 A5 config (algorithms_E2/A5/mappo_ps_cost_hetero_A5_E2.yaml); HPs inherited, no re-tune.
 algorithm:
   name: "mappo"
   shared:
