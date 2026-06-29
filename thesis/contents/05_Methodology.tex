@@ -174,3 +174,58 @@ To evaluate our learning algorithms, we benchmark them against a set of non-lear
 We implement the actor and the critic of each configuration as standalone \glspl{acr:mlp} that do not share weights. Each multi-agent actor takes the local observation $o^i_t$ of \autoref{eq:observation} as input and is thus capable of decentralized policy execution. To form the final input vector, we combine all included features of a specific observation $o_t^i$ into a flat 1D array and arrange them in a fixed order. To ensure the dimensionality of $o^i_t$ remains strictly fixed throughout the episode, we additionally zero-pad active blocks that summarize a trailing window of demand at the start of an episode until the window fills. Finally, we standardize every entry of $o_t^i$ to zero mean and unit variance using fixed statistics estimated once from a short random-policy rollout and prepend the unscaled identity vector $\mathbf{e}_i$ in the case of \gls{acr:ps}. While the critics of \gls{acr:ippo-ps} and \gls{acr:ippo-nops} receive the same local input vector as their actor counterparts, the centralized critics of \gls{acr:mappo-ps} and \gls{acr:mappo-nops} instead process the joint observation, which we form by simply concatenating the standardized local input vector of all agents. Note that the fully centralized \gls{acr:cppo} does not process any local input separately and instead feeds the joint observation vector to both its actor and critic.
 
 The actors of each \gls{acr:ippo} and \gls{acr:mappo} variant produce one output per \gls{acr:sku}. Since \gls{acr:ppo} is a continuous control algorithm and the feasible adjustment range can differ across \glspl{acr:sku}, we do not emit the adjustments $y_{ikt}$ directly. Instead, each network outputs a bounded raw action $a^i_{kt} \in [-1,1]$ for each \gls{acr:sku} $k$ to decouple the policy from the per-\gls{acr:sku} order scale. To convert each $a^i_{kt}$ to the final order quantity $q_{ikt}$, we first scale it to the range $[-\Delta_k,\Delta_k]$ and round it to the nearest integer to obtain the adjustment $y_{ikt}$. We then add the most recently observed home-region demand and clip at zero to produce the final order quantity $q_{ikt}$ (see \autoref{eq:xy-action}). The per-\gls{acr:sku} outputs form the mean of a diagonal Gaussian distribution from which the actor can samples its actions. Note that the standard deviation of this distribution is not produced by the network but obtained by exponentiating a separate parameter that holds one log-standard-deviation entry per \gls{acr:sku} and does not depend on the observation. We adopt this state-independent parameterization because it lets us set the initial exploration scale directly through the parameter's initial value, which a state-dependent standard-deviation head would reach only indirectly through its weights. Since this choice produced more stable training in our early experiments, we keep it for all algorithms. During training, the actor then samples its action from the parameterized Gaussian, whereas during evaluation the action defaults to the distribution mean. In contrast to the actors, the critics of all multi-agent approaches return a single scalar that estimates the value function for the given input. While the fully centralized \gls{acr:cppo} keeps the single-scalar critic, its actor produces the per-\gls{acr:sku} outputs of all warehouses simultaneously.  
+
+\section{Tuning and Evaluation Protocol}
+\label{sec:tuning-and-evaluation}
+The experiments in this thesis span several learning algorithms, reference baselines, and
+environments. To keep their results comparable we subject every configuration to the same
+tuning and evaluation protocol, which \autoref{fig:tuning-protocol} summarizes. We first tune
+the hyperparameters of a configuration, then evaluate the tuned configuration across a fixed
+set of seeds, and finally compare the conditions through a common statistical procedure.\\
+
+% [FIGURE fig:tuning-protocol GOES HERE]
+
+\subsection{Hyperparameter Tuning}
+\label{subsec:hyperparameter-tuning}
+We tune every configuration with the Optuna framework [\textbf{CITE: Optuna, Akiba et al. 2019}]
+under its Tree-structured Parzen Estimator sampler [\textbf{CITE: TPE, Bergstra et al. 2011}].
+Each search runs on a single tuning seed and returns a ranked list of candidate configurations.
+We derive the search ranges for the reference tunes from preliminary experiments. For the
+intervention re-tunes we instead anchor each range on the corresponding reference configuration
+and let every hyperparameter vary by a factor of three in each direction. The reference tune and
+the intervention re-tune also differ in scope. A reference tune explores the full hyperparameter
+space and additionally selects the active observation feature blocks of
+\autoref{subsec:observation-design}. An intervention re-tune stays far narrower and adjusts only
+the three hyperparameters that a new intervention is most likely to perturb, namely the learning
+rate, the entropy coefficient, and the value function loss coefficient. Once a search finishes we
+forward its strongest candidates to the seed evaluation of \autoref{subsec:seed-evaluation} and
+lock the candidate with the highest mean return as the final configuration.\\
+
+\subsection{Seed Evaluation}
+\label{subsec:seed-evaluation}
+We evaluate every locked configuration across a fixed set of random seeds and report its mean
+return over this set. All conditions that enter a comparison share the same seeds so that the
+comparison is paired. The reference tunes of E0 and E1 use ten seeds, whereas the intervention
+experiments of E2 use five.\\
+
+\subsection{Statistical Protocol}
+\label{subsec:statistical-protocol}
+Absolute returns are not comparable across environments because the environments differ in their
+cost scales. We therefore report a normalized score in place of the raw return. For a policy with
+return $R$ this score is
+\begin{equation}
+\label{eq:normalized-score}
+  \mathrm{NS} = \frac{R - R_{\text{rand}}}{R_{\text{opt}} - R_{\text{rand}}},
+\end{equation}
+where $R_{\text{rand}}$ and $R_{\text{opt}}$ are the returns of the Random and BS-Optimized
+baselines of \autoref{subsec:reference-baselines}. A score of zero matches random ordering and a
+score of one matches the simulation-optimized heuristic ceiling, while a score above one means
+that a policy surpasses this ceiling. We compare two conditions through a paired analysis over
+their shared seeds. For conditions $A$ and $B$ we report the mean difference
+$\Delta = \overline{A} - \overline{B}$ together with its paired standard error, which exploits the
+seed covariance between the two conditions and is therefore tighter than an unpaired estimate. We
+accompany every difference with a $95\%$ confidence interval and report the effect size through
+Cohen's $d_z$. Each experiment block fixes a small set of primary comparisons in advance. We hold
+the family-wise error rate of these primary comparisons at $5\%$ through the Holm-Bonferroni
+correction [\textbf{CITE: Holm 1979}] and report all further comparisons descriptively with their
+confidence intervals.\\
