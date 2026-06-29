@@ -35,6 +35,7 @@ def generate_visualizations(
     plot_orders_summary(episode, viz_dir)
     plot_cost_breakdown(episode, viz_dir)
     plot_demand_fulfillment(episode, viz_dir)
+    plot_per_sku_fill_rate(episode, viz_dir)
     plot_shipment_heatmap(episode, viz_dir)
     plot_observations(episode, viz_dir)
     plot_obs_normalization(episode, viz_dir)
@@ -369,6 +370,98 @@ def plot_demand_fulfillment(episode: Dict[str, np.ndarray], output_dir: Path) ->
     # Set x label and save figure
     plt.tight_layout()
     plt.savefig(output_dir / "05_demand_fulfillment.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def per_sku_fill_rate(
+    episode: Dict[str, np.ndarray], over_time: bool = False
+) -> np.ndarray:
+    """
+    Computes the realized per-SKU fill rate (fraction of demanded units that
+    were delivered) for one rollout episode.
+
+    This is the per-SKU counterpart to the system-wide fill rate drawn by
+    :func:`plot_demand_fulfillment`. It is exposed as a standalone helper (not
+    buried inside the plot) so the SKU-axis failure-mode panel can overlay the
+    realized fill rate against the per-SKU newsvendor optimum the weight ladder
+    implies. Uses the same ``fulfilled_per_warehouse`` / ``demand_per_region``
+    convention as the system-wide plot.
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict carrying
+            ``fulfilled_per_warehouse`` (T, n_warehouses, n_skus) and
+            ``demand_per_region`` (T, n_regions, n_skus).
+        over_time (bool): If True, return a per-timestep matrix of shape
+            ``(T, n_skus)``; otherwise return the episode-pooled vector of shape
+            ``(n_skus,)``.
+
+    Returns:
+        fill_rate (np.ndarray): Per-SKU fill rate in ``[0, 1]``; entries with no
+            demand are ``nan``.
+    """
+
+    demand = np.asarray(episode["demand_per_region"], dtype=float)        # (T, R, K)
+    fulfilled = np.asarray(episode["fulfilled_per_warehouse"], dtype=float)  # (T, W, K)
+
+    if over_time:
+        demanded = demand.sum(axis=1)        # (T, K), pooled over regions
+        delivered = fulfilled.sum(axis=1)    # (T, K), pooled over warehouses
+    else:
+        demanded = demand.sum(axis=(0, 1))   # (K,)
+        delivered = fulfilled.sum(axis=(0, 1))
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(demanded > 0, np.clip(delivered, 0.0, None) / demanded, np.nan)
+
+
+def plot_per_sku_fill_rate(episode: Dict[str, np.ndarray], output_dir: Path) -> None:
+    """
+    Plots the realized per-SKU fill rate over time and its episode mean.
+
+    Under SKU heterogeneity a parameter-shared policy that fails to differentiate
+    SKUs shows up as a nearly flat episode-mean profile across SKUs, in contrast
+    to the steep per-SKU newsvendor optimum (overlaid in the failure-mode panel
+    built in the plotting notebook).
+
+    Args:
+        episode (Dict[str, np.ndarray]): Episode data dict.
+        output_dir (Path): Directory to save the plot.
+    """
+
+    fill_time = per_sku_fill_rate(episode, over_time=True)   # (T, n_skus)
+    fill_mean = per_sku_fill_rate(episode)                   # (n_skus,)
+
+    T, n_skus = fill_time.shape
+    timesteps = np.arange(T)
+    sku_colors = plt.cm.tab10.colors
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8))
+
+    # Top: per-SKU fill rate trajectory
+    for sku in range(n_skus):
+        ax1.plot(timesteps, fill_time[:, sku], linewidth=1.0, alpha=0.85,
+                 color=sku_colors[sku % len(sku_colors)], label=f"SKU {sku}")
+    ax1.set_ylabel("Fill Rate")
+    ax1.set_ylim(-0.05, 1.1)
+    ax1.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    ax1.set_title("Per-SKU Fill Rate over Time")
+    ax1.legend(fontsize=7, ncol=min(n_skus, 8), loc="lower right")
+    ax1.grid(True, alpha=0.3)
+
+    # Bottom: episode-mean per-SKU fill rate
+    ax2.bar(np.arange(n_skus), fill_mean, alpha=0.85,
+            color=[sku_colors[s % len(sku_colors)] for s in range(n_skus)])
+    ax2.set_xticks(range(n_skus))
+    ax2.set_xticklabels([f"SKU {s}" for s in range(n_skus)])
+    ax2.set_ylabel("Episode-Mean Fill Rate")
+    ax2.set_ylim(0, 1.1)
+    ax2.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    ax2.set_xlabel("SKU")
+    ax2.set_title("Per-SKU Fill Rate (episode mean)")
+    ax2.grid(True, alpha=0.3, axis="y")
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "05b_per_sku_fill_rate.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
