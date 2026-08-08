@@ -10,3 +10,227 @@
 		sort={#4} % string representation to determine the position in glossary overview (e.g. S)
 	}
 }
+
+% =====================================================================
+% Notation entries.
+% Collected from the thesis contents (Problem Formulation, Background,
+% Methodology, Results, and Appendices). Sort keys are 4-digit numeric
+% prefixes that group the symbols thematically rather than alphabetically.
+% Acronyms (MAPPO-PS, TSCC, GAE, ...) live in Abbreviations.tex, not here.
+% Lines marked "% CLASH" reuse a glyph already bound elsewhere.
+% =====================================================================
+
+% ---------------------------------------------------------------------
+% 1000  Sets, indices, counts, horizon
+% ---------------------------------------------------------------------
+\newnotation{not:set-W}{$\mathcal{W}$}{Set of warehouses, $\mathcal{W}=\{1,\dots,W\}$}{1010}
+\newnotation{not:W}{$W$}{Number of warehouses}{1012}
+\newnotation{not:idx-i}{$i$}{Warehouse (agent) index}{1014}
+\newnotation{not:set-R}{$\mathcal{R}$}{Set of demand regions, $\mathcal{R}=\{1,\dots,R\}$}{1020}
+\newnotation{not:R-regions}{$R$}{Number of demand regions}{1022}
+\newnotation{not:idx-j}{$j$}{Region index}{1024}
+\newnotation{not:set-K}{$\mathcal{K}$}{Set of \glsentryshort{acr:sku}s, $\mathcal{K}=\{1,\dots,K\}$}{1030}
+\newnotation{not:K}{$K$}{Number of \glsentryshort{acr:sku}s}{1032}
+\newnotation{not:idx-k}{$k$}{\Glsentryshort{acr:sku} index}{1034}
+\newnotation{not:set-I}{$\mathcal{I}$}{Set of agents, $\mathcal{I}=\{1,\dots,N\}$; here $\mathcal{I}=\mathcal{W}$}{1040}
+\newnotation{not:N}{$N$}{Number of agents, $N=W$}{1042}
+\newnotation{not:orders-set}{$\mathcal{C}_{jt}$}{Set of customer orders arriving in region $j$ at period $t$}{1050}
+\newnotation{not:idx-o}{$o$}{Customer-order index}{1052}
+\newnotation{not:idx-t}{$t$}{Discrete time step (period) index}{1060}
+\newnotation{not:T}{$T$}{Time horizon / episode length}{1062}
+
+% ---------------------------------------------------------------------
+% 2000  Physical and cost-rate parameters
+% ---------------------------------------------------------------------
+\newnotation{not:weight}{$w_k$}{Unit weight of \glsentryshort{acr:sku} $k$}{2010}
+\newnotation{not:leadtime}{$L_{ik}$}{Fixed replenishment lead time for warehouse $i$, \glsentryshort{acr:sku} $k$}{2020}
+\newnotation{not:c-hold}{$c^{\mathrm{hold}}$}{Holding cost rate per unit weight per period}{2030}
+\newnotation{not:c-pen}{$c^{\mathrm{pen}}_k$}{Lost-sales penalty rate per unit of unmet demand for \glsentryshort{acr:sku} $k$}{2032}
+\newnotation{not:c-in}{$c^{\mathrm{in}}_{ik}$}{Inbound (procurement) cost per unit weight at warehouse $i$, \glsentryshort{acr:sku} $k$}{2034}
+\newnotation{not:c-out}{$c^{\mathrm{out}}_{ij}$}{Outbound shipment cost per unit weight from warehouse $i$ to region $j$}{2036}
+
+% ---------------------------------------------------------------------
+% 3000  Order-level demand model
+% ---------------------------------------------------------------------
+\newnotation{not:Nord}{$N^{\mathrm{ord}}_{jt}$}{Number of customer orders in region $j$ at period $t$, $N^{\mathrm{ord}}_{jt}=|\mathcal{C}_{jt}|$}{3010}
+\newnotation{not:lam-ord}{$\lambda^{\mathrm{ord}}_{j}$}{Poisson order-arrival rate of region $j$}{3012}
+\newnotation{not:Z}{$Z^{o}_{jkt}$}{Bernoulli indicator that order $o$ includes \glsentryshort{acr:sku} $k$}{3020}
+\newnotation{not:p-sku}{$p^{\mathrm{sku}}_{j}$}{Per-\glsentryshort{acr:sku} Bernoulli inclusion probability in region $j$}{3022}
+\newnotation{not:Q}{$Q^{o}_{jkt}$}{Requested quantity of \glsentryshort{acr:sku} $k$ in order $o$}{3030}
+\newnotation{not:lam-qty}{$\lambda^{\mathrm{qty}}_{jk}$}{Poisson per-line quantity rate for region $j$, \glsentryshort{acr:sku} $k$}{3032}
+\newnotation{not:D-order}{$D^{o}_{jkt}$}{Demand for \glsentryshort{acr:sku} $k$ in order $o$, $D^{o}_{jkt}=Z^{o}_{jkt}Q^{o}_{jkt}$}{3040}
+\newnotation{not:D}{$D_{jkt}$}{Total period demand for \glsentryshort{acr:sku} $k$ in region $j$}{3042}
+\newnotation{not:muD}{$\mu^{D}_{jk}$}{Expected per-period demand, $\mu^{D}_{jk}=\mathbb{E}[D_{jkt}]=\lambda^{\mathrm{ord}}_{j}p^{\mathrm{sku}}_{j}\lambda^{\mathrm{qty}}_{jk}$}{3044}
+\newnotation{not:Dbar}{$\bar{D}$}{Expected weighted network throughput per step (held invariant across environments)}{3050}
+
+% ---------------------------------------------------------------------
+% 4000  Fulfillment, lost sales, replenishment, inventory dynamics
+% ---------------------------------------------------------------------
+\newnotation{not:I}{$I_{ikt}$}{On-hand inventory of \glsentryshort{acr:sku} $k$ at warehouse $i$ in period $t$}{4010}
+\newnotation{not:S-ijkt}{$S_{ijkt}$}{Shipment of \glsentryshort{acr:sku} $k$ from warehouse $i$ to region $j$ in period $t$}{4020}
+\newnotation{not:S-ijt}{$S_{ijt}$}{Total volume shipped from warehouse $i$ to region $j$, $S_{ijt}=\sum_{k}S_{ijkt}$}{4022}
+\newnotation{not:allocator}{$\mathcal{F}$}{Greedy demand-allocation map producing the shipment array}{4024}
+\newnotation{not:U}{$U_{jkt}$}{Lost (unmet) demand of \glsentryshort{acr:sku} $k$ in region $j$}{4030}
+\newnotation{not:beta}{$\beta_{ijt}$}{Shipment-proportional lost-sales attribution weight for warehouse $i$, region $j$}{4032}
+\newnotation{not:U-attr}{$U^{\mathrm{attr}}_{ikt}$}{Lost sales of \glsentryshort{acr:sku} $k$ attributed to warehouse $i$}{4034}
+\newnotation{not:q}{$q_{ikt}$}{Replenishment order quantity placed by warehouse $i$ for \glsentryshort{acr:sku} $k$ in period $t$}{4040}
+\newnotation{not:A}{$A_{ikt}$}{Arrivals of \glsentryshort{acr:sku} $k$ at warehouse $i$ in period $t$, $A_{ikt}=q_{ik,t-L_{ik}}$}{4042}
+\newnotation{not:Itr}{$I^{\mathrm{tr}}_{ikt}$}{In-transit (pipeline) quantity of \glsentryshort{acr:sku} $k$ at warehouse $i$}{4044}
+\newnotation{not:I0}{$I_{ik,0}$}{Initial on-hand inventory at the start of an episode}{4050}
+
+% ---------------------------------------------------------------------
+% 5000  Cost structure and objective
+% ---------------------------------------------------------------------
+\newnotation{not:C-hold}{$C^{\mathrm{hold}}_{it}$}{Holding cost of warehouse $i$ in period $t$}{5010}
+\newnotation{not:C-pen}{$C^{\mathrm{pen}}_{it}$}{Penalty (lost-sales) cost of warehouse $i$ in period $t$}{5012}
+\newnotation{not:C-out}{$C^{\mathrm{out}}_{it}$}{Outbound shipment cost of warehouse $i$ in period $t$}{5014}
+\newnotation{not:C-in}{$C^{\mathrm{in}}_{it}$}{Inbound procurement cost of warehouse $i$ in period $t$}{5016}
+\newnotation{not:C-it}{$C_{it}$}{Total cost of warehouse $i$ in period $t$}{5020}
+\newnotation{not:C-t}{$C_{t}$}{Total system cost in period $t$, $C_t=\sum_i C_{it}$}{5022}
+
+% ---------------------------------------------------------------------
+% 6000  Partially observable Markov game / RL core
+% ---------------------------------------------------------------------
+\newnotation{not:S-states}{$\mathcal{S}$}{Set of global states}{6010}
+\newnotation{not:s}{$s_t$}{Global environment state at period $t$}{6012}
+\newnotation{not:s0}{$s_0$}{Initial state, sampled from $\mu$}{6014}
+\newnotation{not:Ai}{$\mathcal{A}^{i}$}{Action space of agent $i$}{6020}
+\newnotation{not:A-joint}{$\mathcal{A}$}{Joint action space, $\mathcal{A}=\mathcal{A}^1\times\dots\times\mathcal{A}^N$}{6022}
+\newnotation{not:ai}{$a^{i}_t$}{Action of agent $i$ at period $t$}{6024}
+\newnotation{not:a-joint}{$\mathbf{a}_t$}{Joint action, $\mathbf{a}_t=(a^1_t,\dots,a^N_t)$}{6026}
+\newnotation{not:a-minus}{$\mathbf{a}^{-i}_t$}{Joint action of all agents other than $i$}{6028}
+\newnotation{not:Oi}{$\mathcal{O}^{i}$}{Observation space of agent $i$}{6030}
+\newnotation{not:O-joint}{$\mathcal{O}$}{Joint observation space}{6032}
+\newnotation{not:obsfun}{$O^{i}$}{Observation function of agent $i$, $O^{i}:\mathcal{S}\to\mathcal{O}^{i}$}{6034}
+\newnotation{not:oi}{$o^{i}_t$}{Local observation of agent $i$ at period $t$}{6036}
+\newnotation{not:o-joint}{$\mathbf{o}_t$}{Joint observation, $\mathbf{o}_t=(o^1_t,\dots,o^N_t)$}{6038}
+\newnotation{not:hist}{$\mathbf{h}^{i}_t$}{Local observation history of agent $i$, $\mathbf{h}^{i}_t=(o^i_0,\dots,o^i_t)$}{6040}
+\newnotation{not:P}{$P$}{Global state-transition function, $P(s_{t+1}\mid s_t,\mathbf{a}_t)$}{6050}
+\newnotation{not:Ptilde}{$\tilde{P}^{i}$}{Effective (non-stationary) transition dynamics seen by agent $i$}{6052}
+\newnotation{not:Ri}{$R^{i}$}{Per-agent reward function, $R^{i}:\mathcal{S}\times\mathcal{A}\times\mathcal{S}\to\mathbb{R}$}{6054}
+\newnotation{not:ri}{$r^{i}_t$}{Reward of agent $i$ at period $t$, $r^i_t=-C_{it}$}{6056}
+\newnotation{not:r-joint}{$\mathbf{r}_t$}{Joint reward vector, $\mathbf{r}_t=(r^1_t,\dots,r^N_t)$}{6058}
+\newnotation{not:mu-init}{$\mu$}{Initial state distribution}{6060}
+\newnotation{not:gamma}{$\gamma$}{Discount factor, $\gamma\in(0,1]$}{6062}
+\newnotation{not:tau}{$\tau$}{Episode trajectory}{6064}
+\newnotation{not:G}{$G^{i}_t$}{Discounted return of agent $i$ from period $t$}{6070}
+\newnotation{not:pi-i}{$\pi^{i}$}{Policy of agent $i$}{6072}
+\newnotation{not:pi-joint}{$\boldsymbol{\pi}$}{Joint policy, $\boldsymbol{\pi}=(\pi^1,\dots,\pi^N)$}{6074}
+\newnotation{not:Ji}{$J^{i}(\boldsymbol{\pi})$}{Expected-return objective of agent $i$}{6076}
+\newnotation{not:J}{$J(\boldsymbol{\pi})$}{Shared (cooperative) joint objective, $J=\sum_i J^i$}{6078}
+\newnotation{not:V}{$V^{i}_{\boldsymbol{\pi}}(s)$}{State-value function of agent $i$ under joint policy $\boldsymbol{\pi}$}{6080}
+\newnotation{not:Q}{$Q^{i}_{\boldsymbol{\pi}}(s,\mathbf{a})$}{Action-value function of agent $i$ under joint policy $\boldsymbol{\pi}$}{6082}
+\newnotation{not:AV}{$AV^{i}_{\boldsymbol{\pi}}(s,\mathbf{a})$}{Advantage function, $AV=Q^{i}_{\boldsymbol{\pi}}-V^{i}_{\boldsymbol{\pi}}$}{6084}
+
+% ---------------------------------------------------------------------
+% 7000  Policy-gradient and PPO
+% ---------------------------------------------------------------------
+\newnotation{not:theta}{$\theta^{i}$}{Policy (actor) parameters of agent $i$}{7010}
+\newnotation{not:theta-joint}{$\boldsymbol{\theta}$}{Joint policy weights, $\boldsymbol{\theta}=(\theta^1,\dots,\theta^N)$}{7012}
+\newnotation{not:phi}{$\phi^{i}$}{Value (critic) parameters of agent $i$}{7014}
+\newnotation{not:pi-theta}{$\pi_{\theta^{i}}$}{Policy of agent $i$ parameterized by $\theta^{i}$}{7016}
+\newnotation{not:V-phi}{$V^{i}_{\phi^{i}}$}{Value function of agent $i$ parameterized by $\phi^{i}$}{7018}
+\newnotation{not:theta-old}{$\theta^{i}_{\mathrm{old}}$}{Sampling-policy parameters (before the update)}{7020}
+\newnotation{not:Jpg}{$J^{\mathrm{PG},i}$}{Policy-gradient surrogate objective}{7024}
+\newnotation{not:AVhat}{$\widehat{AV}^{i}_t$}{Estimated advantage of agent $i$ (typically via \glsentryshort{acr:gae})}{7026}
+\newnotation{not:Jclip}{$J^{\mathrm{CLIP},i}$}{\Glsentryshort{acr:ppo} clipped surrogate objective}{7028}
+\newnotation{not:rho}{$\rho^{i}_t(\theta^{i})$}{\Glsentryshort{acr:ppo} probability ratio $\pi_{\theta^i}/\pi_{\theta^i_{\mathrm{old}}}$}{7030}
+\newnotation{not:eps}{$\epsilon$}{\Glsentryshort{acr:ppo} clipping parameter}{7032}
+
+% ---------------------------------------------------------------------
+% 8000  Observation features (Methodology, Table of local features)
+% ---------------------------------------------------------------------
+\newnotation{not:o-min}{$o^{i,\min}_t$}{Minimum viable observation (inventory state only)}{8010}
+\newnotation{not:I-agg}{$I^{\mathrm{agg}}_{it}$}{Total on-hand inventory across \glsentryshort{acr:sku}s, $\sum_k I_{ikt}$}{8020}
+\newnotation{not:I-net}{$I^{\mathrm{net}}_{ikt}$}{Expected net inventory after the lead time}{8022}
+\newnotation{not:DoS}{$\mathrm{DoS}_{ikt}$}{Days of supply, $I_{ikt}/\bar{D}_{ikt}$}{8024}
+\newnotation{not:Itr-vec}{$\mathbf{I}^{\mathrm{tr}}_{ikt}$}{Pipeline vector: outstanding orders by arrival slot (sums to $I^{\mathrm{tr}}_{ikt}$)}{8026}
+\newnotation{not:Dbar-feat}{$\bar{D}_{ikt}$}{Mean home-region demand over the last $5$ periods}{8030}
+\newnotation{not:Dhat}{$\hat{D}_{ikt}$}{Exponentially smoothed home-region demand ($\alpha=0.3$)}{8032}
+\newnotation{not:sigmaD}{$\sigma^{D}_{ikt}$}{Standard deviation of home-region demand over the last $5$ periods}{8034}
+\newnotation{not:D-vec}{$\mathbf{D}_{ikt}$}{Home-region demand in each of the last $5$ periods}{8036}
+\newnotation{not:S-home}{$S^{\mathrm{home}}_{ikt}$}{Allocated home-region shipments}{8040}
+\newnotation{not:S-away}{$S^{\mathrm{away}}_{ikt}$}{Allocated foreign-region shipments}{8042}
+\newnotation{not:e}{$\mathbf{e}_{i}$}{One-hot warehouse-identity vector of length $W$}{8044}
+\newnotation{not:psi}{$\psi_m$}{Tuneable observation feature block $m$}{8050}
+\newnotation{not:B-blocks}{$\mathcal{B}$}{Active feature-block subset, $\mathcal{B}\subseteq\{1,\dots,M\}$}{8052}
+\newnotation{not:M-blocks}{$M$}{Number of tuneable feature blocks}{8054}
+\newnotation{not:d-obs}{$d$}{Dimension of the local observation $o^i_t$}{8056}
+
+% ---------------------------------------------------------------------
+% 8500  Action design (X+Y rule)
+% ---------------------------------------------------------------------
+\newnotation{not:y}{$y_{ikt}$}{Order adjustment (deviation from observed demand) for \glsentryshort{acr:sku} $k$}{8510}
+\newnotation{not:Delta}{$\Delta_k$}{Adjustment-range bound for \glsentryshort{acr:sku} $k$, shared across warehouses}{8512}
+\newnotation{not:a-raw}{$a^{i}_{kt}$}{Bounded raw network action, $a^{i}_{kt}\in[-1,1]$}{8516}
+\newnotation{not:zsafe}{$z$}{Safety factor (standard-normal service-level quantile)}{8520}
+
+% ---------------------------------------------------------------------
+% 9000  Tuning and evaluation metrics
+% ---------------------------------------------------------------------
+\newnotation{not:R-return}{$R$}{Mean evaluation return of a policy}{9010} % CLASH: $R$ also = number of regions (1022)
+\newnotation{not:R-bs}{$R_{\mathrm{BS}}$}{Locked BS-Optimized reference return}{9012}
+\newnotation{not:gap}{$\mathrm{GAP}$}{Optimality gap to BS-Optimized, $(R_{\mathrm{BS}}-R)/|R_{\mathrm{BS}}|$}{9014}
+\newnotation{not:kappa}{$\kappa$}{Operational coupling metric (cross-region fulfilled fraction under BS-Optimized)}{9016}
+\newnotation{not:gamma-add}{$\gamma$}{Additivity metric, $\Delta(\mathrm{STACK})-\sum_i\Delta(A_i)$}{9018} % CLASH: $\gamma$ also = discount factor (6062)
+\newnotation{not:dz}{$d_z$}{Cohen's paired effect size}{9020}
+\newnotation{not:pval}{$p$}{Significance level / $p$-value of a paired test}{9022}
+
+% ---------------------------------------------------------------------
+% 9100  Reference baselines (Appendix)
+% ---------------------------------------------------------------------
+\newnotation{not:S-bs}{$S_{ik}$}{Base-stock (order-up-to) level for warehouse $i$, \glsentryshort{acr:sku} $k$}{9110}
+\newnotation{not:S-bst}{$S_{ikt}$}{Time-varying order-up-to level (BS-Adaptive)}{9112}
+\newnotation{not:S-star}{$S^{\star}$}{Cost-minimizing base-stock levels (BS-Optimized)}{9114}
+\newnotation{not:alpha}{$\alpha$}{ConstantOrder demand multiplier}{9116}
+\newnotation{not:muD-hat}{$\hat{\mu}^{D}_{ik}$}{Pilot estimate of mean home-region demand}{9118}
+\newnotation{not:DbarH}{$\bar{D}^{H}_{ikt}$}{Empirical mean home-region demand over the last $H$ periods}{9120}
+\newnotation{not:VH}{$V^{H}_{ikt}$}{Empirical variance of home-region demand over the last $H$ periods}{9122}
+\newnotation{not:H}{$H$}{Rolling-window width (BS-Adaptive)}{9124}
+\newnotation{not:Ubound}{$U$}{Upper bound on base-stock search, $U=200$}{9126} % CLASH: $U$ also = lost sales (4030)
+\newnotation{not:M-roll}{$M$}{Number of evaluation rollouts in simulation optimization}{9128} % CLASH: $M$ also = number of feature blocks (8054)
+\newnotation{not:S-minus}{$S^{(r)}_{-i}$}{Fixed base-stock levels of all warehouses except $i$ in round $r$}{9130}
+\newnotation{not:round}{$r$}{Best-response round index (BS-Independent)}{9132}
+
+% ---------------------------------------------------------------------
+% 9300  Reward decomposition (CREDIT, Appendix)
+% ---------------------------------------------------------------------
+\newnotation{not:S-skus}{$S$}{Number of \glsentryshort{acr:sku}s in the factored policy}{9310} % CLASH: SKU count is $K$ in the main text
+\newnotation{not:as}{$a^{s}_t$}{Per-\glsentryshort{acr:sku} action coordinate $s$}{9312}
+\newnotation{not:pis}{$\pi^{s}_{\theta}$}{Per-\glsentryshort{acr:sku} policy factor (marginal)}{9314}
+\newnotation{not:rs}{$r^{s}_t$}{Per-\glsentryshort{acr:sku} reward channel}{9316}
+\newnotation{not:Gs}{$G^{s}_t$}{Per-\glsentryshort{acr:sku} return}{9318}
+\newnotation{not:Vs}{$V^{s}$}{Per-\glsentryshort{acr:sku} value head}{9320}
+\newnotation{not:AVs}{$\widehat{AV}^{s}_t$}{Per-\glsentryshort{acr:sku} advantage estimate}{9322}
+\newnotation{not:Gs-hat}{$\hat{G}^{s}_t$}{Per-\glsentryshort{acr:sku} bootstrapped value target}{9324}
+\newnotation{not:rhos}{$\rho^{s}_t$}{Per-\glsentryshort{acr:sku} probability ratio}{9326}
+\newnotation{not:gs}{$g_s$}{Per-\glsentryshort{acr:sku} score, $\nabla_\theta\ln\pi^{s}_{\theta}$}{9328}
+\newnotation{not:ell}{$\ell_s$}{Log standard deviation of \glsentryshort{acr:sku} $s$'s Gaussian}{9330}
+\newnotation{not:mu-s}{$\mu_s$}{Mean of \glsentryshort{acr:sku} $s$'s Gaussian (network output)}{9332}
+\newnotation{not:sigma-s}{$\sigma_s$}{Standard deviation of \glsentryshort{acr:sku} $s$'s Gaussian, $\sigma_s=e^{\ell_s}$}{9334}
+\newnotation{not:Ltheta}{$L(\theta)$}{Factored \glsentryshort{acr:ppo} actor objective}{9336}
+\newnotation{not:Lv}{$L^{V}(\phi)$}{Factored (multi-head) critic loss}{9338}
+
+% ---------------------------------------------------------------------
+% 9500  Per-SKU self-attention architecture (ATTENTION, Appendix)
+% ---------------------------------------------------------------------
+\newnotation{not:x-tok}{$x_k$}{Per-\glsentryshort{acr:sku} input token (gathered observation columns)}{9510}
+\newnotation{not:z-tok}{$z_k$}{Projected \glsentryshort{acr:sku} token}{9512}
+\newnotation{not:ztil}{$\tilde{z}_k$}{Attended \glsentryshort{acr:sku} token}{9514}
+\newnotation{not:Win}{$W_{\mathrm{in}}$}{Shared token-projection weight matrix}{9516}
+\newnotation{not:bin}{$b_{\mathrm{in}}$}{Shared token-projection bias}{9518}
+\newnotation{not:dmodel}{$d_{\mathrm{model}}$}{Token embedding width ($d_{\mathrm{model}}=64$)}{9520}
+\newnotation{not:nheads}{$n_{\mathrm{heads}}$}{Number of attention heads ($n_{\mathrm{heads}}=2$)}{9522}
+\newnotation{not:ff}{$\mathrm{ff}_{\mathrm{hidden}}$}{Encoder feed-forward width ($\mathrm{ff}_{\mathrm{hidden}}=64$)}{9524}
+\newnotation{not:ctx}{$c$}{Non-per-\glsentryshort{acr:sku} context features (warehouse identity, aggregates)}{9526}
+\newnotation{not:g-head}{$g$}{Read-out \glsentryshort{acr:mlp} head}{9528}
+\newnotation{not:y-out}{$y$}{Network output (action means or scalar value)}{9530}
+\newnotation{not:mu-vec}{$\boldsymbol{\mu}$}{Vector of per-\glsentryshort{acr:sku} action means (actor output)}{9532}
+
+% ---------------------------------------------------------------------
+% 9700  PPO pseudocode hyperparameters (Appendix)
+% ---------------------------------------------------------------------
+\newnotation{not:Niter}{$N_{\mathrm{iter}}$}{Number of training iterations}{9710}
+\newnotation{not:Nep}{$N_{\mathrm{ep}}$}{Number of optimization epochs per update}{9712}
+\newnotation{not:B}{$B$}{Minibatch size}{9714}
+\newnotation{not:Dk}{$\mathcal{D}_k$}{Trajectory batch collected at iteration $k$}{9716}

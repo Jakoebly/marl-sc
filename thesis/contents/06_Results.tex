@@ -1,9 +1,9 @@
 \chapter{Experiments and Results}
 \label{chap:experiment-results}
 
-[TRANSITION]\\
+In this chapter, we empirically evaluate our proposed methodology by applying it to the simulated distribution network. We begin by detailing the experimental setup in \autoref{sec:environment-design} and then outline the individual experiments as well as our results.\\
 
-\section{Environment Design}
+\section{Environment Setup}
 \label{sec:environment-design}
 To establish a foundation for the experiments in this chapter, we instantiate the distribution network of \autoref{chap:problem-formulation} as a concrete family of five environments. Specifically, we first introduce a baseline environment in \autoref{subsec:symmetric-reference} and then define four heterogeneous variants in \autoref{subsec:heterogeneous-variants} that each modify the baseline along a single controlled dimension. All five environments share the demand model of \autoref{sec:demand-model}, the fulfillment and cost structure of \autoref{sec:fulfillment} and \autoref{sec:costs}, and the action, reward, and initialization rules of \autoref{chap: methodology} such that all variants differ only in the parameter values reported below.\\
 
@@ -17,47 +17,54 @@ We define a symmetric baseline environment that serves as the control against wh
 
 \paragraph{\textbf{Demand.}} In the baseline, we set demand parameters such that the expected per-period demand for each \gls{acr:sku} in each region is $4 \cdot 0.667 \cdot 5 \approx 13$ units by \autoref{eq:expected-demand}. We chose this specific rate as it places demand in a regime that is neither near-deterministic nor near-Gaussian. Specifically, lead-time demand fluctuates enough from one replenishment cycle to the next so that the inventory decision is non-trivial, but stays discrete enough for individual integer orders to still matter.
 
-\paragraph{\textbf{Costs.}} Because holding and variable shipment costs are both charged per unit weight, we uniformly fix $w_k=1$ for every \gls{acr:sku} in the symmetric baseline to avoid cost asymmetries. Moreover, we calibrate shipment costs from real freight data under a stylized home-versus-foreign topology, in which each warehouse sits $50$ km from its home region and $500$ km from each foreign region. In line with the distance-based cost regimes of the data, this yields $c^{\mathrm{in}}_{ik}=1.0$ per unit weight and an outbound variable rate $c^{\mathrm{out}}_{ij}=0.05$ per unit weight for home shipments and $c^{\mathrm{out}}_{ij}=0.5$ for foreign shipments. Additionally, we set both inbound and outbound fixed order costs to zero to avoid an order-batching incentive that would aggregate cost across \glspl{acr:sku} and confound the heterogeneity dimensions. For the full cost regimes and additional information on the real-world data, we refer to \autoref{ap:real-data}. Unlike the shipment costs, the holding rate $c^{\mathrm{hold}}$ and the penalty rate $c^{\mathrm{pen}}_k$ are not directly observable in our real-world freight data and must therefore be manually calibrated. Specifically, we set the penalty as five times the holding rate to obtain a newsvendor critical fraction of $c^{\mathrm{pen}}/(c^{\mathrm{pen}}+c^{\mathrm{hold}})\approx 0.83$ [\textbf{CITE}]. 
+\paragraph{\textbf{Costs.}} Because holding and variable shipment costs are both charged per unit weight, we uniformly fix $w_k=1$ for every \gls{acr:sku} in the symmetric baseline to avoid cost asymmetries. Moreover, we calibrate shipment costs from real freight data under a stylized home-versus-foreign topology, in which each warehouse sits $50$ km from its home region and $500$ km from each foreign region. In line with the distance-based cost regimes of the data, this yields $c^{\mathrm{in}}_{ik}=1.0$ per unit weight and an outbound variable rate $c^{\mathrm{out}}_{ij}=0.05$ per unit weight for home shipments and $c^{\mathrm{out}}_{ij}=0.5$ for foreign shipments. Additionally, we set both inbound and outbound fixed order costs to zero to avoid an order-batching incentive that would aggregate cost across \glspl{acr:sku} and confound the heterogeneity dimensions. For the full cost regimes and additional information on the real-world data, we refer to \autoref{ap:real-data}. Unlike the shipment costs, the holding rate $c^{\mathrm{hold}}$ and the penalty rate $c^{\mathrm{pen}}_k$ are not directly observable in our real-world freight data and must therefore be manually calibrated. Specifically, we set the penalty as five times the holding rate to obtain a newsvendor critical fraction of $c^{\mathrm{pen}}/(c^{\mathrm{pen}}+c^{\mathrm{hold}})\approx 0.83$.
 Note that we deliberately chose a lower level compared to the $0.90-0.95$ targets common in operational practice [\textbf{CITE}]. Because at higher service levels the penalty dominates and a simple high-stock heuristic is already near-optimal, calibrating $c^{\mathrm{hold}}$ and $c^{\mathrm{pen}}_k$ to achieve a lower fraction ensures that both over- and under-stocking remain costly so that the learned policy must genuinely trade off the two errors rather than collapse to a corner solution.
 
-\paragraph{\textbf{Derived Quantities.}} The adjustment range $\Delta_k$ and the initial inventory $I_{ik,0}$ follow directly from the rules fixed in \autoref{chap: methodology}. Additionally, we report the expected fraction of demand $\kappa$ the BS-Optimized baseline fulfills cross-region, which quantifies how strongly the warehouses interact under the 10$\times$ cross-region cost premium.\\
+\paragraph{\textbf{Derived Quantities.}} The adjustment range $\Delta_k$ and the initial inventory $I_{ik,0}$ follow directly from the rules fixed in \autoref{chap: methodology}. Additionally, we report the expected fraction of demand $\kappa$ the BS-Optimized baseline fulfills cross-region, which quantifies how strongly the warehouses interact under the 10$\times$ cross-region cost premium. We measure $\kappa$ under BS-Optimized rather than under a learned policy because it is the
+strongest stationary baseline and is deterministic given its base-stock levels, so $\kappa$ reflects how much cross-region fulfillment the environment structurally demands rather than the behaviour of any one learner.\\
 
-\begin{table}[ht]
+\begin{table}[H]
 \centering
 \small
 \renewcommand{\arraystretch}{1.2}
 \setlength{\tabcolsep}{6pt}
-\setlength{\aboverulesep}{0.1ex}   
-\setlength{\belowrulesep}{0.1ex}  
-\caption{Full parameterization of the symmetric reference environment. Quantities that follow from a rule
-fixed in \autoref{chap: methodology} cite that rule. The lower block lists quantities derived from the
-parameters above it.}
+\setlength{\aboverulesep}{0.01ex}   
+\setlength{\belowrulesep}{0.01ex}  
+\caption[Parameters of the symmetric environment]{Full parameterization of the symmetric reference environment, grouped by category. Constant values are not symmetric-specific, but apply uniformly across all hetergeneous environments.}
 \label{tab:env-symmetric}
-\newcommand{\ind}{\hspace{0.75em}}
+\newcommand{\ind}{\hspace{0.65em}}
 \begin{tabular}{@{}l c@{}}
 \toprule
 \textbf{Parameter} & \textbf{Value}\\
 \midrule
-Warehouses $W$ & $3$\\
-Regions $R$ & $3$ \\
-\glspl{acr:sku} $K$ & $5$\\
-Lead time $L_{ik}$ & $3$ \\
-Episode length $T$ & $100$\\
+\multicolumn{2}{@{}l}{\textit{Constants}}\\
 \midrule
-Order rate $\lambda^{\mathrm{ord}}_j$ & $4$\\
-Inclusion probability $p^{\mathrm{sku}}_j$ & $0.667$\\
-Quantity rate $\lambda^{\mathrm{qty}}_{jk}$ & $5$\\
+\ind Warehouses $W$ & $3$\\
+\ind Regions $R$ & $3$ \\
+\ind \glspl{acr:sku} $K$ & $5$\\
+\ind Lead time $L_{ik}$ & $3$ \\
+\ind Episode length $T$ & $100$\\
 \midrule
-\gls{acr:sku} weights $w_k$ & $[1,1,1,1,1]$\\
-Holding cost $c^{\mathrm{hold}}$ & $1.0$\\
-Penalty cost $c^{\mathrm{pen}}_k$ & $5.0$\\
-Inbound variable rate $c^{\mathrm{in}}_{ik}$ & $1.0$\\
-Outbound variable rate $c^{\mathrm{out}}_{ij}$ & $0.05$ / $0.5$ \\
-Home/foreign distances & $50$ km / $500$ km\\
+\multicolumn{2}{@{}l}{\textit{Demand}}\\
 \midrule
-Adjustment $\Delta_k$ & $20$ \\
-Initial inventory $I_{ik,0}$ & $60$\\
-Coupling $\kappa$ (BS-Optimized) & [NUMBER PENDING]\\
+\ind Order rate $\lambda^{\mathrm{ord}}_j$ & $4$\\
+\ind Inclusion probability $p^{\mathrm{sku}}_j$ & $0.667$\\
+\ind Quantity rate $\lambda^{\mathrm{qty}}_{jk}$ & $5$\\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Costs}}\\
+\midrule
+\ind \gls{acr:sku} weights $w_k$ & $[1,1,1,1,1]$\\
+\ind Holding cost $c^{\mathrm{hold}}$ & $1.0$\\
+\ind Penalty cost $c^{\mathrm{pen}}_k$ & $5.0$\\
+\ind Inbound rate $c^{\mathrm{in}}_{ik}$ & $1.0$\\
+\ind Outbound rate $c^{\mathrm{out}}_{ij}$ (home/foreign) & $0.05$ / $0.5$ \\
+\ind Distances (home/foreign) & $50$ km / $500$ km\\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Derived}}\\
+\midrule
+\ind Adjustment $\Delta_k$ & $20$ \\
+\ind Initial inventory $I_{ik,0}$ & $60$\\
+\ind Coupling $\kappa$ (BS-Optimized) & $0.30$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -65,32 +72,22 @@ Coupling $\kappa$ (BS-Optimized) & [NUMBER PENDING]\\
 
 \subsection{Heterogeneous Variants}
 \label{subsec:heterogeneous-variants}
-We now instantiate the four heterogeneous variants, each of which perturbs the symmetric reference along a single dimension while keeping everything else fixed. Before specifying them, we must ensure that any later performance difference reflects the heterogeneity dimension alone rather than a change in raw problem size. For instance, a variant that simply moved more goods through the network would report different costs for reasons unrelated to heterogeneity and would therefore confound the comparison. To rule this out, we hold the expected weighted network throughput per step constant across all five environments. By \autoref{eq:expected-demand}, this throughput is
+Using the symmetric baseline, we can now instantiate the four heterogeneous variants by introducing heterogeneity along distinct dimensions. However, we must ensure that any later performance difference reflects the heterogeneity dimension alone rather than a change in raw problem size. For instance, a variant that simply moved more goods through the network would report different costs for reasons unrelated to heterogeneity and would thus confound the comparison. To rule this out, we hold the expected weighted network throughput per step constant across all five environments. Formally, this expected throughput is given by
 \begin{equation}
 \label{eq:throughput-invariant}
   \bar{D} = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}} w_k\, \mu^D_{jk}
     = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}} w_k\, \lambda^{\mathrm{ord}}_{j}\, p^{\mathrm{sku}}_{j}\, \lambda^{\mathrm{qty}}_{jk}.
 \end{equation}
-Note that $\bar{D}$ fixes only the mean of demand and not its variance. However, because the order-level process is compound Poisson, the demand variance depends on the same rates $\lambda^{\mathrm{ord}}_{j}$, $p^{\mathrm{sku}}_{j}$, and $\lambda^{\mathrm{qty}}_{jk}$ through \autoref{eq:demand-variance} such that it shifts with whichever dimension a variant modifies. Rather than adding a separate dispersion control, we retain this natural coupling for consistency with the demand model of \autoref{sec:demand-model} and return to its consequences for interpretation in [\textbf{REF: limitations}]. Since the symmetric reference evaluates to $\bar{D}\approx200.1$ weight-units per step, every heterogeneous variant is constructed to preserve this value.
+Note that $\bar{D}$ fixes only the mean of demand and not its variance. However, because the order-level process is compound Poisson, the demand variance depends on the same rates $\lambda^{\mathrm{ord}}_{j}$, $p^{\mathrm{sku}}_{j}$, and $\lambda^{\mathrm{qty}}_{jk}$ through \autoref{eq:demand-variance} and therefore shifts with whichever dimension a variant modifies. Rather than adding a separate dispersion control, we retain this natural coupling for consistency with our demand model and return to its consequences for interpretation in \autoref{chap:conclusion}. Since the symmetric reference evaluates to $\bar{D}\approx200.1$ weight-units per step, every heterogeneous variant is constructed to preserve this value. A summary of all heterogeneous environments is provided in \autoref{tab:env-hetero}.
 
-\paragraph{\textbf{\gls{acr:sku} Heterogeneity} (SKUHetero).} This variant makes the \gls{acr:sku} portfolio heterogeneous while keeping the warehouses and the geography symmetric. We assign log-spaced weights $w=[0.3,1,3,10,30]$ that span two orders of magnitude and match the practical range of a distribution catalogue from small consumer goods to large appliances. To preserve the throughput invariant, we set the per-line quantity rates inversely proportional to weight, $\lambda^{\mathrm{qty}}_k=c/w_k$, so that heavier items move in smaller per-order quantities as in real catalogues and every \gls{acr:sku} contributes the same weighted demand. Substituting this rule into \autoref{eq:throughput-invariant} then cancels the weights and fixes $c=5$ at the reference throughput. The log-spacing itself is the deliberate stressor of this variant. No single global normalization can recover the correct magnitude for the lightest and the heaviest \gls{acr:sku} at once, and the thirtyfold weight span drives the per-\gls{acr:sku} newsvendor service level from roughly $0.94$ for the lightest \gls{acr:sku} to roughly $0.14$ for the heaviest, because holding cost scales with weight while the penalty does not. The portfolio therefore demands qualitatively different behaviour for each \gls{acr:sku}. Because the heaviest \glspl{acr:sku} draw fewer than one unit per line on average, we keep the untruncated Poisson quantity of \autoref{sec:demand-model} so that the inverse-weight relation and the throughput invariant hold exactly. The adjustment range and the initial inventory then follow from \autoref{eq:delta-rule} and \autoref{eq:initial-inventory} applied to the new demand and are reported in \autoref{tab:env-hetero}.
-
-\paragraph{\textbf{Demand Heterogeneity} (DemandHetero).} This variant makes the per-warehouse demand scale heterogeneous while keeping the \glspl{acr:sku} and the geography symmetric. We set the regional order rates to $\lambda^{\mathrm{ord}}=[7,4,1]$, which sum to the same $12$ as the reference $[4,4,4]$ and leave the remaining factors unchanged such that the throughput invariant still holds. This triple represents a primary-versus-tail pattern in which one region carries the majority of demand and the others handle progressively smaller shares, as is typical of continental networks where demand concentrates in a single mature market. The sevenfold span between the busiest and the quietest region is wide enough to expose a shared policy's inability to differentiate warehouses by scale, and the quietest region at one order per step leaves its home warehouse facing frequent zero-demand steps. The adjustment range takes the maximum expected demand over warehouses through \autoref{eq:delta-rule}, and the per-warehouse initial inventories follow from the new demand. Both are reported in \autoref{tab:env-hetero}.
-
-\paragraph{\textbf{Cost Heterogeneity} (CostHetero).} This variant makes the shipment geography heterogeneous while keeping the demand and the \glspl{acr:sku} symmetric. We replace the two-distance layout with a three-distance one of $50$ km, $200$ km, and $5000$ km. Under the same freight calibration as the reference, these distances map to outbound rates of $0.05$, $0.15$, and $1.5$ per unit weight. This layout places two warehouse-region pairs on one continent about $200$ km apart and a third pair on a second continent about $5000$ km away. The resulting threefold and thirtyfold rate ratios over the home cost make cross-continent fulfillment economically prohibitive for the offshore warehouse and leave only moderate cross-fulfillment available to the two same-continent warehouses. The three warehouses therefore occupy distinct cost geographies that a shared policy must resolve from its observation alone. Because no demand rate or weight is altered, every demand-dependent quantity stays at its reference value.
-
-\paragraph{\textbf{Combined Heterogeneity} (CombinedHetero).} This variant activates all three axes at once. It combines the log-spaced weights and inverse-weight quantity rates of the \gls{acr:sku} variant, the $[7,4,1]$ order rates of the demand variant, and the three-distance cost geography of the cost variant. The throughput invariant still holds because each axis preserves it on its own and the construction in \autoref{eq:throughput-invariant} composes across them. This is the highest-stress environment and therefore the primary target for the combined intervention studied later. Because both the \gls{acr:sku} weights and the regional order rates now vary, the adjustment ranges and the per-warehouse, per-\gls{acr:sku} initial inventories take their widest spread of any variant. \autoref{tab:env-hetero} reports them in full.
 
 \begin{table}[ht]
 \centering
 \small
 \renewcommand{\arraystretch}{1.25}
-\caption{Heterogeneous variants relative to the symmetric reference. Each variant perturbs the reference along a
-single axis, or all axes for the combined variant, and preserves the weighted throughput $D\approx200.1$. Only
-parameters that differ from the reference in at least one variant are listed. \gls{acr:sku}-indexed vectors are
-ordered from the lightest to the heaviest \gls{acr:sku} and region-indexed vectors by region index. Entries marked
-``(all)'' denote a value shared by every \gls{acr:sku}. Adjustment ranges and initial inventories follow
-\autoref{eq:delta-rule} and \autoref{eq:initial-inventory} applied to each variant's demand.}
+\caption[Parameters of the heterogeneous environments]{Parameters of the heterogeneous variants relative to the symmetric reference. Each variant modifies the reference along a
+single dimension or along all dimensions, depending on the variant. Only
+parameters that differ from the reference in at least one variant are listed. Entries marked ``(all)'' denote a value shared by every \gls{acr:sku}.}
 \label{tab:env-hetero}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}l c c c c c@{}}
@@ -99,19 +96,181 @@ ordered from the lightest to the heaviest \gls{acr:sku} and region-indexed vecto
 \midrule
     \gls{acr:sku} weights $w_k$        & $[1,1,1,1,1]$ & $[0.3,1,3,10,30]$            & $[1,1,1,1,1]$ & $[1,1,1,1,1]$ & $[0.3,1,3,10,30]$\\
 Order rate $\lambda^{\mathrm{ord}}_j$ & $[4,4,4]$  & $[4,4,4]$                    & $[7,4,1]$     & $[4,4,4]$     & $[7,4,1]$\\
-Quantity rate $\lambda^{\mathrm{qty}}_k$ & $5$ (all) & $[16.67,5,1.67,0.5,0.167]$ & $5$ (all)     & $5$ (all)     & $[16.67,5,1.67,0.5,0.167]$\\
-Distances (km)                     & $50/500$      & $50/500$                     & $50/500$      & $50/200/5000$ & $50/200/5000$\\
-Outbound rate $c^{\mathrm{out}}_{ij}$ & $0.05/0.5$ & $0.05/0.5$                   & $0.05/0.5$    & $0.05/0.15/1.5$ & $0.05/0.15/1.5$\\
-Adjustment $\Delta_k$              & $20$ (all)    & $[60,20,7,2,2]$              & $35$ (all)    & $20$ (all)    & $[117,35,12,4,2]$\\
-Init.\ inventory WH0               & $60$ (all)    & $[169,60,25,10,5]$           & $96$ (all)    & $60$ (all)    & $[281,96,38,15,7]$\\
-Init.\ inventory WH1               & $60$ (all)    & $[169,60,25,10,5]$           & $60$ (all)    & $60$ (all)    & $[169,60,25,10,5]$\\
-Init.\ inventory WH2               & $60$ (all)    & $[169,60,25,10,5]$           & $20$ (all)    & $60$ (all)    & $[51,20,9,4,2]$\\
+Quantity rate $\lambda^{\mathrm{qty}}_k$ & $5$ (uniformly) & $[16.67,5,1.67,0.5,0.167]$ & $5$ (uniformly)     & $5$ (uniformly)     & $[16.67,5,1.67,0.5,0.167]$\\
+Distances (home/foreign)                     & $50/500$      & $50/500$                     & $50/500$      & $50/200/5000$ & $50/200/5000$\\
+Outbound rate $c^{\mathrm{out}}_{ij}$ (home/foreign)  & $0.05/0.5$ & $0.05/0.5$                   & $0.05/0.5$    & $0.05/0.15/1.5$ & $0.05/0.15/1.5$\\
+Adjustment $\Delta_k$              & $20$ (uniformly)    & $[60,20,7,2,2]$              & $35$ (uniformly)    & $20$ (uniformly)    & $[117,35,12,4,2]$\\
+Initial\ inventory $I_{0,k,0}$ (WH0)               & $60$ (uniformly)    & $[169,60,25,10,5]$           & $96$ (uniformly)    & $60$ (uniformly)    & $[281,96,38,15,7]$\\
+Initial\ inventory $I_{1,k,0}$ (WH1)               & $60$ (uniformly)    & $[169,60,25,10,5]$           & $60$ (uniformly)    & $60$ (uniformly)    & $[169,60,25,10,5]$\\
+Initial\ inventory $I_{2,k,0}$ (WH2)               & $60$ (uniformly)    & $[169,60,25,10,5]$           & $20$ (uniformly)    & $60$ (uniformly)    & $[51,20,9,4,2]$\\
 \midrule
-Coupling $\kappa$ (BS-Optimized)   & [NUM.\ PEND.] & [NUM.\ PEND.]                & [NUM.\ PEND.] & [NUM.\ PEND.] & [NUM.\ PEND.]\\
+Coupling $\kappa$ (BS-Optimized)   & $0.30$ & $0.24$                & $0.25$] & $0.25$ & $0.38$\\
 \bottomrule
 \end{tabular}%
 }
-
-\smallskip
-{\footnotesize Coupling row pending E1.5: [NUMBER PENDING: per-environment $\kappa$ from BS-Optimized rollouts].}
 \end{table}
+
+\paragraph{\textbf{\gls{acr:sku} Heterogeneity} (SKUHetero).} Since firms typically operate with a non-uniform product ranges, we investigate the effect of product variety by modifying the \gls{acr:sku} portfolio while keeping the warehouses and the geography symmetric. Specifically, we assign log-spaced weights $w=[0.3,1,3,10,30]$ that span two orders of magnitude and are representative of a typical distribution catalogue that ranges from small consumer goods to large appliances. To preserve the throughput invariant, we set the per-line quantity rates inversely proportional to weight, $\lambda^{\mathrm{qty}}_k=c/w_k$. Substituting these into \autoref{eq:throughput-invariant} then cancels the weights and fixes $c=5$ at the reference throughput. This also aligns with real-world catalogues as heavier items now move in smaller per-order quantities while lighter items move in larger ones. The key complexity of this variant stems from the log-spacing. Specifically, no single global normalization can recover the correct magnitude for the lightest and the heaviest \gls{acr:sku} at once and since holding cost scales with weight, the thirtyfold weight span drives the per-\gls{acr:sku} newsvendor service level from roughly $0.94$ for the lightest \gls{acr:sku} to roughly $0.14$ for the heaviest. Therefore, the portfolio demands qualitatively different behaviour for each \gls{acr:sku}.
+
+\paragraph{\textbf{Demand Heterogeneity} (DemandHetero).} In practice, demand regions typically exhibit unequal level of orders. Therefore, we modify the per-warehouse demand profiles while keeping the \glspl{acr:sku} and the geography symmetric to isolate the effect of demand scales. Specifically, we set the regional order rates to $\lambda^{\mathrm{ord}}=[7,4,1]$, which sum to the same $12$ as the baseline's $[4,4,4]$ such that the throughput invariant still holds. The chosen triple $[7,4,1]$ represents a primary-versus-tail pattern in which one region carries the majority of demand and the others handle progressively smaller shares. The sevenfold span between the highest- and the lowest-demand region is not only wide enough to expose a shared policy's inability to differentiate warehouses by scale but also leaves the low-demand region at one expected order per step such that its home warehouse will face frequent zero-demand periods.
+
+\paragraph{\textbf{Cost Heterogeneity} (CostHetero).} In the symmetric baseline, assumed a simplified geographic topology to ensure symmetric costs. In this variant, we relax this assumption by introducing a heterogeneous shipment geography while keeping demand and \glspl{acr:sku} symmetric. Specifically, we replace the two-distance layout with a three-distance topology of $50$ km, $200$ km, and $5000$ km to simulate a scenario where two warehouse-region pairs are situated on the same continent while a third operates on another. Using the same real-world freight calibration as the baseline, these distances map to outbound rates of $0.05$, $0.15$, and $1.5$ per unit weight, which results in three- and thirtyfold rate ratios over the home cost and thus effectively restrict cross-continent fulfillment. Therefore, the three warehouses occupy distinct cost geographies that a shared policy must resolve from its observation alone. Because no demand rate or weight is altered, every expected throughput automatically stays at the baseline value.
+
+\paragraph{\textbf{Combined Heterogeneity} (CombinedHetero).} Finally, the CombinedHetero variant activates all three heterogeneity dimensions at once to investigate combined effects. Specifically, we use the log-spaced weights of SKUHetero, the $[7,4,1]$ order rates of DemandHetero, and the three-distance cost geography of CostHetero. In addition, we apply the same inverse-weight adjustment as in SKUHetero to fix the throughput at the baseline value. This combined setting is the highest-stress environment and therefore the primary target for the interventions studied.\\
+
+
+\section{Heterogeneity Gap And Failure Mode Analysis}
+\label{sec:heterogeneity-gap}
+
+This section measures the effect of heterogeneity on cooperative \gls{acr:marl}.
+We first solve the symmetric reference environment to establish a baseline so that we can then introduce each heterogeneity dimension and test whether per-environment tuning removes the resulting
+gap. Finally, we trace the resulting gap to its behavioural source.
+
+\paragraph{\textbf{Symmetric baseline.}}
+We start by applying all algorithms of \autoref{subsec:learning-algorithms} to the symmetric reference environment under the full tune protocol of \autoref{sec:tuning-and-evaluation}. The resulting evaluation curves are reported in \autoref{fig:symmetric-gap} as the performance gap to the BS-Optimized reference. While all five algorithms start with great variability, they clearly converge within the budget. As expected, the \gls{acr:cppo} central controller is the only approach that is able to match the BS-Optimized reference. The two parameter-shared \gls{acr:ippo-ps} and \gls{acr:mappo-ps} and their non-shared counterparts \gls{acr:ippo-nops} and \gls{acr:mappo-nops} settle at roughly equal levels a few points above the BS-Optimized reference. A seed-paired test confirms this difference is not statistically significant ($p=0.84$) such that \gls{acr:ps} introduces no cost for interchangeable agents. Given this equivalence, we treat the non-shared algorithms merely as a symmetric control and thus restrict our heterogeneous study to \gls{acr:cppo} together with the two parameter-shared learners. We justify this choice by noting that \gls{acr:ps} is the central mechanism under study since the single inductive bias that sharing imposes on every warehouse is the suspected source of the heterogeneity failure. Hence, we decided to spend our limited compute budget on the shared variants instead of the non-shared ones.
+
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.6\linewidth]{images/p1_symmetric_gap.png}
+\caption[Symmetric reference evaluation curves]{Evaluation optimality gap to the BS-Optimized
+reference over training, shown for the five algorithms as the across-seed mean with a
+one-standard-deviation band.}
+\label{fig:symmetric-gap}
+\end{figure}
+
+\paragraph{\textbf{Heterogeneity gap.}}
+To measure the performance gap that heterogeneity introduces and to test whether tuning removes it, we now run each variant across all four heterogeneous settings under two different regimes. While the first one transfers the symmetric-tuned configuration to each heterogeneity type without modification, the second regime re-tunes it for each variant according to the full protocol of \autoref{sec:tuning-and-evaluation}.
+\autoref{fig:heterogeneity-gap} reports both regimes as optimality-gap curves. We additionally provide detailed numbers in \autoref{ap:heterogeneity-gap}. In general, we find that fully re-tuning improves performance of every shared policy towards the BS-Optimized reference. Specifically, on the \textit{SKUHetero} and \textit{DemandHetero} variants, re-tuning reduces the gap for \gls{acr:mappo-ps} by $20.2\%$ and $7\%$, respectively. In the \textit{CostHetero} variant, the transferred gap is already small and re-tuning actually results in a marginal performance decrease. Finally, on the \textit{CombinedHetero} variant, re-tuning decreases the performance gap from $38.2\%$ to $-2.1\%$, resulting in a slight outperformance of \gls{acr:mappo-ps} compared to the BS-Optimized reference. On balance, after re-tuning, the shared policies are within approximately ten percent of the heuristic baseline on every variant. Again, \gls{acr:cppo} performs best as its gap lies $16.8$, $8.7$, and $6.7$ percentage points statistically significant below \gls{acr:mappo-ps} on the \textit{SKUHetero}, \textit{DemandHetero}, and \textit{CostHetero} variants, respectively (p < 0.001, seed-paired). However, the difference on the \textit{CombinedHetero} variant is minimal and insignificant. Values are similar for \gls{acr:ippo-ps}. Again, \gls{acr:cppo} consistently yields the best results as it narrows the gap compared to \gls{acr:mappo-ps} by a statistically significant $16.8$, $8.7$, and $6.7$ percentage points on the \textit{SKUHetero}, \textit{DemandHetero}, and \textit{CostHetero} variants, respectively ($p < 0.001$). Note that \gls{acr:ippo-ps} produces nearly similar metrics.
+
+
+\textit{}
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\linewidth]{images/p2_heterogeneity_gap.png}
+\caption[Heterogeneous performance gap]{Evaluation performance gap to the BS-Optimized reference over training on the four heterogeneous variants, \gls{acr:ippo-ps}, \gls{acr:mappo-ps}, and \gls{acr:cppo}. Transferred runs are dotted and
+per-environment re-tuned runs are solid. Each curve reports seed-evaluation averages across 5 seeds and the corresponding standard deviation band.}
+\label{fig:heterogeneity-gap}
+\end{figure}
+
+Clearly, these curves give little visual sign of a heterogeneity failure. However, since these curves report aggregate values, failure might lie in the individual behaviour of the shared policy, which we investigate next.
+
+
+\paragraph{\textbf{Failure-mode analysis.}}
+To analyze per-\gls{acr:sku} and per-warehouse behavior, we evaluate the realized fill rates for the \textit{SKUHetero} and \textit{DemandHetero} settings. \autoref{fig:failure-modes} compares the fill rates of \gls{acr:mappo-ps} against the BS-Optimized baseline for both variants. On \textit{SKUHetero}, the \gls{acr:mappo-ps} deviates from the BS Optimized profile in opposing directions across the portfolio. Specifically, it under-serves the two lightest \glspl{acr:sku}, while over-serving the mid weight \gls{acr:sku}. Conversely, the two heaviest \glspl{acr:sku} remain critically under-stocked under both policies. Because these performance errors have opposing signs, the weight-weighted cost metric effectively hides these deficiencies, even though the policy remains suboptimal for individual \glspl{acr:sku}. In contrast, \gls{acr:mappo-ps} consistently under-serves every region relative to BS-Optimized on the \textit{DemandHetero} variant. We conclude that this pattern is the result of a single ordering rule that cannot
+scale to a region's demand and thus motivate the interventions introduced in the following section.\\
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\linewidth]{images/failure_modes.png}
+\caption[Realized fill rates of \gls{acr:mappo-ps} and BS-Optimized]{Realized fill rate of the re-tuned \gls{acr:mappo-ps} policy against the BS-Optimized  reference for SKUHetero (left) and DemandHetero (right). Values are pooled over deterministic evaluation rollouts.}
+\label{fig:failure-modes}
+\end{figure}
+
+
+\section{Targeted Interventions}
+\label{sec:interventions}
+As we have seen, a shared policy might misallocate service across
+\glspl{acr:sku} or regions. We now test whether targeted modifications of the shared-policy pipeline alleviate these specific failure modes. Specifically, we study five unique interventions, where the four of them each address one potential candidate cause of the gap and the fifth stacks all interventions into a single condition.\\
+
+\subsection{Candidate Interventions}
+\label{subsec:intervention-design}
+
+\paragraph{\textbf{NORM.}} The first intervention rescopes observation
+normalization. The baseline standardizes every feature with statistics pooled
+across all warehouses and a separate mean and variance per \gls{acr:sku} column. NORM instead computes the statistics per warehouse and shares one mean and variance across the \gls{acr:sku} columns of each feature group. These per-warehouse statistics remove the scale confound that makes a low-demand warehouse look like a persistent outlier under pooled statistics. Additionally, the \gls{acr:sku}-grouped statistics preserve the magnitude ordering that signals which \glspl{acr:sku} are intrinsically large. Its designated target is the per-warehouse scale mismatch that dominates
+the \textit{DemandHetero} and \textit{CostHetero}.
+
+\paragraph{\textbf{WEIGHT.}} The second intervention appends the static \gls{acr:sku} weight as a feature to each per-\gls{acr:sku} observation block. The feature is constant over time and identical across warehouses because
+the portfolio is shared network-wide. It hands the policy the one quantity that
+actually varies across \glspl{acr:sku} under \gls{acr:sku} heterogeneity rather
+than forcing it to infer \gls{acr:sku} character from the magnitudes of inventory and demand. \textit{Weight} is the smallest possible feature-engineering step and its target is the \textit{SKUHetero} variant.
+
+\paragraph{\textbf{CREDIT.}} The third intervention modifies the learning
+signal rather than the input. Specifically, it splits the per-warehouse reward into one channel per \gls{acr:sku}, gives the critic one value head per \gls{acr:sku}, and weights each \gls{acr:sku}'s policy-gradient term by its own advantage. This decomposition removes the cross-\gls{acr:sku} gradient contamination under which each \gls{acr:sku}'s update absorbs the other \glspl{acr:sku}' advantages as noise. At the same time, the optimized objective and the evaluation objective stay unchanged since the channels sum exactly to the original reward. We formally derive this intervention and its variant-reduction property in \autoref{ap:reward-decomposition}. Due to its per-\gls{acr:sku} character its primary target is the \textit{SKUHetero} variant.
+
+\paragraph{\textbf{ATTENTION.}} The fourth intervention targets the network architecture. A flat network reads the observation as a single vector and must therefore discover from the gradient that certain dimensions form one
+block per \gls{acr:sku}. Instead, we introduce an attention layer that represents the per-\gls{acr:sku} observation as a sequence of tokens, projects each token through a shared linear map, and lets multi-head self-attention update each \gls{acr:sku}'s representation as a learned weighted combination of all \glspl{acr:sku}. This mechanism not only gives the
+policy an explicit per-\gls{acr:sku} vocabulary and a channel for inter-\gls{acr:sku} relationships, but also makes its parameter count not grow with the number of \glspl{acr:sku}. We give a brief formal overview of the attention mechanism and display the modified actor and critic structure in \autoref{ap:sku-attention}. To separate the contribution of the attention
+mechanism from the contribution of its increase number of network parameters, we additionally pair ATTENTION with the MATCHEDMLP control, which trains by using a flat network whose parameter count matches the
+attention architecture. Both primarily target \textit{CombinedHetero}.
+
+\paragraph{\textbf{STACK.}} The fifth and final intervention is the union of all four interventions above. It tests whether their effects interact once every diagnosed failure is addressed at once. STACK is the primary candidate for \textit{CombinedHetero}, where all three heterogeneity dimensions are active.\\
+
+\subsection{Individual Effects}
+\label{subsec:individual-effects}
+We re-tune every intervention on every heterogeneous variant with the re-tune
+protocol of \autoref{sec:tuning-and-evaluation} and subsequently seed-evaluate across five seeds. \autoref{fig:intervention-effects} reports the effect of each intervention on every variant as the change in the optimality gap relative to the re-tuned \gls{acr:mappo-ps} reference such that a positive value lowers the gap and improves on the reference, and vice versa. Interestingly, the resulting pattern runs opposite to the our initial expectation as the interventions that we framed as simple controls produce the only positive effects. Specifically, NORM lowers the gap by $2.1$ points on \textit{CombinedHetero} and by $1.5$ points on \textit{DemandHetero}. Similarily, WEIGHT lowers the gap  by $2.6$ points on \textit{DemandHetero} and $1.2$ on \textit{CostHetero}. Finally, CREDIT produces the single largest gain of any intervention at $4.5$ points on \textit{SKUHetero}, which also is the dimension we expected it would primarily target. The five pre-registered primary variants per intervention that we fixed in \autoref{subsec:intervention-design} are only partly confirmed. Additionally, none of these gains survives a Holm-Bonferroni correction of the five primary comparisons at a family-wise level of $0.05$ (\autoref{tab:intervention-primary}), so that ..., so that each counts at best as a weak effect under our five-seed budget.
+
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.65\linewidth]{images/p5_intervention_effects.png}
+\caption[Intervention effects on all environment variants]]{Change in the optimality gap to the BS-Optimized
+ceiling relative to the re-tuned \gls{acr:mappo-ps} reference, in percentage
+points, for each intervention and variant. A positive value lowers the gap and
+improves on the reference. A star marks an uncorrected paired $p<0.05$, and
+\autoref{tab:intervention-primary} shows that no pre-registered primary test
+survives the Holm correction. The \gls{int:stack} cell on the \gls{acr:sku} variant
+is pending.}
+\label{fig:intervention-effects}
+\end{figure}
+
+
+Contrary to our expectations, the ATTENTION does not recover the gap on any variant. Instead, it raises the gap by $3.3$, $7.3$, $7.9$, and $14.5$ points on all four heterogeneous settings respectively. The \textit{CombinedHetero} cell is ATTENTION's pre-registered primary variant and surprisingly it showed a statistically significant effect in the direction opposite to the hypothesized benefit before accounting for testing corrections. Moreover, we noticed that the low score of ATTENTION for \textit{SKUHetero} is driven by a single seed whose policy collapsed far below the reference during seed evaluation while the other four seeds matched it  better. This indicates that ATTENTION might be more instable to train rather compared to the other approaches. 
+
+The MATCHEDMLP control further underlines this finding. \autoref{fig:intervention-mechanism} contrasts the performance gap of
+ATTENTION with that of MATCHEDMLP that holds the parameter budget fixed. Specifically, MATCHEDMLP sits at or below the attention gap on very variant such that ATTENTION does perform poorly even against a network of equal capacity. We conclude that for the our controlled environment using a complex attention mechanism is simply excessive and the per-\gls{acr:sku} tokenisation does not help the shared policy differentiate \glspl{acr:sku} at this scale. However, we hypothesize that ATTENTION might still be valuable when scaling to larger problem instances since its parameter count does not grow with the number of \glspl{acr:sku} so that its complexity might then be warranted.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.55\linewidth]{images/p6_matched_additivity.png}
+\caption[Comparison of ATTENTION and MATCHEDMLP]{Comparison of ATTENTION and MATCHEDMLP. Gap above BS-Optimized of ATTENTION against MATCHEDMLP, in percentag points.}
+\label{fig:intervention-mechanism}
+\end{figure}
+
+The attention weights explain why the ATTENTION fails rather than helps. \autoref{fig:intervention-attention} shows the per-\gls{acr:sku} self-attention matrix of the ATTENTION policy averaged over the evaluation episodes and the warehouses. The matrix is close to uniform on both \textit{SKUHetero} and \textit{CombinedHetero}, has an off-diagonal-to-diagonal ratio near one, and rows that
+barely differ across the query \glspl{acr:sku}. Every \gls{acr:sku} attends most to the heaviest \glspl{acr:sku} rather than to itself such that the layer averages the portfolio into a single mixture instead of learning a per-\gls{acr:sku} pattern. We believe that this averaging is the mechanism behind the light-\gls{acr:sku} collapse as it pulls the light \glspl{acr:sku} toward the heavy-\gls{acr:sku} behaviour that dominates the mixture.
+
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.86\linewidth]{images/p8_attention.png}
+\caption[Per-SKU self-attention weights]{Per-\gls{acr:sku} self-attention weights of the ATTENTION policy, averaged over evaluation episodes and warehouses. Query \gls{acr:sku} on the row and the key \gls{acr:sku} on the column. Left: }
+\label{fig:intervention-attention}
+\end{figure}
+
+The behaviour underneath these returns mirrors the aggregate picture.
+\autoref{fig:intervention-service} resolves the realized fill rate along each variant's heterogeneous axis for the locked intervention policies exactly as in \autoref{sec:heterogeneity-gap}. On \textit{SKUHetero}, CREDIT lifts the lightest \gls{acr:sku} back toward the BS-Optimized profile and removes the over-service of the mid-weight \gls{acr:sku}, which is the per-\gls{acr:sku} correction it is expected to produce. In contrast, ATTENTION  significantly collapses service on the two light \glspl{acr:sku} down to $0.62$ and $0.28$, while MATCHEDMLP is able to track the shared reference. On \textit{DemandHetero}, NORM leaves the per-region profile almost unchanged from the reference, which matches its small aggregate effect.\\
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\linewidth]{images/p7_service_recovery.png}
+\caption[Per-axis service recovery]{Per-axis service recovery. Realized fill rate along each variant's heterogeneous dimension for the locked intervention policies against the shared
+\gls{acr:mappo-ps} reference and the BS-Optimized profile. Left; per-\gls{acr:sku} fill rate on the \textit{SKUHetero}. Right: per-region fill rate on \textit{DemandHetero}.}
+\label{fig:intervention-service}
+\end{figure}
+
+
+
+\subsection{Combined Intervention and Additivity}
+\label{subsec:combined-intervention}
+
+Additionally, we test the combination of all interventions as well as their interaction. STACK does not improve on the reference alone as it lowers the gap by $0.5$ points on \textit{CombinedHetero}, which is within noise, and raises the gap
+by $8.5$ points on \textit{DemandHetero} and $18.9$ points on \textit{CostHetero}. We test composition and potential synergy effects by considering the additivity metric $\gamma=\Delta(\text{STACK})-\sum_i\Delta(A_i)$ as the difference between the stack's gap reduction and the sum of the four individual gap reductions. On \textit{CombinedHetero} $\gamma$ is $+1.0$ points with a $95\%$ \gls{acr:ci} interval that brackets zero such that the stack neither beats nor falls short of the sum of its parts. The same additivity test returns similar $\gamma$ values within noise of zero on the \textit{DemandHetero} and \textit{CostHetero}, so STACK again reproduces the sum of the individual interventions rather than improving on it. That sum is itself negative gap on both variants, which is likely driven by CREDIT and ATTENTION that inherit their damage.\\
+
+
+\subsection{Decision Summary}
+\label{subsec:decision-summary}
+
+Finally, we condense the findings into the decision table \autoref{tab:intervention-decision}, which maps each heterogeneity type to the intervention that best responds to it. The map is sparse
+as NORM is the only intervention that lowers the gap on \textit{CombinedHetero}. WEIGHT is the best response to \textit{DemandHetero} and CREDIT is the best response to \textit{SKUHetero} even though its
+effect does not reach significance. ATTENTION and STACK are not recommended on any variant since neither lowers the
+gap and MATCHEDMLP shows that the attention parameters are better
+spent on architecture without the per-\gls{acr:sku} mechanism. These outcomes meet several of the falsifiers we pre-registered before our analysis for the intervention block. ATTENTION is
+neutral to harmful on its primary \textit{CombinedHetero}, MATCHEDMLP matches or beats it, and STACK fails to exceed the best single intervention. We read them together as evidence that the heterogeneity gap at this scale is not closed by a per-\gls{acr:sku} architectural mechanism, and that the modest recoveries available come instead from cheaper normalization, feature, and credit adjustments.
+
+
+
+
+

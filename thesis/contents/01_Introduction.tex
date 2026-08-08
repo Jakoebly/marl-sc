@@ -2,32 +2,40 @@
 \label{chap:intro}
 \pagenumbering{arabic}
 
-\begin{itemize}
-    \item Overview of supply chain management and inventory control
-    \begin{itemize}
-        \item supply chain management is important for business success
-        \item Inventory control is a key component of SCM
-        \item Main question: how to replenish to balance holding and shortage costs?
-        \item Challenging due to uncertainty and complexity (lead time, demand, ...)
-        \item Specifically, decentralization and heterogeneity is a major challenge
-    \end{itemize}
-    \item Brief overview of solution methods 
-    \begin{itemize}
-        \item Classical approaches (base-stock, newsvendor, ...) and their limitations
-        \item Reinforcement learning as an alternative
-        \item Multi-agent reinforcement learning as a more general approach
-    \end{itemize}
-    \item What this thesis does
-    \item Contributions
-    \item Thesis structure
-\end{itemize}
+Supply chain management is a major driver of business performance and \gls{acr:ic} is one of its core components \citep{Olaniyi2024}. The central question in \gls{acr:ic} is how much each warehouse should reorder so that the cost of holding stock is balanced against the cost of stocking out. This is non-trivial since demand is stochastic, replenishment arrives after a lead time, and a single warehouse might manage many products simultaneously. The difficulty grows in real distribution networks, where warehouses replenish stock independently from local information and differ widely in the conditions they face. On balance, decentralization and heterogeneity are  the central challenges in real-world \gls{acr:ic} and thus one of the largest cost-drivers. 
 
+Replenishment has long been guided by classical models such as the newsvendor and base-stock policies, which compute order quantities based on assumptions about demand and costs \citep{scarf1960sSoptimality, Chen2026}. These models are tractable and well understood, but the assumptions behind their solution guarantees often fail in practice. As a response, \gls{acr:rl} has recently gained popularity since it learns policies directly from interaction and handles uncertainty that the classical models cannot \citep{boute2022roadmap}. Most of this work however assumes a single central controller that has access to the whole network and places collective orders, which seldom reflects how firms operate in practice.
 
-\paragraph{\textbf{C1}}  
-\textit{An extensible benchmark that brings MARL inventory control closer to operational practice. The thesis contributes a simulation environment that additionally supports controlled heterogeneity across multiple network dimensions and adopts an order-level multi-SKU demand model. The result is a richer evaluation setting in which heterogeneity-driven phenomena can be studied systematically.}
+To address this, \gls{acr:marl} has been proposed as the more realistic alternative. It models each warehouse as a separate agent that acts on local information and thus has to interact with other agents in the network. Promisingly, cooperative \gls{acr:marl} with parameter sharing already has been shown to perform well on multi-warehouse inventory problems \citep{mousa2024analysis}. Most \gls{acr:marl} however have in common that they act on symmetric environment instances. Since real networks are not symmetric and have multiple warehouses with different demand profiles, non-uniform products, and asymmetric cost regimes, it is still unclear how parameter-shared \gls{acr:marl} behaves once heterogeneity is introduced. Consequently a single shared policy must then act differently for each warehouse while identifying them only from the local observation, which is exactly where it may fail.
 
-\paragraph{\textbf{C2}}  
-\textit{A diagnostic characterisation of MARL failure modes under heterogeneity. The thesis quantifies the performance degradation of cooperative parameter-shared MARL across distinct heterogeneity types, identifies the specific failure modes responsible, and demonstrates that hyperparameter tuning alone is insufficient to close the gap. The result is a precise account of where and how standard MARL breaks once the inventory setting moves beyond its symmetric idealisation.}
+Therefore, this thesis studies cooperative parameter-shared \gls{acr:marl} for inventory control under heterogeneity in demand, product portfolio, and shipment
+costs. We organize the study around two central research questions:
 
-\paragraph{\textbf{C3}}  
-\textit{A toolkit of architectural interventions and an analysis of their interactions.** The thesis introduces a set of architectural modifications that address the diagnosed failure modes, and reports both their individual efficacy and the effects of combining them. The result is a concrete set of remediation techniques for the research community together with empirical evidence on how those techniques compose.}
+\paragraph{\textbf{RQ1}}
+Under heterogeneity, does parameter-shared multi-agent \gls{acr:ppo} degrade
+relative to a symmetric baseline of matched network throughput, what failure modes
+explain any resulting gap, and can environment-specific hyperparameter tuning
+recover the lost performance?
+
+\vspace{-0.7\baselineskip}
+\paragraph{\textbf{RQ2}}
+Parameter sharing imposes a single inductive bias on every agent, which becomes a
+liability under heterogeneity. Which architectural modifications relax this
+constraint enough to recover the lost performance, and is one modification effective
+across all heterogeneity types or does each type requires a distinct architectural
+response?
+
+To answer these questions, we build a configurable environment with controlled
+heterogeneity and an order-level multi-\gls{acr:sku} demand model that lets us test
+our architectural interventions against the failure modes we identify. In doing so,
+we provide three main contributions:
+
+\paragraph{\textbf{C1}} An extensible benchmark that brings \gls{acr:marl} inventory control closer to operational practice. The thesis contributes a simulation environment that additionally supports controlled heterogeneity across multiple network dimensions and adopts an order level multi SKU demand model. The result is a richer evaluation setting in which 
+
+\vspace{-0.7\baselineskip}
+\paragraph{\textbf{C1}} A diagnostic characterisation of \gls{acr:marl} failure modes under heterogeneity. The thesis quantifies the performance degradation of cooperative parameter shared \gls{acr:marl} across distinct heterogeneity types, identifies the specific failure modes responsible, and demonstrates that hyperparameter tuning alone is insufficient to close the gap. The result is a precise account of where and how standard \gls{acr:marl} breaks once the inventory setting moves beyond its symmetric idealisation.
+
+\vspace{-0.7\baselineskip}
+\paragraph{\textbf{C1}} A toolkit of architectural interventions and an analysis of their interactions. The thesis introduces a set of architectural modifications that address the diagnosed failure modes, and reports both their individual efficacy and the effects of combining them. The result is a concrete set of remediation techniques for the research community together with empirical evidence on how those techniques compose.\\
+
+The remainder of the thesis is organized as follows. \autoref{chap:background-and-related-work} reviews related work and situates the study in the literature. \autoref{chap:problem-formulation} then formalizes the problem setting that we will use for our experiments. While \autoref{chap: background} proceeds to outline theoretical foundation in \gls{acr:rl}, \autoref{chap: methodology} model the distribution network of \autoref{chap:problem-formulation} as a \gls{acr:rl} problem and presents the observations, actions, and algorithms.  Finally, \autoref{chap:experiment-results} defines the experimental setup and reports the experiments. The thesis concludes with a conclusion of the results in \autoref{chap:conclusion}.

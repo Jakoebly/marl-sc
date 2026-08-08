@@ -1,0 +1,92 @@
+\chapter{Related Work}
+\label{chap:background-and-related-work}
+
+This chapter places the thesis within the existing research by reviewing four separate streams are reviewed that are all relevant to this work. First, classical approaches to  inventory control are described as they provide the theoretical foundation. Subsequently, the single-agent \gls{acr:rl} literature demonstrates the value of learned replenishment
+policies. The \gls{acr:marl} literature introduces the agent decomposition that the
+thesis extends. The joint replenishment problem studies the ordering interdependency that
+arises across products. Each strand is reviewed in turn, and the gap that the thesis
+addresses is made explicit.\\
+
+\section{Classical Approches to Inventory Control}
+\label{sec:rw-classical}
+
+Stochastic demand models form the analytical core of modern inventory control theory. Its formal study was initiated by the seminal work of \citet{arrow1951newsvendor}, who formalized the foundational newsvendor problem. In the basic single-period model, the optimal order quantity is given by a closed-form critical-fractile solution that balances overage and underage costs. However, extending this to a dynamic, multi-period setting with fixed ordering costs breaks the marginal-balance argument behind the critical-fractile formula and rules out any closed-form solution. To address this, \citet{arrow1951newsvendor} assumed a simple $(s, S)$ policy that places an order up to a level $S$ whenever the inventory position falls below a reorder point $s$ and minimized the resulting long-run expected loss numerically, without establishing optimality of $(s, S)$ rules in general. Later, \citet{scarf1960sSoptimality} proved that the $(s, S)$ approach is optimal for finite horizons through the introduction of so-called $K$-convexity. Additionally, \citet{karlin1960sSoptimality} studied the special case of no fixed ordering cost and established that under non-stationary demand distributions the $(s, S)$ rule collapses into a base-stock policy, or $(S-1, S)$, policy. Following these foundational structural proofs, subsequent research focused heavily on computing optimal inventory levels efficiently and developing practical heuristics, which was significantly advanced by early works of \citet{fukuda1964optimal}, \citet{silver1985decision}, and \citet{zheng1991computingsS}. 
+A recurring limitation is that these heuristics rely on restrictive assumptions about demand and lead-times and therefore cannot fully capture the randomness of realistic settings. To address this, subsequent research has focused on developing heuristics of newsvendor as well as inventory models and we refer to \cite{chaudhary2018state} for a recent survey of such approaches.\\
+
+\section{Reinforcement Learning for Inventory Control}
+\label{sec:rw-rl}
+Because environment uncertainty is the principal difficulty in inventory control,
+\gls{acr:rl} has become an attractive data-driven alternative to model-based heuristics,
+since it can learn replenishment policies for complex stochastic systems without exact
+knowledge of the underlying model. The use of \gls{acr:rl} for inventory management was
+initiated by \citet{giannoccaro2002inventory}, who addressed the
+production and distribution functions of a global supply chain with multiple stages under a
+single-item assumption. Later studies extended the idea to a range of network structures.
+Two-echelon supply chains were treated by \citet{kim2005adaptive} and
+\citet{kim2008asynchronous}. Multi-echelon settings were addressed by
+\cite{chaharsooghi2008reinforcement, kwak2009situation}, and \citet{sun2012analyses} and the multiple-retailer case by \citet{dogan2015reinforcement} and \citet{jiang2009case}. Across these studies, \gls{acr:rl} is used to derive near-optimal ordering policies
+under a variety of objectives, ranging from profit maximization in retail settings to the
+minimization of ordering and holding costs or of holding and backorder costs, though
+typically not all of these costs at once. A common simplification in this line of work is
+the assumption that products are independent and do not interact, which avoids the coupling
+that arises when several items share storage or are replenished jointly.\\
+
+\section{Multi-Agent Reinforcement Learning for Inventory Management}
+\label{sec:rw-marl}
+To capture the interactions that single-agent formulations omit, a more recent line of
+research models inventory control as a \gls{acr:marl} problem. The multi-agent paradigm
+itself is surveyed by \citet{nguyen2020deep} and
+\citet{zhang2021multi}, and it has been applied to inventory
+management most directly by \citet{barat2019actor} and \citet{sultana2006reinforcement}. \citet{barat2019actor} derive a replenishment strategy for a
+grocery retailer with multiple items and fixed delivery times in which the emphasis is on
+item availability rather than on the associated costs. \citet{sultana2006reinforcement} study a multi-echelon supply chain with predefined lead times whose objective is to
+maximize product sales and to minimize the wastage of perishable products. In both
+formulations the multi-agent decomposition is taken over products, so that each item is
+treated as a separate agent.
+
+This thesis adopts the multi-agent formulation but differs from prior work in both its
+decomposition and its central question. The agents here are warehouses in a single-echelon
+distribution network rather than individual products, and the focus is the heterogeneity
+that exists across those warehouses. Earlier multi-agent inventory studies are conducted
+almost exclusively under symmetric conditions, in which the agents face statistically
+identical operating conditions. Real distribution networks rarely meet this assumption,
+because warehouses differ in the demand they serve, in the product mix they carry, and in
+the shipment costs they incur. The thesis also restricts attention to the realistic regime
+in which each warehouse acts on its own local observation rather than on the full network
+state, which corresponds to decentralized execution. Within this regime it concentrates on
+parameter sharing, the dominant convention in cooperative \gls{acr:marl}, and it
+characterizes how a single shared policy degrades when it must produce distinct behavior for heterogeneous warehouses from local information alone. The architectural modifications
+developed later in the thesis are designed to relax this shared-policy constraint while
+retaining the scalability that makes parameter sharing attractive.
+
+\section{The Joint Replenishment Problem}
+\label{sec:rw-jrp}
+
+A further body of work that relates to the multi-product aspect of this thesis is the joint
+replenishment problem, which concerns the ordering interdependency among groups of products
+that are supplied together by a single supplier \citet[e.g.,]{khouja2008review, salameh2014joint, wang2012differential}. The usual
+objective in this literature is to minimize a global replenishment cost made up of ordering
+and holding components, without accounting for the losses caused by item shortages \citet{qu2015contrastive, wang2015improved}. The present work is related to this setting because each warehouse manages several \glspl{acr:sku} simultaneously. The
+objective differs, however. This thesis targets the trade-off between holding and shortage
+costs under heterogeneity rather than the minimization of a joint ordering cost. The fixed
+per-order cost that motivates joint replenishment is moreover set to zero throughout the
+experiments, which removes the order-batching incentive on which the joint replenishment
+literature is built and isolates the heterogeneity effects that the thesis sets out to
+study.\\
+
+\section{Parameter Sharing and Agent Heterogeneity}
+\label{sec:ps-heterogeneity}
+
+Parameter sharing is the standard device for scaling cooperative \gls{acr:marl} to large numbers of agents. Under full parameter sharing a single network represents every policy so that all agents are driven by one common set of weights \citep{christianos2021scaling}. The number of trainable parameters then stays fixed as the team grows and a single learner is trained on the pooled experience of all agents. Both effects raise sample efficiency and shorten training to tractable levels \citep{christianos2021scaling}. The same device underpins the strongest on-policy baselines for cooperative \gls{acr:marl}. Independent PPO shares weights across agents \citep{dewitt2020independent} and multi-agent PPO keeps this sharing while it adds a centralized critic \citep{yu2022surprising}.
+
+Plain parameter sharing presumes that the agents are largely homogeneous. A shared network maps identical observation and action spaces through one function and therefore cannot by itself produce different policies for different agents \citep{terry2020revisiting}. The usual remedy appends an agent identifier to every observation so that the shared network can condition its behavior on the agent that is currently acting. \citet{terry2020revisiting} formalize this technique under the name agent indication and prove that it allows convergence to optimal policies. They further extend parameter sharing to heterogeneous observation and action spaces through padding and confirm empirically that several indication schemes succeed across image-based tasks.
+
+Sharing one network across dissimilar agents can still harm learning. \citet{christianos2021scaling} show that naive sharing across all agents becomes detrimental to final performance once the transition or the reward functions differ between agents. A single network must then represent several distinct roles at once and its limited capacity turns into a bottleneck. Agents also tend to overwrite information that other agents still need because each one pushes the shared weights toward its own objective. This mutual interference slows or caps the learning of the team. To keep the benefit of sharing without this effect \citet{christianos2021scaling} propose Selective Parameter Sharing. The method encodes each agent from its trajectories and clusters the encodings so that weights are shared only inside groups of similar agents. Selective Parameter Sharing then reaches higher returns than both naive sharing and fully independent networks and it scales to hundreds of agents in settings with non-homogeneous agents.
+
+A second line of work questions parameter sharing on theoretical grounds. \citet{kuba2022trust} observe that sharing forces identical action spaces and is equivalent to constraining all policy parameters to be equal. They construct a cooperative game in which the best shared policy falls below the true optimum by a factor that grows exponentially in the number of agents. \citet{zhong2024heterogeneous} reach a similar conclusion and add that sharing confines a method to the homogeneous setting and can bring training instability together with a loss of convergence guarantees. Both works give every agent its own parameters instead. They rely on a multi-agent advantage decomposition together with a sequential update scheme in which agents revise their policies one after another rather than simultaneously. The resulting heterogeneous-agent algorithms keep monotonic improvement of the joint return without any parameter sharing. Examples include \gls{acr:hatrpo} and \gls{acr:happo} from \citet{kuba2022trust} and the broader \gls{acr:harl} family of \citet{zhong2024heterogeneous}. Their advantage over shared baselines grows as the agents become more heterogeneous.
+
+A further group of methods changes the network architecture rather than the sharing scheme. Concatenating the observations and actions of all agents imposes an arbitrary ordering so that a permuted yet equivalent input yields a different output and wastes samples \citep{liu2020pic}. \citet{liu2020pic} remove this redundancy with a permutation-invariant critic built on a graph neural network and thereby scale training to many more agents. \citet{hao2023boosting} generalize the principle through permutation-invariant inputs and permutation-equivariant outputs and package it as modules that drop into existing value-based and policy-based algorithms. Attention provides a related route. \citet{iqbal2019actor} give a centralized critic an attention mechanism that selects the relevant other agents for each agent at each step and thus scales more gracefully than a critic over the raw joint input. \citet{hu2021updet} treat each component of an observation as a separate entity and bind it to the matching action group through a transformer so that one model serves teams of different size and transfers across tasks.
+
+Role-based methods sit between full sharing and fully separate policies. \citet{wang2020roma} argue that one shared policy struggles to represent every behavior a team needs and they let roles emerge during training so that agents with similar roles share their learning while they specialize on different sub-tasks. \citet{wang2021rode} construct roles from restricted action sets that are obtained by clustering actions according to their effect and they thereby decompose a hard task into smaller pieces and transfer to teams with more agents. Both designs share representations where agents resemble each other and separate them where the agents must act differently.
+
+Taken together this literature establishes parameter sharing as the default choice for homogeneous teams and it documents the decline of that choice once agents differ in their dynamics or rewards or spaces. The proposed remedies span a spectrum that runs from selective sharing through permutation-aware and attention-based architectures to fully heterogeneous policies. This thesis examines the same tension inside cooperative inventory control. It quantifies how a parameter-shared \gls{acr:ppo} system degrades as the network turns heterogeneous and it evaluates architectural changes of the kind reviewed here as targeted remedies for the failure modes that emerge.

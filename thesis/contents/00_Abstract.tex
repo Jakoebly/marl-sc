@@ -1,3 +1,4 @@
 \begin{abstract}
+    Cooperative multi-agent reinforcement learning (MARL) with parameter sharing performs well on multi-warehouse inventory control under symmetric conditions. However, real distribution networks typically exhibit heterogeneity in demand, product mix, and shipment cost. We build a single-echelon benchmark with an order-level demand model and four throughput-matched heterogeneous environments to investigate whether a parameter-shared shared policy degrades under asymmetric settings.  and what interventions recover. Per-environment re-tuning brings the policy close to a simulation-optimized heuristic, yet a significant residual to a centralized full-information policy persists, traced to two failure modes: misallocated service across products and orders that do not scale to regional demand. A per-SKU self-attention architecture proposed as the remedy fails on every variant and is beaten by a capacity-matched flat network. Only cheaper controls help, modestly and axis-specifically, and none survive correction. The heterogeneity gap is not closed by a per-SKU architectural mechanism.
+    \end{abstract}
     
-\end{abstract}

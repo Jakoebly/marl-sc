@@ -1,1 +1,23 @@
 \chapter{Conclusion}
+\label{chap:conclusion}
+
+This thesis asked whether cooperative parameter-shared \gls{acr:marl} keeps its
+symmetric-network performance once a multi-warehouse network becomes heterogeneous
+and which modifications to the shared-policy pipeline recover any loss. We built a
+five-environment benchmark that holds expected weighted throughput fixed while
+modifying one heterogeneity dimension at a time, measured the gap each axis opens, and
+tested five interventions against a pre-registered set of falsifiers.
+
+On the symmetric reference parameter sharing does not bear any disadvantages as the shared and
+non-shared learners converged within roughly five percent of the heuristic ceiling
+without any statistically significant difference. Introducing heterogeneity then opened a performance gap that
+per-environment tuning could narrow but not fully close. A residual of $16.8$, $8.7$, and $6.7$ percentage points remains to the centralized \gls{acr:cppo} ceiling on \textit{SKUHetero}, \textit{DemandHetero}, and \textit{CostHetero}. Since \gls{acr:mappo-ps} and \gls{acr:ippo-ps} are likewise indistinguishable in this case, the contraint must lie in the shared policy itself and not in the centralized critic. Behaviourally, the shared policy misallocates service across the \gls{acr:sku} portfolio and fails to scale its orders to each region's demand.
+
+The intervention results are contrary to our pre-registered expectations. Specifically, the per-\gls{acr:sku} self-attention architecture, which we initially proposed as the primary remedy, does not recover the gap on a single variant and instad significantly raises it on all four. Since additionally a capacity-matched control matches or beats it across variants, the attention mechanism does not earn its parameters at this scale. The resulting
+heterogeneity-to-intervention map of \autoref{tab:intervention-decision} is sparse and it becomes clear that heterogeneity dimensions respond best to cheap controls so that neither the
+architecture nor the full stack is the preferred approach.
+
+This clearly shows that our work is not with limitations and the central caveat is scale. At three warehouses and five \glspl{acr:sku} the attention module likely has few tokens to work with and a flat network of equal capacity can match it easily. The logical next step is thus to scale the problem size to larger instances at which the attention mechanism matches complexity and has the advantage of constant parameter counts. Further limitation also follows from the deliberate bounds of the study and future work could extend our enviornment to a multi-echelon setting, other demand rates, stochastic lead times, or capacitated warehouses. 
+
+The architecture this thesis set out to validate does not close the heterogeneity gap at this scale. The more useful conclusion to this work is that heterogeneity degrades the shared policy in specific and diagnosable ways that neither tuning nor the centralized critic remove. Therefore, the most reliable response is to identify the
+active dimension and to apply the cheapest control that targets it. The unexpected contrary result is itself a contribution as deliberately points future effort toward the scale regime where an architectural remedy has a genuine chance to pay off.

@@ -1,38 +1,84 @@
 \chapter{Problem Formulation}
 \label{chap:problem-formulation}
 
-Building on the limitations identified in the existing literature, we focus on a stylized yet realistic intra-company supply chain. The setting is inspired by a real-world case in which a manufacturing firm operates multiple geographically distributed warehouses that use independent \gls{acr:erp} systems and therefore make replenishment decisions without full visibility of each others' inventories or actions. In fact, this kind of decentralization is not a single exception but the operating reality of many large distribution networks, where heterogeneous information systems expose no shared real-time view of the network state and the integrated central planner assumed by classical multi-location inventory theory is therefore not readily available  [\textbf{CITE: empirical accounts of decentralized inventory operations in multi-warehouse distribution networks}].
+Building on the limitations identified in the existing literature, we focus on a stylized yet realistic intra-company supply chain. The setting is inspired by a real-world case in which a manufacturing firm operates multiple geographically distributed warehouses that use independent \gls{acr:erp} systems and therefore make replenishment decisions without full visibility of each others' inventories or actions. In fact, this kind of decentralization is not a single exception but the operating reality of many large distribution networks, where heterogeneous information systems expose no shared real-time view of the network state and the integrated central planner assumed by classical multi-location inventory theory is therefore not readily available \citep{mousa2024analysis}.
 
-The remainder of this chapter formalizes this setting as a discrete-time, multi-agent inventory control problem with stochastic demand, stochastic fulfillment, and lost sales. \autoref{sec:network-structure} fixes the static structure of the network, namely its warehouses, its regions, and its \glspl{acr:sku} together with the distances and weights that describe them. The sections that follow then trace the flow of a single period. \autoref{sec:demand-model} specifies how customer demand is generated at the level of individual orders. \autoref{sec:fulfillment} describes how that demand is served from inventory, how warehouses help each other through transshipment, and how unmet demand becomes lost sales. \autoref{sec:replenishment} explains how warehouses replenish their stock from external suppliers under a fixed lead time. \autoref{sec:dynamics} collects these elements into the per-period sequence of events and the resulting inventory dynamics, and \autoref{sec:costs} defines the cost structure and the system objective. \\
+The remainder of this chapter formalizes this setting as a discrete-time, multi-agent inventory control problem with stochastic demand, stochastic fulfillment, and lost sales. \autoref{sec:network-structure} fixes the static structure of the network and the sections that follow then trace the flow of a single period. \autoref{sec:demand-model} specifies how customer demand is generated at the level of individual orders. \autoref{sec:fulfillment} describes how that demand is served from inventory, how warehouses help each other through transshipment, and how unmet demand becomes lost sales. \autoref{sec:replenishment} explains how warehouses replenish their stock from external suppliers under a fixed lead time. \autoref{sec:replenishment} collects these elements into the replenishment and inventory dynamics, and \autoref{sec:costs} defines the cost structure and the system objective. \\
 
 \section{Network Structure}
 \label{sec:network-structure}
 We model the problem as an intra-organizational, single-echelon inventory control setting that consists of set of geographically distributed warehouses $\mathcal{W} = \{1, \dots, W\}$ and a set of distinct demand regions $\mathcal{R} = \{1, \dots, R\}$. We index warehouses by $i$ and regions by $j$ and assume throughout that $W=R$ so that each warehouse can be assigned a distinct home demand region. Warehouse $i$ and region $j=i$ are thus co-located and no other warehouse $i'\ne i$ has the same home demand region $i$. Nevertheless, we keep the warehouse index $i$ and the region index $j$ separate in the notation to emphasize that warehouses and regions are conceptually different objects. Although each warehouse is assigned a primary demand region, the network is coupled through a fully connected transshipment network that permits cross-regional demand fulfillment. All warehouses in the network stock the same set of \glspl{acr:sku} $\mathcal{K} = \{1, \dots, K\}$, where each \gls{acr:sku} $k$ has unit weight $w_k$ and can be replenished from a separate uncontrolled upstream supply. Therefore, our setting treats both downstream distribution and upstream supply as exogenous and focuses solely on intra-firm replenishment dynamics. A visual representation of the network structure is provided in \autoref{fig:sc-network}. The system evolves according to a fixed decision sequence. Within each  discrete time step $t$, the following chain of events is repeated for all warehouses simultaneously:
 \begin{enumerate}
-  \item Each warehouse places replenishment orders for all \glspl{acr:sku} at
-  \gls{acr:sku}-specific external suppliers. Suppliers are uncapacitated and each
-  order arrives after a fixed delivery lead time.
-  \item Replenishment orders placed earlier whose lead time has elapsed arrive and
-  are added to the warehouse's on-hand inventory.
-  \item New customer demand is realized in each region. Each order requests one or
-  more \glspl{acr:sku} and is drawn from a stochastic demand process.
-  \item Incoming demand is fulfilled from on-hand inventory. A warehouse that cannot
-  fully serve an order passes the residual to other warehouses when possible, and
-  any demand that no warehouse can serve becomes a lost sale.
+  \item Each warehouse $i$ places replenishment orders for all \glspl{acr:sku} $k$ at
+  \gls{acr:sku}-specific external suppliers. Suppliers are assumed to be uncapacitated and each replenishment order arrives after a fixed delivery lead time.
+  \item Warehouse $i$ receives previously placed replenishment orders according to the fixed delivery lead time and add them to its on-hand inventory
+  \item Warehouse $i$ receives new orders. Each order contains demand for one or multiple \glspl{acr:sku} and is drawn from a stochastic demand process.
+  \item arehouse $i$ fulfills incoming orders according to its on-hand inventory. If inventory is not sufficient for a given order, residual demand is fulfilled by other warehouses, when possible. Any unfulfilled demand results in lost sales. 
 \end{enumerate}
 
-\begin{figure}[t]
+
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.75\linewidth, height=0.17\textheight, keepaspectratio]{images/sc_network.png}
-  \caption{Structure of the distribution network. Each warehouse is co-located with
-  its home region and can additionally ship to foreign regions through transshipment,
-  while replenishing from external suppliers under a fixed lead time.}
+  \begin{tikzpicture}[
+      >=stealth, font=\small,
+      wh/.style    ={draw, rounded corners, minimum width=15mm, minimum height=9mm,
+                     align=center, fill=black!6, line width=0.7pt},
+      region/.style={draw, circle, minimum size=10mm, align=center,
+                     fill=white, line width=0.7pt},
+      supp/.style  ={draw, rounded corners=1pt, minimum width=16mm, minimum height=9.5mm,
+                     pattern=north east lines, pattern color=black!35, line width=0.6pt},
+      labbg/.style ={fill=white, inner sep=1.5pt, rounded corners=0.5pt,
+                     font=\scriptsize\itshape},
+      tier/.style  ={font=\footnotesize\itshape, text=black!55, anchor=south, align=center},
+      % three visually distinct flow styles (grayscale)
+      repl/.style  ={-open triangle 45, line width=0.5pt, draw=black!85},
+      home/.style  ={->, line width=1.1pt, draw=black},
+      trans/.style ={->, line width=0.6pt, draw=black!60, dash pattern=on 3pt off 2pt},
+      leg/.style   ={font=\footnotesize, anchor=west, align=left},
+    ]
+
+    % SKU-specific suppliers (hatched boxes with a white label plate)
+    \node[supp] (S1) at (0.3, 0.9) {};  \node[font=\tiny\itshape] at (S1.center) {SKU\,1};
+    \node[supp] (SK) at (0.3,-0.9) {};  \node[font=\tiny\itshape] at (SK.center) {SKU\,$K$};
+    \node[font=\large] at (0.3,0) {$\vdots$};
+
+    % warehouses and regions, three co-located rows
+    \foreach \i/\y in {1/1.5, 2/0, 3/-1.5}{
+      \node[wh]     (W\i) at (3.6, \y) {$W_{\i}$};
+      \node[region] (R\i) at (6.4, \y) {$R_{\i}$};
+    }
+
+    % column headings
+    \node[tier] at (0.3, 2.2) {external\\suppliers};
+    \node[tier] at (3.6, 2.2) {warehouses};
+    \node[tier] at (6.4, 2.2) {demand\\regions};
+
+    % replenishment: every SKU supplier -> every warehouse (fixed lead time)
+    \foreach \s in {S1,SK}{ \foreach \i in {1,2,3}{ \draw[repl] (\s.east) -- (W\i); } }
+
+    % home-region fulfillment: W_i -> R_i
+    \foreach \i in {1,2,3}{ \draw[home] (W\i) -- (R\i); }
+
+    % lateral transshipment: W_i -> R_j, j != i
+    \foreach \s/\t in {1/2,1/3,2/1,2/3,3/1,3/2}{ \draw[trans] (W\s) to[bend left=9] (R\t); }
+
+    % legend (two rows)
+    \begin{scope}[shift={(0.3,-2.55)}]
+      \draw[home]  (0,0)    -- (0.6,0);    \node[leg] at (0.72, 0)   {home-region fulfillment};
+      \draw[trans] (3.95,0) -- (4.55,0);   \node[leg] at (4.67, 0)   {lateral transshipment};
+      \draw[repl]  (0,-0.5) -- (0.6,-0.5); \node[leg] at (0.72,-0.5) {replenishment (lead time $L_{ik}$)};
+    \end{scope}
+
+  \end{tikzpicture}
+  \caption[Distribution network]{Structure of the distribution network. Each warehouse is co-located with
+  its home region and can additionally ship to foreign regions through transshipment.Replenishment for each \gls{acr:sku} is done by a dedicated external supplier under a fixed lead time.}
   \label{fig:sc-network}
 \end{figure}
 
-\section{Demand Generation}
+
+\section{Demand Process}
 \label{sec:demand-model}
-The network faces stochastic demand for each of the $K$ \glspl{acr:sku} that is realized across the $R$ demand regions. Most prior multi-agent inventory studies represent this demand as a single aggregate rate per \gls{acr:sku} \textbf{CITE: MARL inventory work using an aggregate per-period demand rate per region or SKU}]. In contrast, we model demand at the level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} stream. Second, it decomposes demand into separate components that can be controlled independently, which we exploit later to design environment variants.
+The network faces stochastic demand for each of the $K$ \glspl{acr:sku} that is realized across the $R$ demand regions. Most prior multi-agent inventory studies represent this demand as a single aggregate rate per \gls{acr:sku} \citep{mousa2024analysis}. In contrast, we model demand at the level of individual customer orders, where a single order may request several \glspl{acr:sku} at once. We adopt this order-level representation for two reasons. First, it brings the environment closer to operational practice since real customers place multi-line orders rather than emitting a smooth per-\gls{acr:sku} stream. Second, it decomposes demand into separate components that can be controlled independently, which we exploit later to design environment variants.
 
 To be able to simulate order-level demand, we model the generation process as a multistage procedure in which order arrivals, basket composition, and quantities are drawn sequentially.  Specifically, we compute the demand for region $j$ in period $t$ as follows. First, we sample the number of customer orders $N^{\mathrm{ord}}_{jt} = |\mathcal{C}_{jt}|$ from a Poisson distribution with region-specific arrival rate $\lambda^{\mathrm{ord}}_{j}$, where $\mathcal{C}_{jt}$ denotes the set of arriving customer orders. For each order $o\in\mathcal{C}_{jt}$ and every \gls{acr:sku} $k$, we then independently draw an inclusion indicator $Z^{o}_{jkt}$ from a Bernoulli distribution with region-specific probability $p^{\mathrm{sku}}_{j}$ to determine whether order $o$ contains \gls{acr:sku} $k$. Finally, we sample the requested quantity $Q^{o}_{jkt}$ for each included \gls{acr:sku} $k$ independently from a Poisson distribution with region and \gls{acr:sku} specific rate $\lambda^{\mathrm{qty}}_{jk}$. In summary, the demand generation process is given by
 \begin{equation}
@@ -132,23 +178,21 @@ which remains non-negative due to the feasibility constraint in \autoref{eq:ship
 
 \section{Cost Structure and Objective}
 \label{sec:costs}
-At the end of each period $t$, every warehouse $i$ incurs costs on excess inventory, lost sales, fulfillment, and procurement. 
-
-Since holding inventory is typically associated with extra costs such as storage, cleaning, electricity, etc., each warehouse pays a holding cost on excess inventory, which is defined as, 
+At the end of each period $t$, every warehouse $i$ is subject to a range of costs. First, holding inventory is typically associated with extra fees such as storage, cleaning, electricity, etc., so that each warehouse pays a holding cost on excess inventory, which is defined as,  
 \begin{equation}
 \label{eq:holding-cost}
-  C^{\mathrm{hold}}_{it} = c_h \sum_k w_k\, I_{ik,t+1},
+  C^{\mathrm{hold}}_{it} = c^{\mathrm{hold}} \sum_k w_k\, I_{ik,t+1},
 \end{equation}
-where $c_h$ is the holding rate per unit weight per period. Since holding cost scales with weight, stocking one unit of a heavier \glspl{acr:sku} is proportionally more expensive than one unit of a lighter item.
+where $c^{\mathrm{hold}}$ is the holding rate per unit weight per period. Since holding cost scales with weight, stocking one unit of a heavier \glspl{acr:sku} is proportionally more expensive than one unit of a lighter item.
 
-To avoid lost revenue due to unmet demand, each warehouse is penalized for each lost unit of demand attributed to it. This penalty charge is formulated as,
+Second, to avoid lost revenue due to unmet demand, each warehouse is penalized for each lost unit of demand attributed to it and thus pay a penalty charge as follows,
 \begin{equation}
 \label{eq:penalty-cost}
   C^{\mathrm{pen}}_{it} = \sum_k c^{\mathrm{pen}}_k\, U^{\mathrm{attr}}_{ikt},
 \end{equation}
 where $c^{\mathrm{pen}}_k$ is the per-\gls{acr:sku} penalty rate. Unlike the holding cost, the penalty does not scale with weight since it reflects the lost value of an unserved unit of demand rather than a physical handling cost.
 
-For every unit shipped during fulfillment, a warehouse has to pay outbound shipment costs,
+Third, for every unit shipped during fulfillment, a warehouse has to pay outbound shipment costs, defined as
 \begin{equation}
 \label{eq:outbound-cost}
   C^{\mathrm{out}}_{it} = \sum_{j \in \mathcal{R}} \sum_{k \in \mathcal{K}}
@@ -156,13 +200,13 @@ For every unit shipped during fulfillment, a warehouse has to pay outbound shipm
 \end{equation}
 where $c^{\mathrm{out}}_{ij}$ is the outbound rate per unit of weight. Since the sum runs over all regions, the outbound cost includes both the shipments a warehouse makes to its own home region and the transshipments it makes to foreign regions.
 
-When placing replenishment orders, each warehouse incurs procurement costs. These inbound shipment costs are given by
+Finally, when placing replenishment orders, each warehouse has to pay procurement costs, given by
 \begin{equation}
 \label{eq:inbound-cost}
   C^{\mathrm{in}}_{it} = \sum_{k \in \mathcal{K}} c^{\mathrm{in}}_{ik} \, w_k \,
   q_{ikt},
 \end{equation}
-where $c^{\mathrm{in}}_{ik}$ is the inbound rate per unit of weight. Note that inbound costs are incured in the period the order is placed rather than when the order arrives. Like the holding and outbound costs, it scales with weight such that a heavier \gls{acr:sku} is more expensive to replenish.\\
+where $c^{\mathrm{in}}_{ik}$ is the inbound rate per unit of weight. Note that inbound costs are incured in the period the order is placed rather than when the order arrives. Like the holding and outbound costs, it scales with weight such that a heavier \gls{acr:sku} is more expensive to replenish.
 
 Summing the four components gives the total cost of warehouse $i$ in period $t$,
 \begin{equation}
@@ -171,25 +215,23 @@ Summing the four components gives the total cost of warehouse $i$ in period $t$,
   + C^{\mathrm{in}}_{it},
 \end{equation}
 
-The total system cost in period $t$ can then be determined by aggregating $C_{it}$ across warehouses as follows, 
-
+Aggregating $C_{it}$ across warehouses then yields the the total system cost in period $t$, determined by
 \begin{equation}
 \label{eq:system-cost}
   C_{t} = \sum_{i \in \mathcal{W}} C_{it}.
 \end{equation}
 
-Accumulating the system cost over the planning horizon of $T$ periods yields the \gls{acr:tscc},
+This system cost can be accumulated over the planning horizon $T$ to obtain the total supply chain costs, given by
 \begin{equation}
 \label{eq:tscc}
-  \mathrm{\gls{acr:tscc}} = \sum_{t=0}^{T-1} C_t,
+  C = \sum_{t=0}^{T-1} C_t,
 \end{equation}
 which we use as the headline performance measure of a policy throughout the thesis. Since
-demand is stochastic, the $\mathrm{\gls{acr:tscc}}$ is a random variable and the control objective is to minimize
+demand is stochastic, $C$ is a random variable and the control objective is to minimize
 its expectation,
 \begin{equation}
 \label{eq:objective}
-  \min\ \mathbb{E}\!\left[\mathrm{TSCC}\right].
+  \min\ \mathbb{E}\!\left[C\right].
 \end{equation}
 
-
-[TRANSITION]
+Finding a policy that minimizes this objective is highly non-trivial due to the decentralized information structure and the compound stochasticity of the demand, which makes it necessary to define an algorithmic framework that is capable of efficiently solving this setting. 
