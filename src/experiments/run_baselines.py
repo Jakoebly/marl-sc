@@ -15,7 +15,13 @@ Available baselines:
      swept over safety factor ``z`` and window width ``H``.
   5. BS-Optimized: Simulation-optimized base-stock via Bayesian optimization.
   6. BS-Independent: Independently optimized base-stock via iterated best
-     response (per-warehouse BO).
+     response (per-warehouse BO on each warehouse's own reward).
+  7. BS-PerSKU: Simulation-optimized base-stock with one BO per SKU over
+     that SKU's warehouse levels. All SKUs are searched in the same
+     rollouts, so the cost of the search does not grow with the number of SKUs.
+
+The simulation-optimized baselines search each level ``S[w,k]`` in
+``[0, ceil(3 * (L + 1) * mu + 10)]`` (see :func:`base_stock_upper_bounds`).
 """
 
 import argparse
@@ -144,6 +150,67 @@ def make_train_env(
         seed=seed,
         env_meta={"data_mode": "train"},
     )
+
+
+# ============================================================================
+# Demand and search-bound helpers
+# ============================================================================
+
+def expected_home_demand(env_config: EnvironmentConfig) -> np.ndarray:
+    """
+    Computes the expected demand per step that each warehouse's home region places
+    on each SKU from the Poisson demand parameters (given per region or shared by
+    all regions): ``E[D] = lambda_orders * probability_skus * lambda_quantity``.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+
+    Returns:
+        mean_demand (np.ndarray): Expected home demand per step. Shape:
+            ``(n_warehouses, n_skus)``.
+    """
+
+    # Broadcast the demand parameters to one value per region (and SKU)
+    params = env_config.components.demand_sampler.params
+    n_regions, n_skus = env_config.n_regions, env_config.n_skus
+    lambda_orders = np.broadcast_to(np.asarray(params["lambda_orders"], dtype=float), (n_regions,))
+    probability_skus = np.broadcast_to(np.asarray(params["probability_skus"], dtype=float), (n_regions,))
+    lambda_quantity = np.broadcast_to(np.asarray(params["lambda_quantity"], dtype=float), (n_regions, n_skus))
+
+    # Select the parameters of each warehouse's home region
+    home_regions = np.argmin(np.asarray(env_config.cost_structure.distances, dtype=float), axis=1) # Shape: (n_warehouses,)
+    mean_demand = (
+        lambda_orders[home_regions, None]
+        * probability_skus[home_regions, None]
+        * lambda_quantity[home_regions]
+    ) # Shape: (n_warehouses, n_skus)
+
+    return mean_demand
+
+def base_stock_upper_bounds(env_config: EnvironmentConfig) -> np.ndarray:
+    """
+    Returns the upper bound of every level in the simulation-optimized base-stock
+    searches: ``ceil(3 * (L + 1) * mu + 10)``, i.e. three times the expected home
+    demand over the lead time plus one review period, plus 10 units of room for
+    slow SKUs. A fixed bound for all SKUs is too wide for slow SKUs and can cut
+    off the best level of fast ones.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+
+    Returns:
+        upper_bounds (np.ndarray): Upper bound per (warehouse, SKU). Shape:
+            ``(n_warehouses, n_skus)``.
+    """
+
+    # Extract the lead times and compute the upper bounds
+    lead_times = np.array(
+        env_config.components.lead_time_sampler.params.expected_lead_times,
+        dtype=float,
+    ) # Shape: (n_warehouses, n_skus)
+    upper_bounds = np.ceil(3.0 * (lead_times + 1.0) * expected_home_demand(env_config) + 10.0)
+
+    return upper_bounds
 
 
 # ============================================================================
@@ -293,6 +360,17 @@ def plot_baseline_sweep(eval_results: Dict[str, Any], output_path: Path) -> None
         ax.legend(fontsize=7, loc="best")
         ax.grid(True, alpha=0.3)
 
+    # Plot 1D BO convergence curve for per-SKU optimization, summed over SKUs
+    # so that it is comparable with the bs_optimized curve at any number of SKUs
+    elif baseline == "bs_per_sku":
+        log = eval_results["optimization"]["convergence_log"]
+        rewards = -np.sum([ys for ys in log.values()], axis=0)
+        ax.plot(range(1, len(rewards) + 1), rewards, linewidth=1.2, color="#4c72b0")
+        ax.set_xlabel("BO round")
+        ax.set_ylabel("Best reward so far (summed over SKUs)")
+        ax.set_title("bs_per_sku BO convergence")
+        ax.grid(True, alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -324,6 +402,9 @@ def run_rollout(
 
     Returns:
         all_episodes (List[Dict[str, np.ndarray]]): Per-episode data dicts.
+            If ``env.reward_calculator.decompose`` is set, they include the
+            per-SKU reward channels under ``"reward_per_sku"``, shape
+            ``(episode_length, n_warehouses, n_skus)``.
     """
 
     # Enable per-step info collection
@@ -360,6 +441,13 @@ def run_rollout(
             # Record per-warehouse rewards and check if the episode is done
             rewards_array = np.array([rewards[a] for a in env.agents])
             episode_data.setdefault("rewards", []).append(rewards_array)
+
+            # Record the per-SKU reward channels if the reward calculator computes them
+            if env.reward_calculator.decompose:
+                episode_data.setdefault("reward_per_sku", []).append(
+                    env.reward_calculator._reward_per_sku.copy()
+                )
+
             # Check if the episode is done
             done = all(truncs.values()) or all(terms.values())
 
@@ -611,35 +699,17 @@ def make_bs_newsvendor_action_fn(env_config: EnvironmentConfig, z: float) -> Cal
         action_fn (Callable): Action function in ``[-1, 1]`` per agent.
     """
 
-    # Extract number of warehouses and SKUs
-    n_warehouses = env_config.n_warehouses
-    n_skus = env_config.n_skus
-
-    # Extract demand parameters 
-    demand_params = env_config.components.demand_sampler.params
-    lambda_orders = np.array(demand_params["lambda_orders"])
-    probability_skus = np.array(demand_params["probability_skus"])
-    lambda_quantity = np.array(demand_params["lambda_quantity"])
-
-    # Extract lead times
+    # Extract the expected home demand and the lead times
+    E_D = expected_home_demand(env_config) # Shape: (n_warehouses, n_skus)
     lead_times = np.array(
-        env_config.components.lead_time_sampler.params.expected_lead_times
-    )
-
-    # Calculate home regions for each warehouse
-    distances = np.array(env_config.cost_structure.distances)
-    home_regions = np.argmin(distances, axis=1)
+        env_config.components.lead_time_sampler.params.expected_lead_times,
+        dtype=float,
+    ) # Shape: (n_warehouses, n_skus)
 
     # Compute base-stock heuristic
-    base_stock = np.zeros((n_warehouses, n_skus))
-    for wh in range(n_warehouses):
-        home = home_regions[wh]
-        for sku in range(n_skus):
-            L = lead_times[wh, sku]
-            E_D = lambda_orders[home] * probability_skus[home] * lambda_quantity[home, sku]
-            E_D_L = L * E_D
-            sigma_L = np.sqrt(L * E_D)
-            base_stock[wh, sku] = E_D_L + z * sigma_L
+    E_D_L = lead_times * E_D
+    sigma_L = np.sqrt(lead_times * E_D)
+    base_stock = E_D_L + z * sigma_L # Shape: (n_warehouses, n_skus)
 
     # Define the action function
     def action_fn(env, obs):
@@ -1199,7 +1269,6 @@ def run_bs_optimized_baseline(
     n_calls: int = 300,
     n_random_starts: int = 50,
     n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
     viz_dir: Optional[Path] = None,
     experiment_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
@@ -1207,7 +1276,8 @@ def run_bs_optimized_baseline(
     Runs the BS-Optimized baseline that implements simulation-optimized base-stock
     via Bayesian optimization. The BO objective is averaged over training-mode
     rollouts and the optimum is then evaluated on the held-out eval seed.
-    optimization. 
+    Each level is searched in ``[0, ceil(3 * (L + 1) * mu + 10)]``.
+
     Args:
         env_config (EnvironmentConfig): Environment configuration.
         seed_manager (SeedManager): Per-run seed manager.
@@ -1216,7 +1286,6 @@ def run_bs_optimized_baseline(
         n_calls (int): Total BO evaluations.
         n_random_starts (int): Initial random BO evaluations.
         n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock parameter.
 
     Returns:
         result (Dict[str, Any]): Eval results dict.
@@ -1225,15 +1294,18 @@ def run_bs_optimized_baseline(
     # Spawn an optimization seed from the seed manager's 'train' slot
     optimization_seed = seed_manager.spawn_child_seeds("train", 1)[0]
 
+    # Compute the per-(warehouse, SKU) search bounds
+    upper_bounds = base_stock_upper_bounds(env_config)
+
     # Run Bayesian optimization to find the optimal base-stock levels
     print(f"  BO optimization_seed={optimization_seed}")
     S_star, bo_convergence = run_bs_joint_optimization(
         env_config=env_config,
         optimization_seed=optimization_seed,
+        upper_bounds=upper_bounds,
         n_calls=n_calls,
         n_random_starts=n_random_starts,
         n_obj_episodes=n_obj_episodes,
-        upper_bound=upper_bound,
     )
 
     # Set the visualization directory for the BSOptimized baseline
@@ -1261,7 +1333,7 @@ def run_bs_optimized_baseline(
             "n_calls": int(n_calls),
             "n_random_starts": int(n_random_starts),
             "n_obj_episodes": int(n_obj_episodes),
-            "upper_bound": float(upper_bound),
+            "upper_bounds": upper_bounds.tolist(),
             "bo_convergence": [float(c) for c in bo_convergence],
         },
         **eval_results,
@@ -1278,7 +1350,6 @@ def run_bs_independent_baseline(
     n_calls_per_wh: int = 100,
     n_random_starts_per_wh: int = 50,
     n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
     calibration_episodes: int = 50,
     viz_dir: Optional[Path] = None,
     experiment_dir: Optional[Path] = None,
@@ -1286,7 +1357,8 @@ def run_bs_independent_baseline(
     """
     Runs the BS-Independent baseline that implements per-warehouse independent 
     BO with iterated best response. Initial base-stock levels ``S`` are derived 
-    from a newsvendor formula on calibrated mean demand.
+    from a newsvendor formula on calibrated mean demand. Each level is searched
+    in ``[0, ceil(3 * (L + 1) * mu + 10)]``.
 
     Args:
         env_config (EnvironmentConfig): Environment configuration.
@@ -1297,7 +1369,6 @@ def run_bs_independent_baseline(
         n_calls_per_wh (int): BO evaluations per (round, warehouse).
         n_random_starts_per_wh (int): Initial random evaluations per call.
         n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock parameter.
         calibration_episodes (int): Pilot episodes for the
             initial-S calibration.
 
@@ -1324,6 +1395,9 @@ def run_bs_independent_baseline(
     z_init = 1.0
     S_init = lead_times * mean_demand + z_init * np.sqrt(lead_times * mean_demand)
 
+    # Compute the per-(warehouse, SKU) search bounds
+    upper_bounds = base_stock_upper_bounds(env_config)
+
     # Run the iterated best response Bayesian optimization 
     # to find the optimal base-stock levels
     print(f"  Iterated-BR BO (opt_seed={optimization_seed})...")
@@ -1331,11 +1405,11 @@ def run_bs_independent_baseline(
         env_config=env_config,
         optimization_seed=optimization_seed,
         S_init=S_init,
+        upper_bounds=upper_bounds,
         n_rounds=n_rounds,
         n_calls_per_wh=n_calls_per_wh,
         n_random_starts_per_wh=n_random_starts_per_wh,
         n_obj_episodes=n_obj_episodes,
-        upper_bound=upper_bound,
     )
 
     # Set the visualization directory for the BSIndependent baseline
@@ -1367,9 +1441,95 @@ def run_bs_independent_baseline(
             "n_calls_per_wh": int(n_calls_per_wh),
             "n_random_starts_per_wh": int(n_random_starts_per_wh),
             "n_obj_episodes": int(n_obj_episodes),
-            "upper_bound": float(upper_bound),
+            "upper_bounds": upper_bounds.tolist(),
             "convergence_log": {
                 k: [float(c) for c in v] for k, v in indep_convergence.items()
+            },
+        },
+        **eval_results,
+    }
+
+    return results
+
+def run_bs_per_sku_baseline(
+    env_config: EnvironmentConfig,
+    seed_manager: SeedManager,
+    eval_seed: int,
+    eval_episodes: int,
+    n_calls: int = 80,
+    n_random_starts: int = 20,
+    n_obj_episodes: int = 50,
+    viz_dir: Optional[Path] = None,
+    experiment_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Runs the BS-PerSKU baseline that implements simulation-optimized base-stock
+    with one Bayesian optimization per SKU. SKUs do not interact in this
+    simulator (no capacity limit, zero fixed costs), so each SKU's warehouse
+    levels are searched on that SKU's own cost, and all SKUs are searched in the
+    same rollouts. The cost of the search therefore does not grow with the
+    number of SKUs. The optimum is then evaluated on the held-out eval seed.
+    Each level is searched in ``[0, ceil(3 * (L + 1) * mu + 10)]``.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        seed_manager (SeedManager): Per-run seed manager.
+        eval_seed (int): Fixed eval seed.
+        eval_episodes (int): Number of evaluation episodes.
+        n_calls (int): Search rounds; each round evaluates one candidate per SKU.
+        n_random_starts (int): Initial random rounds before the GP surrogates
+            take over.
+        n_obj_episodes (int): Episodes per search round.
+
+    Returns:
+        result (Dict[str, Any]): Eval results dict.
+    """
+
+    # Spawn an optimization seed from the seed manager's 'train' slot
+    optimization_seed = seed_manager.spawn_child_seeds("train", 1)[0]
+
+    # Compute the per-(warehouse, SKU) search bounds
+    upper_bounds = base_stock_upper_bounds(env_config)
+
+    # Run one Bayesian optimization per SKU to find the optimal base-stock levels
+    print(f"  Per-SKU BO optimization_seed={optimization_seed}")
+    S_star, sku_convergence = run_bs_per_sku_optimization(
+        env_config=env_config,
+        optimization_seed=optimization_seed,
+        upper_bounds=upper_bounds,
+        n_calls=n_calls,
+        n_random_starts=n_random_starts,
+        n_obj_episodes=n_obj_episodes,
+    )
+
+    # Set the visualization directory for the BSPerSKU baseline
+    bs_per_sku_viz_dir = (
+        viz_dir / f"{BASELINE_DISPLAY_NAMES['bs_per_sku']}_Best"
+        if viz_dir is not None else None
+    )
+
+    # Create the action function based on the optimal
+    # base-stock levels and run final evaluation
+    action_fn = make_bs_optimized_action_fn(S_star)
+    eval_results = evaluate_action_fn(
+        env_config, action_fn, eval_seed, eval_episodes,
+        viz_dir=bs_per_sku_viz_dir, experiment_dir=experiment_dir,
+    )
+
+    # Create the results dictionary
+    results = {
+        "baseline": "bs_per_sku",
+        "selected_hparams": {
+            "best_base_stock_levels": S_star.tolist(),
+        },
+        "optimization": {
+            "optimization_seed": int(optimization_seed),
+            "n_calls": int(n_calls),
+            "n_random_starts": int(n_random_starts),
+            "n_obj_episodes": int(n_obj_episodes),
+            "upper_bounds": upper_bounds.tolist(),
+            "convergence_log": {
+                k: [float(c) for c in v] for k, v in sku_convergence.items()
             },
         },
         **eval_results,
@@ -1380,10 +1540,10 @@ def run_bs_independent_baseline(
 def run_bs_joint_optimization(
     env_config: EnvironmentConfig,
     optimization_seed: int,
+    upper_bounds: np.ndarray,
     n_calls: int = 300,
     n_random_starts: int = 50,
     n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
 ) -> Tuple[np.ndarray, List[float]]:
     """
     Finds optimal base-stock levels ``S*`` via Gaussian-process Bayesian
@@ -1395,11 +1555,12 @@ def run_bs_joint_optimization(
         env_config (EnvironmentConfig): Environment configuration.
         optimization_seed (int): Base seed for BO objective rollouts and
             for ``gp_minimize``'s ``random_state``.
+        upper_bounds (np.ndarray): Upper bound on each base-stock level,
+            shape ``(n_warehouses, n_skus)``.
         n_calls (int): Total BO evaluations.
         n_random_starts (int): Initial random evaluations before the GP
             surrogate takes over.
         n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock level.
 
     Returns:
         S_star (np.ndarray): Best base-stock levels found, shape
@@ -1451,7 +1612,7 @@ def run_bs_joint_optimization(
     )
     result = gp_minimize(
         objective,
-        dimensions=[(0.0, upper_bound)] * n_params,
+        dimensions=[(0.0, float(ub)) for ub in upper_bounds.ravel()],
         n_calls=n_calls,
         n_random_starts=n_random_starts,
         random_state=optimization_seed,
@@ -1476,21 +1637,21 @@ def run_bs_independent_optimization(
     env_config: EnvironmentConfig,
     optimization_seed: int,
     S_init: np.ndarray,
+    upper_bounds: np.ndarray,
     n_rounds: int = 2,
     n_calls_per_wh: int = 100,
     n_random_starts_per_wh: int = 50,
     n_obj_episodes: int = 50,
-    upper_bound: float = 200.0,
 ) -> Tuple[np.ndarray, Dict[str, List[float]]]:
     """
     Finds base-stock levels ``S*`` via **iterated best response**, where
     each warehouse's parameters are optimised independently while the other
     warehouses' policies are held fixed.
 
-    Since the environment uses ``scope: "agent"``, each warehouse's BO
-    objective minimizes *that warehouse's own* negative reward, which 
-    matches the incentive structure faced by an independent RL agent.
-    the incentive structure faced by an independent RL agent.
+    Each warehouse's BO objective is *that warehouse's own* reward, which
+    matches the incentive structure faced by an independent RL agent. Under
+    ``scope: "agent"`` this is the warehouse's own cost; under ``scope: "team"``
+    every warehouse receives the team reward.
 
     The per-(round, warehouse) BO uses an independent child seed spawned
     from ``optimization_seed`` so the search trajectories are independent
@@ -1501,11 +1662,12 @@ def run_bs_independent_optimization(
         optimization_seed (int): Parent seed for spawning per-(round, wh)
             child seeds and for objective rollouts.
         S_init (np.ndarray): Initial base-stock levels.
+        upper_bounds (np.ndarray): Upper bound on each base-stock level,
+            shape ``(n_warehouses, n_skus)``.
         n_rounds (int): Iterated-best-response rounds.
         n_calls_per_wh (int): BO evaluations per (round, wh) call.
         n_random_starts_per_wh (int): Initial random evaluations per call.
         n_obj_episodes (int): Episodes per BO objective evaluation.
-        upper_bound (float): Upper bound on each base-stock level.
 
     Returns:
         S_star (np.ndarray): Independently-optimized base-stock levels.
@@ -1557,12 +1719,12 @@ def run_bs_independent_optimization(
                 # Create the action function
                 action_fn = make_bs_optimized_action_fn(S_candidate)
 
-                # Run the objective function rollout
+                # Run the objective function rollout and keep the target warehouse's own reward
                 env = make_train_env(env_config, wh_seed)
                 episodes = run_rollout(
                     env, action_fn, n_obj_episodes, collect_step_info=False,
                 )
-                wh_rewards = [float(ep["rewards"].sum()) for ep in episodes]
+                wh_rewards = [float(ep["rewards"][:, wh_target].sum()) for ep in episodes]
 
                 # Calculate the mean reward and update the call counter
                 mean_reward = float(np.mean(wh_rewards))
@@ -1584,7 +1746,7 @@ def run_bs_independent_optimization(
             )
             result = gp_minimize(
                 objective,
-                dimensions=[(0.0, upper_bound)] * n_skus,
+                dimensions=[(0.0, float(ub)) for ub in upper_bounds[wh_target]],
                 n_calls=n_calls_per_wh,
                 n_random_starts=n_random_starts_per_wh,
                 random_state=wh_seed,
@@ -1612,6 +1774,117 @@ def run_bs_independent_optimization(
 
     return S_current, convergence_log
 
+def run_bs_per_sku_optimization(
+    env_config: EnvironmentConfig,
+    optimization_seed: int,
+    upper_bounds: np.ndarray,
+    n_calls: int = 80,
+    n_random_starts: int = 20,
+    n_obj_episodes: int = 50,
+) -> Tuple[np.ndarray, Dict[str, List[float]]]:
+    """
+    Finds base-stock levels ``S*`` with one Gaussian-process Bayesian optimizer
+    per SKU, each over that SKU's ``n_warehouses`` levels. Every round asks each
+    optimizer for a candidate, rolls out the assembled ``(n_warehouses, n_skus)``
+    level matrix on ``n_obj_episodes`` training-mode episodes, and tells each
+    optimizer the cost of its own SKU, read from the reward calculator's per-SKU
+    channels and summed over warehouses and steps. Summed over SKUs, these costs
+    equal the objective of :func:`run_bs_joint_optimization`. Every round replays
+    the same episodes (seeded by ``optimization_seed``), so candidates are
+    compared on identical demand.
+
+    Args:
+        env_config (EnvironmentConfig): Environment configuration.
+        optimization_seed (int): Seed of the objective rollouts and parent seed
+            of the per-SKU optimizers' random states.
+        upper_bounds (np.ndarray): Upper bound on each base-stock level,
+            shape ``(n_warehouses, n_skus)``.
+        n_calls (int): Search rounds.
+        n_random_starts (int): Initial random rounds before the GP surrogates
+            take over.
+        n_obj_episodes (int): Episodes per search round.
+
+    Returns:
+        S_star (np.ndarray): Best evaluated levels of each SKU, shape
+            ``(n_warehouses, n_skus)``.
+        convergence_log (Dict[str, List[float]]): Best cost so far per round,
+            keyed by ``"sku<k>"``.
+    """
+
+    from skopt import Optimizer
+
+    # Extract the number of warehouses and SKUs
+    n_warehouses = env_config.n_warehouses
+    n_skus = env_config.n_skus
+
+    # Create one optimizer per SKU over that SKU's warehouse levels, each with its
+    # own child seed. The defaults match the GP setup of gp_minimize.
+    sm = SeedManager(root_seed=optimization_seed, seed_registry=EXPERIMENT_SEEDS)
+    sku_seeds = sm.spawn_child_seeds("train", n_skus)
+    optimizers = [
+        Optimizer(
+            dimensions=[(0.0, float(ub)) for ub in upper_bounds[:, sku]],
+            base_estimator="GP",
+            n_initial_points=n_random_starts,
+            random_state=sku_seeds[sku],
+        )
+        for sku in range(n_skus)
+    ]
+
+    # Run the search rounds
+    print(
+        f"  Starting per-SKU BO ({n_skus} x {n_warehouses} params, {n_calls} rounds, "
+        f"{n_obj_episodes} episodes/round)..."
+    )
+    costs = np.zeros((n_calls, n_skus))
+    for call in range(n_calls):
+        # Ask every optimizer for a candidate and assemble the level matrix
+        candidates = [optimizer.ask() for optimizer in optimizers]
+        S = np.array(candidates, dtype=float).T # Shape: (n_warehouses, n_skus)
+
+        # Roll out the candidate on the same episodes as in every other round
+        env = make_train_env(env_config, optimization_seed)
+        env.reward_calculator.decompose = True
+        episodes = run_rollout(
+            env, make_bs_optimized_action_fn(S), n_obj_episodes, collect_step_info=False,
+        )
+
+        # Compute each SKU's mean episode cost, summed over warehouses and steps
+        costs[call] = -np.mean(
+            [ep["reward_per_sku"].sum(axis=(0, 1)) for ep in episodes], axis=0,
+        ) # Shape: (n_skus,)
+
+        # Tell every optimizer the cost of its own SKU
+        for sku, optimizer in enumerate(optimizers):
+            optimizer.tell(candidates[sku], float(costs[call, sku]))
+
+        # Print progress every 10 rounds or the first 3 rounds
+        if (call + 1) % 10 == 0 or call < 3:
+            print(
+                f"    BO round {call + 1:4d}/{n_calls} -> "
+                f"cost={costs[call].sum():>10.1f}  "
+                f"S=[{S.min():.1f}, {S.max():.1f}]"
+            )
+
+    # Keep the best evaluated levels of each SKU
+    S_star = np.zeros((n_warehouses, n_skus))
+    for sku, optimizer in enumerate(optimizers):
+        S_star[:, sku] = optimizer.Xi[int(np.argmin(optimizer.yi))]
+
+    # Build the convergence curves
+    convergence_log = {
+        f"sku{sku}": np.minimum.accumulate(costs[:, sku]).tolist()
+        for sku in range(n_skus)
+    }
+
+    # Print the summed best cost and the optimized base-stock levels
+    print(f"  Per-SKU BO complete. Sum of best SKU costs = {costs.min(axis=0).sum():.1f}")
+    print(f"  Optimised base-stock levels (per WH × SKU):")
+    for wh in range(n_warehouses):
+        print(f"    WH {wh}: {S_star[wh].round(1)}")
+
+    return S_star, convergence_log
+
 
 # ============================================================================
 # Baseline names and registry
@@ -1624,6 +1897,7 @@ BASELINE_NAMES: Tuple[str, ...] = (
     "bs_adaptive",
     "bs_optimized",
     "bs_independent",
+    "bs_per_sku",
 )
 
 BASELINE_DISPLAY_NAMES: Dict[str, str] = {
@@ -1633,6 +1907,7 @@ BASELINE_DISPLAY_NAMES: Dict[str, str] = {
     "bs_adaptive": "BSAdaptive",
     "bs_optimized": "BSOptimized",
     "bs_independent": "BSIndependent",
+    "bs_per_sku": "BSPerSKU",
 }
 
 BASELINE_REGISTRY: Dict[str, Callable[..., Dict[str, Any]]] = {
@@ -1642,6 +1917,7 @@ BASELINE_REGISTRY: Dict[str, Callable[..., Dict[str, Any]]] = {
     "bs_adaptive": run_bs_adaptive_baseline,
     "bs_optimized": run_bs_optimized_baseline,
     "bs_independent": run_bs_independent_baseline,
+    "bs_per_sku": run_bs_per_sku_baseline,
 }
 
 

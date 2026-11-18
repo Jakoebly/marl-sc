@@ -34,7 +34,7 @@ CLUSTER="lrz"
 #   --name <Name>           Experiment / output folder name (required).
 #   --baseline <key>        Single baseline key, e.g. random | constant |
 #                           bs_newsvendor | bs_adaptive | bs_optimized |
-#                           bs_independent (required).
+#                           bs_independent | bs_per_sku (required).
 #   --root-seed <N>         Per-run root seed, e.g. 100 (required).
 #   --storage-dir <dir>     Parent directory for the experiment folder
 #                           (default: experiment_outputs/Runs).

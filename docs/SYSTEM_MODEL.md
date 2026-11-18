@@ -231,14 +231,17 @@ Two algorithm-level training options are available to algorithm wrappers:
 
 ## 6. Baselines
 
-Non-RL baselines are run under the same multi-seed evaluation protocol as the RL algorithms via [src/experiments/run_baselines.py](src/experiments/run_baselines.py). Six baselines are implemented:
+Non-RL baselines are run under the same multi-seed evaluation protocol as the RL algorithms via [src/experiments/run_baselines.py](src/experiments/run_baselines.py). Seven baselines are implemented:
 
 - **Random**: Uniform random orders in `[-1, 1]`.
 - **Constant Order (calibrated)**: Per-(warehouse, SKU) constant quantities derived from observed demand in pilot episodes. Swept over a shared multiplier `alpha`.
 - **BS-Newsvendor**: Analytical newsvendor base-stock using the *true* demand parameters. Swept over safety factor `z`.
 - **BS-Adaptive**: Rolling-mean base-stock using *observed* demand history. Swept over safety factor `z` and window width `H`.
 - **BS-Optimized**: Simulation-optimized base-stock via Bayesian optimization.
-- **BS-Independent**: Independently optimized base-stock via iterated best response (per-warehouse Bayesian optimization).
+- **BS-Independent**: Independently optimized base-stock via iterated best response (per-warehouse Bayesian optimization). Each warehouse is scored on its own reward, so under `scope: "agent"` it minimizes its own cost.
+- **BS-PerSKU**: Simulation-optimized base-stock with one Bayesian optimization per SKU over that SKU's warehouse levels. Each SKU is scored on its own cost from the per-SKU reward channels, and all SKUs are searched in the same rollouts, so the search cost does not grow with the number of SKUs.
+
+The three simulation-optimized baselines search each level `S[w,k]` in `[0, ceil(3 (L[w,k] + 1) mu[w,k] + 10)]`, where `mu[w,k]` is the expected home demand per step and `L[w,k]` the lead time.
 
 ## 7. Data Sources
 

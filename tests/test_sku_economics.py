@@ -11,24 +11,13 @@ import pytest
 from src.config.loader import load_environment_config
 from src.config.schema import EnvironmentConfig
 from src.environment.envs.multi_env import InventoryEnvironment
-from src.experiments.run_baselines import make_bs_optimized_action_fn
+from src.experiments.run_baselines import expected_home_demand, make_bs_optimized_action_fn
 
 SKU_HETERO_ENV = "config_files/environments/env_sku_hetero_3WH5SKU.yaml"
 MULTIPLIERS = np.arange(0.0, 2.01, 0.25)
 N_EPISODES = 100
 SEED = 31
 
-
-def expected_home_demand(env_config: EnvironmentConfig) -> np.ndarray:
-    """Expected demand per step of each warehouse's home region. Shape: (n_warehouses, n_skus)."""
-
-    params = env_config.components.demand_sampler.params
-    home_regions = np.argmin(np.array(env_config.cost_structure.distances), axis=1)
-    return (
-        np.array(params["lambda_orders"])[home_regions, None]
-        * np.array(params["probability_skus"])[home_regions, None]
-        * np.array(params["lambda_quantity"])[home_regions]
-    )
 
 def per_sku_cost(env_config: EnvironmentConfig, base_stock_levels: np.ndarray) -> np.ndarray:
     """

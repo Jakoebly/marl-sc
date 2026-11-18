@@ -423,7 +423,7 @@ A matched-capacity MLP control additionally isolates A4's mechanism from its par
 
 ## 9. Baselines
 
-Six non-RL reference policies (plus CPPO as an RL ceiling) run under the same multi-seed
+Seven non-RL reference policies (plus CPPO as an RL ceiling) run under the same multi-seed
 protocol. CLI keys for `--baselines`:
 
 | Key | Policy |
@@ -433,7 +433,11 @@ protocol. CLI keys for `--baselines`:
 | `bs_newsvendor` | Analytical newsvendor base-stock from true demand parameters. |
 | `bs_adaptive` | Rolling-mean base-stock from observed history. |
 | `bs_optimized` | Simulation-optimized base-stock via Bayesian optimization (strong ceiling). |
-| `bs_independent` | Per-warehouse iterated best-response BO (coordination-free ceiling). |
+| `bs_independent` | Per-warehouse iterated best-response BO on each warehouse's own reward (coordination-free ceiling). |
+| `bs_per_sku` | One BO per SKU over that SKU's warehouse levels, all SKUs in the same rollouts (reference at many SKUs). |
+
+The simulation-optimized baselines search each level in `[0, ceil(3 (L + 1) mu + 10)]`, where
+`mu` is the expected home demand per step and `L` the lead time.
 
 Returns are reported both raw and as a **normalized score** in `[0, 1]` between Random and
 BS-Optimized, so degradation and recovery are comparable across the five environments.
