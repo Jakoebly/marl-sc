@@ -956,8 +956,10 @@ class InventoryEnvironment(ParallelEnv):
         according to the configured action_space_type:
 
             - "direct": maps [-1, 1] → [0, max_order_quantities] via linear scaling.
-            - "demand_centered": maps [-1, 1] → [-max_quantity_adjustment, max_quantity_adjustment],
-              then adds incoming home demand and clips to non-negative.
+            - "demand_centered": centers the order on the last incoming home demand D. Actions in [0, 1]
+              order D + round(max_quantity_adjustment * action), actions in [-1, 0) order
+              round(D * (1 + action)). Thus, 0 orders D, +1 orders D + max_quantity_adjustment,
+              and -1 orders nothing.
             - "base_stock": maps [-1, 1] → [0, max_stock_level] as target stock level,
               then subtracts incoming home demand and pending orders and clips to non-negative.
         
@@ -985,11 +987,13 @@ class InventoryEnvironment(ParallelEnv):
                 integer_action = np.clip(integer_action, 0, self.max_order_quantities)
                 quantities[agent_id] = integer_action.astype(float)
 
-            # Rescale actions to quantities for demand-centered action space
+            # Rescale actions to quantities for demand-centered action space. The upper half adds up to
+            # max_quantity_adjustment to the last demand, the lower half scales the last demand down to zero.
             elif self.action_space_type == "demand_centered":
-                adjustment = np.round(self.max_quantity_adjustment * action).astype(int)
                 demand = self._incoming_demand_home[warehouse_idx].astype(int)
-                order_qty = np.maximum(0, adjustment + demand)
+                order_up = demand + np.round(self.max_quantity_adjustment * action)
+                order_down = np.round(demand * (1.0 + action))
+                order_qty = np.maximum(0, np.where(action >= 0, order_up, order_down)).astype(int)
                 quantities[agent_id] = order_qty.astype(float)
 
             # Rescale actions to quantities for base-stock action space

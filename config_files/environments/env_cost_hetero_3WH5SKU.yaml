@@ -3,12 +3,8 @@ environment:
   action_space:
     type: demand_centered
     params:
-    # max_qty_adj must be at least E[D] for the agent to be able to order zero
-    # (necessary for overstock management). We set it to 1.5 × E[D] to additionally
-    # allow meaningful upward deviation during stockout recovery, without making the 
-    # action space so large that most of it is never useful. The factor 1.5 is a 
-    # conservative engineering choice, applied uniformly across all environments.
-    # Rule: 1.5 * E[D]
+    # Action +1 orders the last home demand plus this value, action -1 orders nothing.
+    # Rule: 1.5 * E[D], which leaves room to recover from stockouts.
       max_quantity_adjustment:
         - 20
         - 20

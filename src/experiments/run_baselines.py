@@ -499,9 +499,11 @@ def _qty_to_action(env: InventoryEnvironment, wh_idx: int, qty: np.ndarray) -> n
 
     Supported action spaces:
         - ``direct``: ``action = 2 * clip(qty, 0, max_order_qty) / max_order_qty - 1``.
-        - ``demand_centered``: subtract observed home demand, clip the
-          adjustment to ``[-max_quantity_adjustment, +max_quantity_adjustment]``,
-          and divide by ``max_quantity_adjustment``.
+        - ``demand_centered``: invert the env's two-sided mapping around the
+          last observed home demand ``D``. Quantities at or above ``D`` give
+          ``action = clip((qty - D) / max_quantity_adjustment, 0, 1)``, so they
+          are capped at ``D + max_quantity_adjustment``. Quantities below ``D``
+          give ``action = qty / D - 1``, so ``qty = 0`` gives ``-1``.
 
     Args:
         env (InventoryEnvironment): Live env (read for action-space params and,
@@ -521,13 +523,15 @@ def _qty_to_action(env: InventoryEnvironment, wh_idx: int, qty: np.ndarray) -> n
         action = (2.0 * clipped / max_qty - 1.0).astype(np.float32)
         return action
 
-    # If the action space is demand-centered, clip the quantity to the max 
-    # quantity adjustment, add the incoming demand and return the normalized action
+    # If the action space is demand-centered, map quantities above the incoming demand to
+    # the upper half of the action range and quantities below it to the lower half
     if env.action_space_type == "demand_centered":
         max_adj = env.max_quantity_adjustment
-        demand = env._incoming_demand_home[wh_idx].astype(float)
-        adjustment = np.clip(qty - demand, -max_adj, max_adj)
-        action = (adjustment / max_adj).astype(np.float32)
+        demand = env._incoming_demand_home[wh_idx].astype(int).astype(float)
+        qty = np.maximum(np.asarray(qty, dtype=float), 0.0)
+        action_up = np.clip((qty - demand) / max_adj, 0.0, 1.0)
+        action_down = qty / np.maximum(demand, 1.0) - 1.0  # demand >= 1 wherever qty < demand
+        action = np.where(qty >= demand, action_up, action_down).astype(np.float32)
         return action
 
     # Raise an error if the action space is not supported

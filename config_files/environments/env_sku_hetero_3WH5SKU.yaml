@@ -3,12 +3,8 @@ environment:
   action_space:
     type: demand_centered
     params:
-    # max_qty_adj must be at least E[D] for the agent to be able to order zero
-    # (necessary for overstock management). We set it to 1.5 × E[D] to additionally
-    # allow meaningful upward deviation during stockout recovery, without making the 
-    # action space so large that most of it is never useful. The factor 1.5 is a 
-    # conservative engineering choice, applied uniformly across all environments.
-    # Rule: 1.5 * E[D]
+    # Action +1 orders the last home demand plus this value, action -1 orders nothing.
+    # Rule: 1.5 * E[D], which leaves room to recover from stockouts.
       max_quantity_adjustment:
         - 60
         - 20
@@ -32,12 +28,12 @@ environment:
         - [169, 60, 25, 10, 5]
   cost_structure:
     holding_cost: 1.0
-    penalty_cost:
-      - 5
-      - 5
-      - 5
-      - 5
-      - 5
+    penalty_cost: # Rule: SKU weight * (20, 10, 5, 4, 3) from lightest to heaviest SKU, so every SKU is worth stocking
+      - 6.0
+      - 10.0
+      - 15.0
+      - 40.0
+      - 90.0
     shipment_cost:
       outbound_fixed:
         - [0, 0, 0]
