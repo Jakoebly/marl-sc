@@ -22,12 +22,14 @@ ENVIRONMENT_SEEDS: Tuple[str, ...] = (
     'inventory',
     'demand_sampler',
     'lead_time_sampler',
+    'demand_allocator',
 )
 
 # Define stochastic seed registry
 STOCHASTIC_SEEDS: Tuple[str, ...] = (
     'demand_sampler',
     'lead_time_sampler',
+    'demand_allocator',
 )
 
 

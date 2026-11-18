@@ -368,7 +368,7 @@ supplier with a lead time. Full detail in [docs/SYSTEM_MODEL.md](docs/SYSTEM_MOD
 | Component | Options (thesis default in **bold**) |
 |---|---|
 | Demand sampler | **Poisson (synthetic, order-level)**, Empirical (real-world CSV replay) |
-| Demand allocator | **Greedy** (cheapest-first with order splitting → implicit transshipment) |
+| Demand allocator | **Greedy** (home warehouse first, then cheapest-first in random region order, with order splitting → implicit transshipment) |
 | Lead-time sampler | **Fixed**, Stochastic (expected ± uniform deviation) |
 | Lost-sales handler | Closest, **Shipment-proportional**, Cost-based softmax |
 | Reward calculator | **Cost-based** (holding + penalty + inbound/outbound shipment; `team`/`agent` scope; optional per-SKU decomposition) |

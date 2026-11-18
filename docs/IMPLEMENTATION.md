@@ -113,8 +113,8 @@ The RLlib integration follows the new API stack. The algorithm wrapper builds a 
 The central `SeedManager` in [src/utils/seed_manager.py](src/utils/seed_manager.py) spawns named child seeds from a single root seed using  NumPy's `SeedSequence`. Three registries scope the named seed slots.
 
 - **`EXPERIMENT_SEEDS` registry**: Used by the experiment runner. Scopes named seed slots for `('data_weights', 'data_distances', 'data_costs', 'train', 'eval', 'obs_stats')`
-- **`ENVIRONMENT_SEEDS` registry**: Used by the environment at construction time. Scopes named seed slots for `('preprocessing', 'inventory', 'demand_sampler', 'lead_time_sampler')`
-- **`STOCHASTIC_SEEDS` registry**: Used by stochastic components which reset on every episode with an RNG obtained through `seed_manager.get_rng(name)`. Scopes named seed slots for `('demand_sampler', 'lead_time_sampler')`
+- **`ENVIRONMENT_SEEDS` registry**: Used by the environment at construction time. Scopes named seed slots for `('preprocessing', 'inventory', 'demand_sampler', 'lead_time_sampler', 'demand_allocator')`
+- **`STOCHASTIC_SEEDS` registry**: Used by stochastic components which reset on every episode with an RNG obtained through `seed_manager.get_rng(name)`. Scopes named seed slots for `('demand_sampler', 'lead_time_sampler', 'demand_allocator')`. New slots are appended at the end, which leaves the seeds of the existing slots unchanged.
 
 Per-(worker, env) seeds are derived from the root seed inside the env factory. The derivation ensures that parallel envs across RLlib workers produce diverse but deterministic episodes. Just before the algorithm is built, the wrappers also seed Python's `random` module, NumPy, and PyTorch and call `torch.use_deterministic_algorithms(True)`.
 

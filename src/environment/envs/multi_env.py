@@ -68,7 +68,8 @@ class InventoryEnvironment(ParallelEnv):
         Args:
             env_config (EnvironmentConfig): Environment configuration.
             seed (Optional[int]): Seed for reproducibility. If provided, used as root seed for SeedManager
-                which spawns component seeds (preprocessing, inventory, demand_sampler, lead_time_sampler).
+                which spawns component seeds (preprocessing, inventory, demand_sampler, lead_time_sampler,
+                demand_allocator).
                 When used with RLlib, this comes from RLlib's `env_meta["seed"]` (train_seed or eval_seed).
                 Defaults to None.
             env_meta (Optional[Dict[str, Any]]): RLlib's environment metadata dict. May contain 'data_mode'

@@ -57,7 +57,7 @@ Each environment has five interchangeable components:
 | Component | Available Options |
 |---|---|
 | **Demand sampler** | Poisson (synthetic), Empirical (real-world data) |
-| **Demand allocator** | Greedy (cheapest-first with order splitting) |
+| **Demand allocator** | Greedy (home warehouse first, then cheapest-first in random region order, with order splitting) |
 | **Lead time sampler** | Fixed (deterministic), Stochastic (expected ± uniform deviation) |
 | **Lost sales handler** | Closest warehouse, Shipment-proportional, Cost-based softmax |
 | **Reward calculator** | Cost-based (scale factor, team or agent scope, optional per-SKU reward decomposition) |
@@ -108,9 +108,9 @@ A modeling nuance matters here. Demand arrives as individual customer _orders_, 
 
 When customer orders arrive, they are allocated to warehouses for fulfillment via a pluggable demand allocator. The current allocation mechanism follows a simple greedy approach.
 
-- **Greedy allocator**: Processes each order sequentially. For each order, it ranks warehouses by their total shipment cost to the order's region (cheapest first) and then fulfills as much as possible from the cheapest warehouse. If demand cannot be completely fulfilled, it splits to the next cheapest warehouse. The process continues until the order is fully fulfilled or the configured `max_splits` limit is reached.
+- **Greedy allocator**: Allocates the orders of a timestep in two passes. In the first pass, every order is filled as far as possible by the home warehouse of its region (the region's closest warehouse). In the second pass, the regions take turns in a random order that is drawn anew at every timestep. For each order with remaining demand, the allocator ranks the other warehouses by the shipment cost of the remaining demand to the order's region (cheapest first, ties between equally expensive warehouses broken at random) and splits the order to them in that ranking. Each order continues until it is fully fulfilled, all warehouses have been tried, or the configured `max_splits` limit is reached. The random region order and the random tie-breaks keep the allocation fair: no region is always served first and no warehouse is always preferred over an equally expensive one, so identical warehouses that follow identical policies get identical outcomes on average. The allocator draws its randomness from the environment's `SeedManager` (slot `demand_allocator`).
 
-Note that the current allocation logic implies that lateral transshipment between warehouses occurs implicitly. A warehouse may ship to a non-home region if it has inventory and the cheaper warehouse for that region is stocked out. Moreover, order splitting allows partial fulfillment from multiple warehouses but incurs separate shipment costs for each split. Any demand that remains unfulfilled after exhausting all warehouses becomes lost sales.
+Note that the current allocation logic implies that lateral transshipment between warehouses occurs implicitly. A warehouse ships to a non-home region only with stock that is left after its own region's orders have been served, and only when that region's home warehouse could not cover the demand. Moreover, order splitting allows partial fulfillment from multiple warehouses but incurs separate shipment costs for each split. Any demand that remains unfulfilled after exhausting all warehouses becomes lost sales.
 
 ### 4.6 Lead Times
 

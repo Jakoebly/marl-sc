@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
+from .base import StochasticComponent
 from .demand_sampler import Order
 from src.environment.context import EnvironmentContext
 from src.config.schema import DemandAllocatorConfig
@@ -88,11 +89,17 @@ class BaseDemandAllocator(ABC):
         pass
 
 
-class GreedyDemandAllocator(BaseDemandAllocator):
+class GreedyDemandAllocator(BaseDemandAllocator, StochasticComponent):
     """
-    Implements a greedy demand allocator that allocates orders greedily by trying warehouses 
-    in order of shipment cost (cheapest first). Supports order splitting across multiple warehouses 
-    up to a limit of max_splits.
+    Implements a greedy demand allocator that serves each region from its home warehouse first and
+    then hands out the leftover demand with the regions taking turns in a random order. A region's
+    home warehouse is its closest warehouse by distance. Leftover demand goes to the other warehouses
+    in ascending order of shipment cost, with ties between equally expensive warehouses broken at
+    random. Supports order splitting across multiple warehouses up to a limit of max_splits.
+
+    The random region order and the random tie-breaks keep the allocation fair: no region is always
+    served before the others, and no warehouse is always preferred over an equally expensive one.
+    The random generator is passed in through reset() by the environment's SeedManager.
     """
     
     def __init__(self, context: EnvironmentContext, component_config: DemandAllocatorConfig):
@@ -114,18 +121,40 @@ class GreedyDemandAllocator(BaseDemandAllocator):
         else:
             self.max_splits = max_splits
 
-    
+        # Map each region to its home warehouse (its closest warehouse by distance)
+        self.home_wh = np.argmin(context.distances, axis=0) # Shape: (n_regions,)
+
+        # Initialize the component's own RNG for reproducibility
+        self._rng = np.random.default_rng()
+
+    def reset(self, rng: Optional[np.random.Generator] = None):
+        """
+        Resets the demand allocator's random state.
+
+        Args:
+            rng (Optional[np.random.Generator]): Generator from SeedManager. Defaults to None.
+        """
+        self._rng = rng if rng is not None else np.random.default_rng()
+
     def allocate(self, orders: List[Order], available_inventories: np.ndarray) -> AllocationResult:
         """
-        Allocates orders greedily across warehouses by trying warehouses in ascending order of shipment cost. 
-        The allocator performs the following steps until a stopping condition is met:
-        
-        For each order:
-            1. Select the cheapest warehouse for the order's region.
-            2. Fulfill as much as possible from the selected warehouse.
-            3. Update the remaining demand and warehouse's available inventory.
-            4. If the order is not fully fulfilled, select the next warehouse by shipment cost.
-            5. Repeat steps 2-4 until the order is fulfilled or the max_splits limit is reached.
+        Allocates orders across warehouses in two passes. The regions take turns in a random order
+        that is drawn once per call and used in both passes.
+
+        Pass 1 (home warehouse):
+            For each order, fulfill as much as possible from the home warehouse of the order's region.
+
+        Pass 2 (leftover demand):
+            For each region in the random order and each of its orders with remaining demand:
+            1. Rank the other warehouses by the shipment cost of the remaining demand
+               (fixed + variable * remaining weight, cheapest first). Ties are broken at random with
+               one random permutation of the warehouses per region and call.
+            2. Fulfill as much as possible from the next warehouse in the ranking.
+            3. Update the remaining demand and the warehouse's available inventory.
+            4. Repeat steps 2-3 until the order is fulfilled, the ranking is exhausted, or the order
+               has been served by max_splits + 1 warehouses (counting the home warehouse).
+
+        Demand that is still unfulfilled after both passes becomes lost sales of the order's region.
 
         Args:
             orders (List[Order]): List of Order objects to allocate.
@@ -161,51 +190,86 @@ class GreedyDemandAllocator(BaseDemandAllocator):
         unfulfilled_demands = np.zeros((self.n_regions, self.n_skus), dtype=float) # Shape: (n_regions, n_skus)
         lost_order_counts = np.zeros(self.n_regions, dtype=int) # Shape: (n_regions,)
         
-        # Process each order sequentially
-        for order_idx, order in enumerate(orders):
-            # Get the current order's region ID and the corresponding warehouse ordering
-            region_id = order.region_id
-            total_weight = order.sku_demands.dot(self.sku_weights)
-            total_costs = (
-                self.fixed_cost_per_order[:, region_id] + 
-                self.variable_cost_per_weight[:, region_id] * total_weight
-            ) # Shape: (n_warehouses,)
-            warehouse_ordering = np.argsort(total_costs) # Shape: (n_warehouses,)
-            
-            # Track remaining demand for this order and the warehouses used
-            remaining_demand = order.sku_demands.copy()
-            warehouses_used = [] 
-            
-            # Try warehouses in order of cost (cheapest first)
-            for wh_idx in warehouse_ordering:
-                # Check if the maximum number of warehouses per order has been reached
-                if len(warehouses_used) >= max_warehouses_per_order:
-                    break
-                
-                # Try to fulfill from the current warehouse
-                fulfillment = np.minimum(remaining_demand, available_inventories[wh_idx]) # Shape: (n_skus,)
-                
-                # Update only if the warehouse can (partially) fulfill the order
-                if np.any(fulfillment > 0):	
-                    # Update the result matrices
-                    fulfillment_matrix[order_idx, wh_idx, :] += fulfillment 
-                    shipment_counts[wh_idx, region_id] += 1 
-                    shipment_quantities[wh_idx, region_id] += fulfillment.sum()
-                    shipment_quantities_by_sku[wh_idx, region_id, :] += fulfillment
+        # Track the remaining demand of each order and the number of warehouses that served it
+        remaining_demands = [order.sku_demands.copy() for order in orders] # Each of shape: (n_skus,)
+        warehouses_used = np.zeros(n_orders, dtype=int) # Shape: (n_orders,)
 
-                    # Update the remaining demand and the warehouse's inventory
-                    remaining_demand -= fulfillment 
-                    available_inventories[wh_idx, :] -= fulfillment
-                    warehouses_used.append(wh_idx)
-                    
-                    # Early exit if the order is fully fulfilled
-                    if np.all(remaining_demand <= 0):
+        # Group the order indices by region (orders of one region keep their sampled order)
+        orders_by_region = [[] for _ in range(self.n_regions)]
+        for order_idx, order in enumerate(orders):
+            orders_by_region[order.region_id].append(order_idx)
+
+        # Draw the order in which the regions take turns
+        region_order = self._rng.permutation(self.n_regions) # Shape: (n_regions,)
+
+        def fulfill(order_idx: int, wh_idx: int, region_id: int) -> None:
+            """Ships as much of the order's remaining demand as the warehouse holds and records it."""
+
+            # Try to fulfill from the current warehouse
+            fulfillment = np.minimum(remaining_demands[order_idx], available_inventories[wh_idx]) # Shape: (n_skus,)
+
+            # Update only if the warehouse can (partially) fulfill the order
+            if np.any(fulfillment > 0):
+                # Update the result matrices
+                fulfillment_matrix[order_idx, wh_idx, :] += fulfillment
+                shipment_counts[wh_idx, region_id] += 1
+                shipment_quantities[wh_idx, region_id] += fulfillment.sum()
+                shipment_quantities_by_sku[wh_idx, region_id, :] += fulfillment
+
+                # Update the remaining demand and the warehouse's inventory
+                remaining_demands[order_idx] -= fulfillment
+                available_inventories[wh_idx, :] -= fulfillment
+                warehouses_used[order_idx] += 1
+
+        # Pass 1: serve every order from the home warehouse of its region
+        for region_id in region_order:
+            home_wh = self.home_wh[region_id]
+            for order_idx in orders_by_region[region_id]:
+                fulfill(order_idx, home_wh, region_id)
+
+        # Pass 2: hand out the leftover demand, one region after the other in the random order
+        for region_id in region_order:
+            # Collect the region's orders that still have demand and may use another warehouse
+            open_orders = [
+                order_idx for order_idx in orders_by_region[region_id]
+                if np.any(remaining_demands[order_idx] > 0)
+                and warehouses_used[order_idx] < max_warehouses_per_order
+            ]
+            if not open_orders:
+                continue
+
+            # Shuffle the non-home warehouses once per region so that cost ties are broken at random
+            shuffled_wh = self._rng.permutation(self.n_warehouses)
+            shuffled_wh = shuffled_wh[shuffled_wh != self.home_wh[region_id]] # Shape: (n_warehouses - 1,)
+
+            for order_idx in open_orders:
+                # Rank the other warehouses by the shipment cost of the remaining demand (cheapest first).
+                # The stable sort keeps the shuffled order among equally expensive warehouses.
+                remaining_weight = remaining_demands[order_idx].dot(self.sku_weights)
+                total_costs = (
+                    self.fixed_cost_per_order[shuffled_wh, region_id] +
+                    self.variable_cost_per_weight[shuffled_wh, region_id] * remaining_weight
+                ) # Shape: (n_warehouses - 1,)
+                warehouse_ranking = shuffled_wh[np.argsort(total_costs, kind="stable")] # Shape: (n_warehouses - 1,)
+
+                # Try warehouses in order of cost (cheapest first)
+                for wh_idx in warehouse_ranking:
+                    # Check if the maximum number of warehouses per order has been reached
+                    if warehouses_used[order_idx] >= max_warehouses_per_order:
                         break
-            
-            # Track any unfulfilled demand for this order
-            if np.any(remaining_demand > 0):
-                unfulfilled_demands[region_id, :] += remaining_demand
-                lost_order_counts[region_id] += 1
+
+                    # Try to fulfill from the current warehouse
+                    fulfill(order_idx, wh_idx, region_id)
+
+                    # Early exit if the order is fully fulfilled
+                    if np.all(remaining_demands[order_idx] <= 0):
+                        break
+
+        # Track any unfulfilled demand per region
+        for order_idx, order in enumerate(orders):
+            if np.any(remaining_demands[order_idx] > 0):
+                unfulfilled_demands[order.region_id, :] += remaining_demands[order_idx]
+                lost_order_counts[order.region_id] += 1
         
         return AllocationResult(
             fulfillment_matrix=fulfillment_matrix,
