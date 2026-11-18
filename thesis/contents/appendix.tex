@@ -84,7 +84,7 @@ multiplier is tuned by a grid sweep over $\{0.05,0.10,\dots,2.0\}$, and the valu
 with the highest mean return on training-mode rollouts is locked for the held-out
 evaluation.
 
-\paragraph{\textbf{Base-Stock Policies.}} The remaining four non-learned baselines are base-stock policies that share one
+\paragraph{\textbf{Base-Stock Policies.}} The remaining four non-learned baselines are base-stock policies \citep{Vericourt2001} that share one
 order-up-to rule and differ only in how the target level $S_{ik}$ is set for
 warehouse $i$ and \gls{acr:sku} $k$. Each such
 policy tracks the inventory position $I_{ikt}+I^{\mathrm{tr}}_{ikt}$ and orders the quantity that raises this position back to the
@@ -98,9 +98,10 @@ depends jointly on the local demand scale and the \gls{acr:sku} weight such that
 level would understate the heuristic ceiling and inflate the apparent advantage of
 the learned policies.
 
-\paragraph{\textbf{BS-Newsvendor.}} The newsvendor policy fixes each target level
-analytically from the true demand parameters and therefore acts as an oracle that an
-online controller cannot reproduce. For warehouse $i$ and \gls{acr:sku} $k$ it reads
+\paragraph{\textbf{BS-Newsvendor.}} The newsvendor baseline is based on the classical
+newsvendor solution \citep{arrow1951newsvendor}, whose critical-fractile rule we
+apply to lead-time demand as an order-up-to (base-stock) level
+\citep{axsäter2015inventory, zipkin2000foundations}. For warehouse $i$ and \gls{acr:sku} $k$ it reads
 the home-region mean demand $\mu^D_{ik}$ of \autoref{eq:expected-demand}, forms the
 expected lead-time demand $L_{ik}\mu^D_{ik}$, and adds a safety term proportional to
 the Poisson lead-time standard deviation,
@@ -108,8 +109,7 @@ the Poisson lead-time standard deviation,
 \label{eq:bs-newsvendor}
   S_{ik}=L_{ik}\,\mu^D_{ik}+z\,\sqrt{L_{ik}\,\mu^D_{ik}}.
 \end{equation}
-This level matches the steady-state initialization of \autoref{eq:initial-inventory}
-and leaves the safety factor $z$ as its only free parameter. The factor is tuned by a
+Thus, it fixes each target level analytically from the true demand parameters and therefore acts as an oracle that an online controller cannot reproduce. Moreover, this level matches the steady-state initialization of \autoref{eq:initial-inventory} and leaves the safety factor $z$ as its only free parameter. The factor is tuned by a
 grid sweep over $\{0,0.25,\dots,6.0\}$ and the value with the highest mean
 training-mode return is retained for evaluation.
 
@@ -158,7 +158,7 @@ repeats for three rounds, and is initialized from the newsvendor levels of
 measures how much the jointly optimized reference gains from coordinating the levels
 rather than setting them as mutual best responses.
 
-\paragraph{CPPO.} \Gls{acr:cppo} is the only learned baseline and serves as the
+\paragraph{\textbf{CPPO.}} \Gls{acr:cppo} is the only learned baseline and serves as the
 \gls{acr:rl} ceiling. A single \gls{acr:ppo} agent reads the concatenated joint
 observation $\mathbf{o}_t$ of all warehouses and emits the joint action
 $\mathbf{a}_t\in\mathcal{A}$ such that the network is driven by one controller rather than
@@ -189,7 +189,7 @@ Per-weight variable freight cost against shipping distance for the inbound route
 
 
 \newpage
-\chapter{Heterogeneity gap for \gls{acr:ippo-ps} and \gls{acr:mappo-ps}}
+\chapter{Heterogeneity gap for IPPO-PS and MAPPO-PS}
 \label{ap:heterogeneity-gap}
 
 \begin{table}[ht]
