@@ -1,0 +1,57 @@
+# Paper tune recipe: about 150 trials on a reduced search space. Observation features, network
+# sizes and batch_size (16000) are not tuned; they come from the base algorithm config and the
+# feature config of the environment, so every variant is compared on the same information.
+search_space:
+  # --- Shared (algorithm-agnostic) hyperparameters ---
+  shared:
+    learning_rate:
+      type: loguniform
+      low: 3.0e-5
+      high: 1.0e-3
+    num_epochs:
+      type: choice
+      values: [3, 5, 10]
+    num_minibatches:
+      type: choice
+      values: [1, 4]
+
+  # --- Algorithm-specific hyperparameters ---
+  algorithm_specific:
+    lam:
+      type: choice
+      values: [0.9, 0.95, 0.97]
+    gamma:
+      type: choice
+      values: [0.95, 0.99]
+    entropy_coeff:
+      type: loguniform
+      low: 0.001
+      high: 0.03
+    vf_loss_coeff:
+      type: uniform
+      low: 0.1
+      high: 1.2
+    clip_param:
+      type: choice
+      values: [0.1, 0.2, 0.3]
+    logstd_init:
+      type: uniform
+      low: -1.5
+      high: 0.0
+    logstd_floor:
+      type: uniform
+      low: -4.0
+      high: -1.5
+
+# One late early-stopping check: at iteration 150, trials below the best third of the trials
+# that reached it before stop there. Earlier checks (25/75/225) dropped good but slow-starting
+# configs in a replay on stored thesis runs. max_t is one above num_iterations (300), so ASHA
+# never stops a trial that runs to the end before its final checkpoint is saved.
+scheduler:
+  type: asha
+  grace_period: 150
+  reduction_factor: 3
+  max_t: 301
+
+search_algorithm:
+  type: optuna

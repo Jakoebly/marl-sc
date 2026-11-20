@@ -5,22 +5,22 @@
 # ============================================================================
 
 #SBATCH --job-name=marl-tune                                # Name of the job
-#SBATCH --partition=mit_normal                              # Partition MIT      <-- ADJUST THIS!
-##SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
-##SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
+##SBATCH --partition=mit_normal                             # Partition MIT      <-- ADJUST THIS!
+#SBATCH --clusters=cm4                                      # Cluster LRZ        <-- ADJUST THIS!
+#SBATCH --partition=cm4_tiny                                # Partition LRZ      <-- ADJUST THIS!
 #SBATCH --nodes=1                                           # Number of nodes
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node 
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
 #SBATCH --time=12:00:00                                     # Maximum walltime 
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
-#SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
-##SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
+##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
+#SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
 #SBATCH --output=scripts/logs/%x_%j.out                     # Standard output
 #SBATCH --error=scripts/logs/%x_%j.err                      # Standard error
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
-CLUSTER="mit-lumechs"
+CLUSTER="lrz"
 
 
 # ============================================================================
@@ -67,30 +67,20 @@ source scripts/lib/start_ray.sh
 # ============================================================================
 
 # Set output directory and experiment name
-STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Tuning"
-EXPERIMENT_NAME="MAPPO_noPS_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO"
+STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Paper"
+EXPERIMENT_NAME="P2_MAPPO_PS_Symmetric"
 
-# Run tune experiment.
-# python src/experiments/run_experiment.py \
-#     --mode tune \
-#     --env-config ./config_files/environments/env_combined_hetero_3WH5SKU.yaml \
-#     --algorithm-config ./config_files/algorithms/algorithms_E0/mappo_nops_E0.yaml \
-#     --tune-config ./config_files/experiments/experiments_E1/tune_config_E1.yaml \
-#     --num-samples 1000 \
-#     --storage-dir "${STORAGE_DIR}" \
-#     --experiment-name "${EXPERIMENT_NAME}" \
-#     --root-seed 42 \
-#     --eval-seed 123
-
-# Resume existing tune experiment
+# Run tune experiment
 python src/experiments/run_experiment.py \
-  --mode tune \
-  --resume-from "${EXPERIMENT_NAME}" \
-  --storage-dir "${STORAGE_DIR}" \
-  --wandb-project marl-sc \
+    --mode tune \
+    --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
+    --algorithm-config ./config_files/algorithms/paper/mappo_ps.yaml \
+    --tune-config ./config_files/experiments/paper/tune_core.yaml \
+    --num-samples 150 \
+    --storage-dir "${STORAGE_DIR}" \
+    --experiment-name "${EXPERIMENT_NAME}" \
+    --root-seed 42 \
+    --eval-seed 123
 
-
-
-
-
-python src/experiments/run_experiment.py --mode evaluate --checkpoint-dir "ex.\experiment_outputs\Tuning\E1\E1.5_Hetero_MAPPO_Retune\MAPPO_PS_Tune_3WH_5SKUS_CombinedHetero_Optuna_FIFO_E1.5\seed_evaluation\05_trainable_afa09060_731\05_trainable_afa09060_731_Seed100\checkpoint_final --eval-episodes 100 --root-seed 123 --visualize
+# To resume an interrupted tune, run this instead of the command above:
+# python src/experiments/run_experiment.py --mode tune --resume-from "${EXPERIMENT_NAME}" --storage-dir "${STORAGE_DIR}"

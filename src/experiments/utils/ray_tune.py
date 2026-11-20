@@ -678,6 +678,33 @@ def _extract_short_trial_id(trial_dir_name: str) -> str:
 
     return trial_dir_name
 
+def _results_that_ran_to_the_end(analysis: ResultGrid) -> List[Any]:
+    """
+    Returns the results of the trials that ran to the end, i.e. whose last reported
+    ``training_iteration`` is the largest in the experiment. A trial stopped early by the
+    scheduler (e.g. at an ASHA rung) last reported at its rung, so its final metric is not
+    comparable with the final metric of a trial that ran all iterations. Without early
+    stopping every trial runs to the end and nothing is dropped.
+
+    Args:
+        analysis (ResultGrid): Ray Tune results.
+
+    Returns:
+        finished (List[Result]): Results of the trials that ran to the end.
+    """
+
+    # Get the results that reported any metrics
+    results = [r for r in analysis if r.metrics]
+    if not results:
+        return []
+
+    # Keep the results whose last training iteration is the largest in the experiment
+    last_iterations = [int(r.metrics.get("training_iteration") or 0) for r in results]
+    final_iteration = max(last_iterations)
+    finished = [r for r, it in zip(results, last_iterations) if it == final_iteration]
+
+    return finished
+
 
 def print_and_save_best_results(
     analysis: ResultGrid,
@@ -688,9 +715,10 @@ def print_and_save_best_results(
     eval_root_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Prints and saves the best trial results from tuning. Selects the best trial
-    based on the final reported value of ``metric``. Also saves the top-K
-    trials with short trial IDs for automated multi-seed validation.
+    Prints and saves the best trial results from tuning. Ranks the trials that
+    ran to the end (see :func:`_results_that_ran_to_the_end`) by the final
+    reported value of ``metric`` and selects the best one. Also saves the top-K
+    of the same ranking with short trial IDs for automated multi-seed validation.
 
     Args:
         analysis (ResultGrid): Ray Tune analysis object.
@@ -707,8 +735,20 @@ def print_and_save_best_results(
         best_trial_info (Dict[str, Any]): Dictionary with best trial information.
     """
 
-    # Get the best trial based on the final reported value of metric
-    best_trial = analysis.get_best_result(metric=metric, mode=mode, scope="last")
+    # Rank the trials that ran to the end by the final reported value of metric
+    finished = _results_that_ran_to_the_end(analysis)
+    trial_ranking: List[Tuple[float, Any]] = []
+    for r in finished:
+        val = r.metrics.get(metric)
+        if val is not None and r.path:
+            trial_ranking.append((val, r))
+    trial_ranking.sort(key=lambda x: x[0], reverse=(mode == "max"))
+    if not trial_ranking:
+        raise ValueError(f"No trial that ran to the end reported the metric '{metric}'.")
+    n_stopped_early = len(analysis) - len(finished)
+
+    # Get the best trial from the ranking
+    best_trial = trial_ranking[0][1]
 
     # Extract best trial information
     best_trial_dir = best_trial.path
@@ -732,23 +772,15 @@ def print_and_save_best_results(
     best_trial_final_checkpoint_path = Path(best_trial_dir) / "checkpoint_final"
     best_trial_final_checkpoint = str(best_trial_final_checkpoint_path) if best_trial_final_checkpoint_path.exists() else None
 
-    # Collect and rank all completed trials by the metric for top-K selection
-    trial_ranking: List[Tuple[float, str, str]] = []
-    for r in analysis:
-        val = r.metrics.get(metric) if r.metrics else None
-        if val is not None and r.path:
-            trial_name = Path(r.path).name
-            trial_ranking.append((val, trial_name, r.path))
-    trial_ranking.sort(key=lambda x: x[0], reverse=(mode == "max"))
+    # Select the top-K trials from the same ranking
     actual_k = min(top_k, len(trial_ranking))
-
     top_k_trials = []
-    for rank, (val, name, path) in enumerate(trial_ranking[:actual_k]):
-        short_id = _extract_short_trial_id(name)
+    for rank, (val, r) in enumerate(trial_ranking[:actual_k]):
+        short_id = _extract_short_trial_id(Path(r.path).name)
         top_k_trials.append({
             "rank": rank + 1,
             "short_id": short_id,
-            "trial_path": path,
+            "trial_path": r.path,
             "eval_metric": round(float(val), 4),
         })
 
@@ -785,7 +817,8 @@ def print_and_save_best_results(
         print("\nFinal Checkpoint: None (no checkpoint_final found in trial directory)")
 
     # Print top-K trial summary
-    print(f"\nTop-{actual_k} Trials (by {metric}):")
+    print(f"\nRanked {len(finished)} trials that ran to the end ({n_stopped_early} stopped early)")
+    print(f"Top-{actual_k} Trials (by {metric}):")
     for t in top_k_trials:
         print(f"  #{t['rank']}: {t['short_id']}  eval={t['eval_metric']}")
 
@@ -805,6 +838,8 @@ def print_and_save_best_results(
         "best_trial_final_checkpoint": best_trial_final_checkpoint,
         "tune_root_seed": tune_root_seed,
         "eval_root_seed": eval_root_seed,
+        "n_trials_ran_to_end": len(finished),
+        "n_trials_stopped_early": n_stopped_early,
         "top_k_trials": top_k_trials,
     }
 
@@ -857,7 +892,8 @@ def analyze_tune_convergence(
     parameter, and generates a recommendation (no further tuning, narrow
     refinement, more trials, etc.).
 
-    Each trial's metric is the final reported value (``scope="last"``).
+    Each trial's metric is the final reported value (``scope="last"``). Only
+    trials that ran to the end are included (see :func:`_results_that_ran_to_the_end`).
 
     Args:
         analysis (ResultGrid): Ray Tune results.
@@ -872,10 +908,12 @@ def analyze_tune_convergence(
     # Get the tune sections
     tune_sections = list(TUNE_SEARCH_SPACE_SECTIONS)
 
-    # 1. Collect final metric, config, and trial index from completed trials
+    # 1. Collect final metric, config, and trial index from the trials that ran to the end
+    finished = _results_that_ran_to_the_end(analysis)
+    n_stopped_early = len(analysis) - len(finished)
     trial_data: List[Tuple[int, float, Dict[str, Any]]] = []
-    for r in analysis:
-        val = r.metrics.get(metric) if r.metrics else None
+    for r in finished:
+        val = r.metrics.get(metric)
         if val is not None:
             trial_data.append((_extract_trial_index(r), val, r.config))
 
@@ -1035,6 +1073,7 @@ def analyze_tune_convergence(
     report = {
         "summary": {
             "total_trials": n_trials,
+            "trials_stopped_early": n_stopped_early,
             "best_metric": round(float(running_best[-1]), 4),
             "metric_name": metric,
             "metric_scope": "last",
@@ -1064,7 +1103,7 @@ def analyze_tune_convergence(
     print("CONVERGENCE ANALYSIS")
     print("=" * 80)
     print(f"Metric scope: last")
-    print(f"Total trials: {n_trials}")
+    print(f"Total trials: {n_trials} that ran to the end ({n_stopped_early} stopped early)")
     print(f"Best metric: {running_best[-1]:.4f}")
     print(f"Improvement last 20%: {improvement_last_20:.4f}")
     print(f"Improvement last 10%: {improvement_last_10:.4f}")
