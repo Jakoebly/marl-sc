@@ -88,7 +88,7 @@ environment:
           - [3, 3, 3, 3, 3]
           - [3, 3, 3, 3, 3]
     lost_sales_handler:
-      type: "shipment"
+      type: "closest"
       params: null
     reward_calculator:
       type: "cost"

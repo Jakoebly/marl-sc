@@ -129,6 +129,8 @@ The reward signal is computed by a pluggable reward calculator. The only current
    - *Closest:* All lost sales in a region are assigned to the nearest warehouse.
    - *Shipment-proportional:* Lost sales are assigned to warehouses proportionally to how many units they shipped to that region. Falls back to the closest warehouse if no shipments occurred.
    - *Cost-based (softmax):* Lost sales are assigned based on shipment cost proximity using a softmax over inverse costs such that cheaper-to-reach warehouses bear more responsibility. The temperature parameter `alpha` controls how concentrated or uniform the assignment is.
+
+   All environment configs use *Closest*, so each warehouse pays for the stock-outs in its home region. Under *Shipment-proportional*, a warehouse that ships nothing to a region pays none of that region's stock-outs, so with the agent reward the cheapest choice for a warehouse is to stock nothing and leave the demand to the others (BS-Independent ends with one warehouse stocking for all three regions, or with all three empty). The handler only moves penalties between warehouses, so the network cost and the team reward are the same under every handler.
 3. **Outbound shipment cost:** Incurred when shipping fulfilled orders from warehouses to customer regions. Divided into a fixed per-order component and a variable per-weight component, both configured as matrices over (warehouse, region) pairs.
 4. **Inbound shipment cost:** Incurred when receiving replenishment orders from the external supplier. Divided into a fixed per-order component and a variable per-weight component, both configured as matrices over (warehouse, SKU) pairs.
 
@@ -287,7 +289,7 @@ Several code paths are implemented and schema-validated but are not exercised by
 
 - **Legacy configs:** The pilot env configs `env_symmetric_1WH2SKU.yaml` and `env_symmetric_3WH2SKU.yaml` (single-warehouse and 3-warehouse 2-SKU) are superseded by the five 3WH5SKU configs (SCOPE.md §5.2); likely removed before submission.
 
-- **Unused environment-component options:** The component registries register more options than the thesis uses; each config uses exactly one option per component (Poisson demand, greedy allocation, fixed lead times, shipment-proportional lost sales, cost reward). Unused but registered: the **stochastic lead-time sampler** (all configs use `fixed`; stochastic lead times are out of scope per SCOPE.md §4) and the **`closest` and `cost` lost-sales handlers** (all configs use `shipment`).
+- **Unused environment-component options:** The component registries register more options than the thesis uses; each config uses exactly one option per component (Poisson demand, greedy allocation, fixed lead times, closest-warehouse lost sales, cost reward). Unused but registered: the **stochastic lead-time sampler** (all configs use `fixed`; stochastic lead times are out of scope per SCOPE.md §4) and the **`shipment` and `cost` lost-sales handlers** (all configs use `closest`; the thesis used `shipment`).
 
 - **Unused data sources and samplers:** The thesis uses `data_source.type: custom` exclusively (SYSTEM_MODEL.md §7). The **`synthetic` and `real_world`** paths — including the **`empirical` demand sampler** that `real_world` requires and the preprocessing in `src/data/preprocessor.py` — are implemented but not exercised. The **in-run data generator** (`src/data/data_generator.py`) is also unused; the real-world-inspired transfer instance (E4.2) is generated offline via the notebooks in `src/data/notebooks/`.
 

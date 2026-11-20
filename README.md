@@ -370,8 +370,8 @@ supplier with a lead time. Full detail in [docs/SYSTEM_MODEL.md](docs/SYSTEM_MOD
 | Demand sampler | **Poisson (synthetic, order-level)**, Empirical (real-world CSV replay) |
 | Demand allocator | **Greedy** (home warehouse first, then cheapest-first in random region order, with order splitting → implicit transshipment) |
 | Lead-time sampler | **Fixed**, Stochastic (expected ± uniform deviation) |
-| Lost-sales handler | Closest, **Shipment-proportional**, Cost-based softmax |
-| Reward calculator | **Cost-based** (holding + penalty + inbound/outbound shipment; `team`/`agent` scope; optional per-SKU decomposition) |
+| Lost-sales handler | **Closest**, Shipment-proportional, Cost-based softmax |
+| Reward calculator | **Cost-based** (holding + penalty + inbound/outbound shipment; `agent`/`team`/`mixed` scope; optional per-SKU decomposition) |
 
 - **Observations**: each agent gets a flat `[local | global]` vector built from toggleable
   feature blocks (inventory, pipeline, rolling demand mean, and several optional features).
@@ -467,7 +467,7 @@ Run artifacts land under `experiment_outputs/` (checkpoints, `eval_results_final
 
 Several code paths are implemented and schema-validated but **not exercised by any current
 thesis config**. Treat them as experimental. The thesis uses `data_source: custom`,
-Poisson demand, greedy allocation, fixed lead times, shipment-proportional lost sales, and
+Poisson demand, greedy allocation, fixed lead times, closest-warehouse lost sales, and
 the cost reward calculator exclusively.
 
 - **Real-world data (`data_source: real_world`)** — not fully integrated. The CSV
@@ -483,8 +483,8 @@ the cost reward calculator exclusively.
   configs use `fixed` (lead-time stochasticity is out of scope for the main study).
 - **Hysteretic PPO** (`hysteretic_beta` → `HystereticPPOTorchLearner`) — implemented and
   documented but enabled by no config.
-- **Alternative lost-sales handlers** — the `closest` and cost-based `softmax` handlers are
-  registered but unused (all configs use `shipment`-proportional).
+- **Alternative lost-sales handlers** — the `shipment`-proportional and cost-based `softmax`
+  handlers are registered but unused (all configs use `closest`; the thesis used `shipment`).
 - **No-op / inert config fields** — `max_wh_capacities` (validated, enforced by no code);
   `reward_calculator.params.cost_weights` (weighted-sum branch is commented out, so the
   unweighted sum is used); the `base_stock` action space (pilot relict; all configs use

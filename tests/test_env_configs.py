@@ -55,3 +55,14 @@ def test_lost_unit_costs_more_than_buying_and_shipping_it(path):
         f"Lost unit is not more expensive than buying and shipping it: penalty {penalty_per_unit}, "
         f"purchase + home shipping {np.round(unit_cost, 3)}"
     )
+
+@pytest.mark.parametrize("path", ENV_CONFIGS, ids=config_id)
+def test_stock_outs_are_charged_to_the_home_warehouse(path):
+    """
+    Every config uses the closest lost-sales handler. Under the shipment handler a warehouse that
+    ships nothing to a region pays none of its stock-outs, so with the agent reward the cheapest
+    choice for a warehouse is to stock nothing and leave the demand to the others.
+    """
+
+    env_config = load_environment_config(str(path))
+    assert env_config.components.lost_sales_handler.type == "closest"
