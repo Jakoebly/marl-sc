@@ -396,15 +396,26 @@ LostSalesHandlerConfig = Union[LostSalesClosest, LostSalesShipment, LostSalesCos
 
 #  ---------- Reward calculator----------
 # Cost-based reward calculator
-Scope = Literal["team", "agent"]
+Scope = Literal["team", "agent", "mixed"]
 COST_TYPES = ["holding_cost", "penalty_cost", "outbound_shipment_cost", "inbound_shipment_cost"]
 
 class RewardCostParams(BaseModel):
     scope: Scope
     scale_factor: PositiveFloat
     cost_weights: List[NonNegativeFloat] = Field(min_length=1)
+    # Weight of the team reward under scope "mixed": team_weight * team + (1 - team_weight) * agent
+    team_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_team_weight(self):
+        # The team weight is required for the mixed scope and has no meaning for the others
+        if self.scope == "mixed" and self.team_weight is None:
+            raise ValueError("scope 'mixed' requires team_weight in [0, 1]")
+        if self.scope != "mixed" and self.team_weight is not None:
+            raise ValueError(f"team_weight is only used with scope 'mixed' (got scope '{self.scope}')")
+        return self
 
     @field_validator("cost_weights")
     @classmethod

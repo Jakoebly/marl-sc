@@ -67,7 +67,7 @@ class BaseRewardCalculator(ABC):
 class CostRewardCalculator(BaseRewardCalculator):
     """
     Implements a cost-based reward calculator that calculates rewards as the sum of negative weighted 
-    supply chain costs. Supports team/agent scope and optional scaling.
+    supply chain costs. Supports agent, team and mixed scope and optional scaling.
     """
     
     def __init__(self, context: EnvironmentContext, component_config: RewardCalculatorConfig):
@@ -93,10 +93,16 @@ class CostRewardCalculator(BaseRewardCalculator):
             self.scope = params.scope
             self.scale_factor = params.scale_factor
             self.cost_weights = np.array(params.cost_weights, dtype=float)
+            self.team_weight = params.team_weight
         else:
             self.scope = params["scope"]
             self.scale_factor = params["scale_factor"]
             self.cost_weights = np.array(params["cost_weights"], dtype=float)
+            self.team_weight = params.get("team_weight")
+
+        # The mixed scope needs the weight of the team reward
+        if self.scope == "mixed" and self.team_weight is None:
+            raise ValueError("Reward scope 'mixed' requires team_weight in [0, 1].")
 
         # Initialize per-SKU reward decomposition parameters so the env can edit these
         # when reward_decomposition is enabled
@@ -120,6 +126,7 @@ class CostRewardCalculator(BaseRewardCalculator):
             3. If enabled, scale weighted total costs (not implemented yet).
             4. Convert weighted total costs to rewards (negative costs). 
             5. If shared reward is enabled, sum rewards across all warehouses and broadcast to all warehouses.
+               With the mixed scope, each warehouse gets team_weight * team reward + (1 - team_weight) * own reward.
         
         Args:
             inventory (np.ndarray): Current inventory levels. Shape: (n_warehouses, n_skus)
@@ -196,6 +203,10 @@ class CostRewardCalculator(BaseRewardCalculator):
         if self.scope == "team":
             total_reward = rewards.sum()
             rewards = np.full(self.n_warehouses, total_reward)
+
+        # If mixed scope is enabled, blend each warehouse's own reward with the team reward
+        elif self.scope == "mixed":
+            rewards = self.team_weight * rewards.sum() + (1.0 - self.team_weight) * rewards # Shape: (n_warehouses,)
 
         # If per-SKU reward decomposition is enabled, store the per-SKU reward
         # channels that sum exactly to the scalar reward computed above
@@ -277,6 +288,13 @@ class CostRewardCalculator(BaseRewardCalculator):
         # If team scope is enabled, sum per-SKU rewards across warehouses 
         if self.scope == "team":
             reward_per_sku = np.tile(reward_per_sku.sum(axis=0), (self.n_warehouses, 1))  # Shape: (n_warehouses, n_skus)
+
+        # If mixed scope is enabled, blend each warehouse's own channels with the team channels
+        elif self.scope == "mixed":
+            reward_per_sku = (
+                self.team_weight * reward_per_sku.sum(axis=0, keepdims=True)
+                + (1.0 - self.team_weight) * reward_per_sku
+            )  # Shape: (n_warehouses, n_skus)
 
         # Enforce that the per-SKU rewards sum exactly to the scalar reward. 
         assert np.allclose(reward_per_sku.sum(axis=1), rewards, atol=1e-6), (
