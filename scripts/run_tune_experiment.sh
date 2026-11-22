@@ -12,7 +12,7 @@
 #SBATCH --ntasks-per-node=1                                 # Number of tasks per node 
 #SBATCH --cpus-per-task=96                                  # CPU cores per task
 #SBATCH --mem=256G                                          # Memory allocation
-#SBATCH --time=12:00:00                                     # Maximum walltime 
+#SBATCH --time=24:00:00                                     # Maximum walltime 
 ##SBATCH --chdir=/home/jakobeh/projects/marl-sc             # Working directory MIT Jakobeh   <-- ADJUST THIS!
 ##SBATCH --chdir=/home/lumechs/projects/marl-sc             # Working directory MIT Lumechs   <-- ADJUST THIS!
 #SBATCH --chdir=/dss/dsshome1/07/go56luf2/projects/marl-sc  # Working directory LRZ Go56luf2  <-- ADJUST THIS!
@@ -21,6 +21,16 @@
 
 # Set the cluster (one of "lrz", "mit-jakobeh", "mit-lumechs")
 CLUSTER="lrz"
+
+# Get the env config, algorithm config and experiment name from the arguments:
+#   sbatch scripts/run_tune_experiment.sh <env-config> <algorithm-config> <experiment-name>
+if [ $# -ne 3 ]; then
+  echo "Usage: sbatch scripts/run_tune_experiment.sh <env-config> <algorithm-config> <experiment-name>" >&2
+  exit 1
+fi
+ENV_CONFIG="$1"
+ALGORITHM_CONFIG="$2"
+EXPERIMENT_NAME="$3"
 
 
 # ============================================================================
@@ -66,15 +76,14 @@ source scripts/lib/start_ray.sh
 # Run tune experiment
 # ============================================================================
 
-# Set output directory and experiment name
+# Set output directory
 STORAGE_DIR="${PROJECT_ROOT}/experiment_outputs/Paper"
-EXPERIMENT_NAME="P2_MAPPO_PS_Symmetric"
 
 # Run tune experiment
 python src/experiments/run_experiment.py \
     --mode tune \
-    --env-config ./config_files/environments/env_symmetric_3WH5SKU.yaml \
-    --algorithm-config ./config_files/algorithms/paper/mappo_ps.yaml \
+    --env-config "${ENV_CONFIG}" \
+    --algorithm-config "${ALGORITHM_CONFIG}" \
     --tune-config ./config_files/experiments/paper/tune_core.yaml \
     --num-samples 150 \
     --storage-dir "${STORAGE_DIR}" \

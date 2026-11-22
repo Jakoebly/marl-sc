@@ -66,3 +66,18 @@ def test_stock_outs_are_charged_to_the_home_warehouse(path):
 
     env_config = load_environment_config(str(path))
     assert env_config.components.lost_sales_handler.type == "closest"
+
+@pytest.mark.parametrize("name", ["symmetric", "demand_hetero", "cost_hetero", "sku_hetero", "combined_hetero"])
+def test_team_files_differ_from_their_main_file_only_in_the_reward_scope(name):
+    """
+    The team-reward files of the phase 2 comparison are copies of the five main environments with
+    the team reward. Any other difference would mix a second change into the comparison.
+    """
+
+    main = load_environment_config(str(ENV_DIR / f"env_{name}_3WH5SKU.yaml")).model_dump()
+    team = load_environment_config(str(ENV_DIR / "E3.4_team" / f"env_{name}_team_mappo_ps.yaml")).model_dump()
+
+    assert main["components"]["reward_calculator"]["params"]["scope"] == "agent"
+    assert team["components"]["reward_calculator"]["params"]["scope"] == "team"
+    team["components"]["reward_calculator"]["params"]["scope"] = "agent"
+    assert team == main

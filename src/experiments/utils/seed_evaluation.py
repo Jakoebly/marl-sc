@@ -73,7 +73,9 @@ def build_seed_evaluation_configs(
     Args:
         env_config_path (Optional[str]): Path to environment config (single mode).
         algorithm_config_path (Optional[str]): Path to algorithm config (single mode).
-        storage_dir (Optional[str]): Root directory for outputs (single mode).
+        storage_dir (Optional[str]): Root directory for outputs (single mode),
+            or the directory searched for the tune (tune mode, defaults to
+            ``experiment_outputs/Tuning``).
         experiment_name (Optional[str]): Experiment name (single mode).
         tune_name (Optional[str]): Name of a completed tune experiment (tune mode).
         top_k (int): Number of top trials to evaluate (tune mode).
@@ -86,7 +88,7 @@ def build_seed_evaluation_configs(
 
     # If in tune mode, read the top-K trial configs from the tune's best trials
     if tune_name is not None:
-        return _build_tune_mode_configs(tune_name, top_k)
+        return _build_tune_mode_configs(tune_name, top_k, storage_dir)
 
     # If in single mode, use the env and algorithm configs (either provided or resolved)
     if experiment_name is not None:
@@ -106,22 +108,24 @@ def build_seed_evaluation_configs(
 def _build_tune_mode_configs(
     name: str,
     top_k: int,
+    storage_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Reads the top-K trial configs from a completed tune experiment and produces
     one config entry per trial for seed evaluation.
 
     Args:
-        tune_name (str): Name of a completed tune experiment.
+        name (str): Name of a completed tune experiment.
         top_k (int): Number of top trials to evaluate.
+        storage_dir (Optional[str]): Directory searched (recursively) for the
+            tune. Defaults to ``experiment_outputs/Tuning``.
 
     Returns:
         configs_to_eval (List[Dict[str, Any]]): Per-trial config entries.
     """
 
     # Get the tune directory
-    storage_dir = DEFAULT_TUNE_STORAGE_DIR
-    experiment_dir = find_experiment_dir(storage_dir, name)
+    experiment_dir = find_experiment_dir(storage_dir or DEFAULT_TUNE_STORAGE_DIR, name)
 
     # Check if the tune results file exists
     tune_results_file = experiment_dir / TUNE_BEST_TRIALS_FILENAME
